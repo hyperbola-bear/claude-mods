@@ -33,6 +33,8 @@ EFFORT   Low  Medium  High [XHigh] Max
 - **Effort** runs `/effort <level>`. The highlight follows the effort your requests actually carry, so a level the model caps shows the one in use.
 - **Settings** write the same rows as `/config`, so the two never disagree. A row your organization's policy owns stays put, with a toast saying why. The other settings (show the band, automatic pings per idle stretch, handoff note location) stay in `/config`.
 - When 2 minutes or less are left, **Keep warm** comes out next to the tab, so it is one press away with the panel closed.
+- In Claude Desktop the panel uses the app's own buttons: the model, effort and settings in use are the filled ones. The desktop draws it in its own font (Anthropic Sans); a plugin cannot change that.
+- When the band is short (the desktop shows 12 rows), the panel drops the CACHE and HANDOFF dividers and the bottom line so it fits without scrolling. In a short terminal it can still scroll.
 
 ## Prompt cache countdown
 
