@@ -1,12 +1,40 @@
 # user-hd
 
-A band above the Claude Code prompt with a prompt-cache countdown and handoff buttons.
+A control panel tucked into the bottom-right corner, above the Claude Code prompt: prompt-cache countdown, model and effort pickers, the settings you toggle most, and handoff buttons.
+
+## The corner
+
+Closed, it is one row at the right edge:
+
+```
+                                   ◆ 3:12   Sonnet 5.5 · XHigh   ◆ user-hd ▴
+```
+
+Click the **◆ user-hd** tab (or run `/hud`) and the panel opens above it. Open or closed is remembered across sessions.
+
+```
+MODEL    Haiku 4.5 [Sonnet 5.5] Opus 5.5  Fable 5.1
+EFFORT   Low  Medium  High [XHigh] Max
+── C A C H E ───────────────────────────────────────────────
+◆ cache 3:12 ▰▰▰▰▰▰▱▱▱▱ 182k cached · hit 94% · 5m  [ Keep warm ]
+── S E T T I N G S ─────────────────────────────────────────
+● Auto keep-warm   ping 30s before expiry, up to 3       ○ Off
+● Alert sound      Glass at the warning                  ● On
+● Mac banner       see the alert from other apps         ● On
+◇ Cache lifetime   auto learns 1h when it sees one     auto · 5m
+◇ Alert at         time left when the alert fires         2:00
+── H A N D O F F ───────────────────────────────────────────
+✦ h: Write handoff   ◆ r: Read handoff   newest · 2h ago
+─────────────────────────────────────────────── user-hd ─
+                                                ◆ user-hd ▾
+```
+
+- **Model** runs `/model haiku|sonnet|opus|fable`. Switching models starts the prompt cache over, and the countdown says so.
+- **Effort** runs `/effort <level>`. The highlight follows the effort your requests actually carry, so a level the model caps shows the one in use.
+- **Settings** write the same rows as `/config`, so the two never disagree. A row your organization's policy owns stays put, with a toast saying why. The other settings (show the band, automatic pings per idle stretch, handoff note location) stay in `/config`.
+- When 2 minutes or less are left, **Keep warm** comes out next to the tab, so it is one press away with the panel closed.
 
 ## Prompt cache countdown
-
-```
-◆ cache 3:12   182k cached · hit 94% · 5m   [ Keep warm ]   [ Handoff ] [ Read handoff ]
-```
 
 - Green while warm, yellow with 2 minutes or less left, red once cold (the next prompt re-writes the whole prefix).
 - With 2 minutes left and Claude idle, it alerts once: a toast, a macOS notification banner and the Glass sound.
@@ -16,12 +44,12 @@ A band above the Claude Code prompt with a prompt-cache countdown and handoff bu
 
 ## Handoff
 
-- **Handoff** (`h`) runs your `/handoff` command. Without one, it asks Claude to write a note to `.claude/handoffs/<date>-<time>.md`.
+- **Write handoff** (`h`) runs your `/handoff` command. Without one, it asks Claude to write a note to `.claude/handoffs/<date>-<time>.md`.
 - **Read handoff** (`r`, or `/read-handoff`) opens the newest note with **Continue from this** (`c`), **Older** and **Newer**.
 - Notes are found in `HANDOFF.md`, `.claude/`, `.claude/handoffs/`, `handoffs/` and `docs/`. If yours live elsewhere, set **Handoff note location** in `/config`.
 
-Band hotkeys need the band focused: click it, or press ctrl+x then tab.
+Band hotkeys need the band focused: click it, or press ctrl+x then tab. `h` and `r` work while the panel is open; with it closed, `/handoff` and `/read-handoff` still do.
 
 ## What it can reach
 
-`claude plugin validate .` lists it: `$.model.fork` (keep-warm pings), `$.process.run` (osascript, afplay), file reads (handoff notes), `$.store` (the learned cache lifetime), and command run and prompt submit on button presses. It writes no files.
+`claude plugin validate .` lists it: `$.model.fork` (keep-warm pings), `$.process.run` (osascript, afplay), file reads (handoff notes), `$.store` (the learned cache lifetime and whether the panel is open), `$.settings.read` (your effort level), `$.config.set` (its own rows, from the panel's toggles), and command run (`/model`, `/effort`, `/handoff`) and prompt submit on button presses. It writes no files.
