@@ -1,0 +1,75 @@
+{
+  "name": "user-hd",
+  "version": "1.0.0",
+  "author": {
+    "name": "Polar"
+  },
+  "description": "A band above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert, and handoff buttons (write one, read the newest).",
+  "types": "./types/index.d.ts",
+  "license": "MIT",
+  "keywords": [
+    "prompt-cache",
+    "keep-warm",
+    "handoff",
+    "mod"
+  ],
+  "userConfig": {
+    "cacheTtl": {
+      "type": "string",
+      "title": "Prompt cache lifetime",
+      "description": "How long the cache lives after each request. auto assumes 5m (the safe guess) and switches to 1h once it sees a cache hit after more than 5 idle minutes.",
+      "options": [
+        "auto",
+        "5m",
+        "1h"
+      ],
+      "default": "auto"
+    },
+    "warnSeconds": {
+      "type": "number",
+      "title": "Alert when this many seconds are left",
+      "description": "Seconds of cache life left when the keep-warm alert fires.",
+      "default": 120,
+      "min": 15,
+      "max": 1800
+    },
+    "notifyMac": {
+      "type": "boolean",
+      "title": "macOS notification banner",
+      "description": "Also post a macOS notification (via osascript) when the alert fires, so you see it from another app.",
+      "default": true
+    },
+    "sound": {
+      "type": "boolean",
+      "title": "Alert sound",
+      "description": "Play the Glass system sound (macOS afplay) when the alert fires.",
+      "default": true
+    },
+    "autoKeepWarm": {
+      "type": "boolean",
+      "title": "Keep the cache warm automatically",
+      "description": "Send a tiny keep-warm ping by itself 30 seconds before expiry, up to the limit below per idle stretch. Each ping is billed as a cache read.",
+      "default": false
+    },
+    "maxAutoPings": {
+      "type": "number",
+      "title": "Automatic pings per idle stretch",
+      "description": "The most automatic pings between two of your prompts.",
+      "default": 3,
+      "min": 1,
+      "max": 20
+    },
+    "showBand": {
+      "type": "boolean",
+      "title": "Show the band above the prompt",
+      "description": "The cache countdown and handoff buttons above the prompt.",
+      "default": true
+    },
+    "handoffPath": {
+      "type": "string",
+      "title": "Handoff note location",
+      "description": "A file or folder (relative to the project) where your /handoff writes. Empty searches HANDOFF.md, .claude/, .claude/handoffs/, handoffs/ and docs/ for markdown files named like a handoff.",
+      "default": ""
+    }
+  }
+}

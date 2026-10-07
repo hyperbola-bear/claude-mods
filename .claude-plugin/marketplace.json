@@ -1,0 +1,19 @@
+{
+  "name": "polar-mods",
+  "owner": {
+    "name": "Polar"
+  },
+  "description": "Polar's Claude Code mods",
+  "plugins": [
+    {
+      "name": "user-hd",
+      "source": "./plugins/user-hd",
+      "description": "A band above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert, and handoff buttons (write one, read the newest)."
+    },
+    {
+      "name": "pr-review-ui",
+      "source": "./plugins/pr-review-ui",
+      "description": "PR reviews as numbered points in the conversation; picking a point opens its code beside it in terminal-browser (the GitHub page, lines highlighted), or in a code pane."
+    }
+  ]
+}

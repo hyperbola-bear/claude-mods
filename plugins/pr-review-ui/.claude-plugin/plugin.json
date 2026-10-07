@@ -1,0 +1,42 @@
+{
+  "name": "pr-review-ui",
+  "version": "1.0.0",
+  "author": {
+    "name": "Polar"
+  },
+  "description": "PR reviews as numbered points in the conversation; picking a point opens its code beside it in terminal-browser (the GitHub page, lines highlighted), or in a code pane.",
+  "types": "./types/index.d.ts",
+  "license": "MIT",
+  "keywords": [
+    "code-review",
+    "github",
+    "pull-requests",
+    "terminal-browser",
+    "mod"
+  ],
+  "userConfig": {
+    "codeView": {
+      "type": "string",
+      "title": "Where review code shows",
+      "description": "auto opens each point's code in terminal-browser when it is installed (the GitHub page, lines highlighted) and falls back to this mod's code pane; browser always uses terminal-browser; pane always uses the code pane.",
+      "options": [
+        "auto",
+        "browser",
+        "pane"
+      ],
+      "default": "auto"
+    },
+    "ghPath": {
+      "type": "string",
+      "title": "gh executable",
+      "description": "The GitHub CLI the review uses to read the PR diff. Use a full path if gh is not on the PATH Claude Code sees.",
+      "default": "gh"
+    },
+    "autoReview": {
+      "type": "boolean",
+      "title": "Review when you paste a PR link",
+      "description": "When a prompt says review and holds a GitHub PR link, ask for the review in the points format without needing the slash command.",
+      "default": true
+    }
+  }
+}
