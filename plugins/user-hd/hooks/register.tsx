@@ -1,5 +1,11 @@
 /**
- * user-hd: a band above the Claude Code prompt.
+ * user-hd: a corner panel above the Claude Code prompt.
+ *
+ * Collapsed, it is one row at the band's right edge: the cache countdown,
+ * model · effort, Keep warm once the cache is cooling, and the ◆ user-hd tab.
+ * The tab (or /hud) opens the panel above it: model and effort pickers (they
+ * run /model and /effort), the cache, the settings toggled most (written
+ * through /config), and the handoff buttons. Open or closed is remembered.
  *
  * 1. Prompt cache countdown. Every main-thread model request refreshes the
  *    prompt cache, so the time since the last request says how long the cache
@@ -18,16 +24,19 @@
  * `next`), so it sits beside pr-review-ui's band rather than replacing it.
  *
  * Reaches: model.fork (keep-warm pings), process.run (osascript, afplay),
- * fs reads (handoff notes), store (the learned cache lifetime), command run
- * and prompt submit on button presses. Writes no files.
+ * fs reads (handoff notes), store (the learned cache lifetime, the panel's
+ * open state), settings read (the effort level), config set (the panel's
+ * toggles), command run (/model, /effort, /handoff) and prompt submit on
+ * button presses. Writes no files.
  */
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { CacheTtl, HandoffFile, HandoffState, TtlInfo } from '../types'
+import type { CacheTtl, Effort, HandoffFile, HandoffState, HudState, TtlInfo } from '../types'
 import {
   EMPTY_CACHE,
   KEEP_WARM_PROMPT,
+  TTL_MS,
   afterRequest,
   cachedTokens,
   fmtClock,
@@ -42,15 +51,19 @@ import {
   shouldAutoPing,
 } from './cache.ts'
 import { HANDOFF_DIRS, age, handoffPrompt, handoffTarget, isHandoffName, joinPath, newest, resumePrompt } from './handoff.ts'
+import { EFFORTS, MODELS, asEffort, effortLabel, footerRule, lifeBar, modelAlias, modelLabel, nextTtl, nextWarn, sectionRule } from './hud.ts'
 
 const STORE_TTL = 'learnedTtl'
+const STORE_OPEN = 'panelOpen'
 const HANDOFF_PANE = 'handoff'
+const PANEL_WIDTH = 72
 
 const EMPTY_HANDOFF: HandoffState = { files: [], index: 0, text: null, error: null, hasCommand: false }
 
 const cacheA = atom({ plugin: 'user-hd', key: 'cache' } as const, EMPTY_CACHE)
 const ttlA = atom({ plugin: 'user-hd', key: 'ttl' } as const, { ttl: '5m', source: 'assumed' } as TtlInfo)
 const handoffA = atom({ plugin: 'user-hd', key: 'handoff' } as const, EMPTY_HANDOFF)
+const hudA = atom({ plugin: 'user-hd', key: 'hud' } as const, { isOpen: false, model: null, effort: null } as HudState)
 
 type Cfg = {
   cacheTtl: 'auto' | CacheTtl
@@ -80,6 +93,7 @@ export function readCfg(o: Record<string, unknown>): Cfg {
 }
 
 // Module state: set by register(); lost on a reload.
+let options: Record<string, unknown> = {}
 let cfg: Cfg = readCfg({})
 let isHandoffPending = false
 
@@ -162,6 +176,56 @@ async function reset($: EngineInterface, reason: string) {
   await update($, cacheA, s => ({ ...EMPTY_CACHE, isWorking: s.isWorking, resetReason: reason }))
 }
 
+/** The lifetime the countdown uses: the setting, else a learned 1h, else 5m. */
+async function resolveTtl($: EngineInterface) {
+  let ttl: TtlInfo = { ttl: '5m', source: 'assumed' }
+  if (cfg.cacheTtl !== 'auto') ttl = { ttl: cfg.cacheTtl, source: 'setting' }
+  else if ((await $.store.get(STORE_TTL).catch(() => undefined)) === '1h') ttl = { ttl: '1h', source: 'learned' }
+  await update($, ttlA, () => ttl)
+}
+
+// ---------- corner panel ----------
+
+async function setPanelOpen($: EngineInterface, isOpen: boolean) {
+  await update($, hudA, s => ({ ...s, isOpen }))
+  await $.store.set(STORE_OPEN, isOpen).catch(() => {})
+}
+
+async function pickModel($: EngineInterface, alias: string) {
+  const before = (await read($, hudA)).model
+  if (modelAlias(before) === alias) return
+  await update($, hudA, s => ({ ...s, model: alias }))
+  try {
+    await $.command.run({ command: 'model', args: alias })
+  } catch (err) {
+    $.ui.toast(`/model ${alias} failed: ${String(err).slice(0, 120)}`)
+  }
+  const now = await $.session.model().catch(() => null)
+  if (now) await update($, hudA, s => ({ ...s, model: now }))
+}
+
+async function pickEffort($: EngineInterface, effort: Effort) {
+  if ((await read($, hudA)).effort === effort) return
+  await update($, hudA, s => ({ ...s, effort }))
+  await $.command.run({ command: 'effort', args: effort }).catch(err => $.ui.toast(`/effort ${effort} failed: ${String(err).slice(0, 120)}`))
+}
+
+/**
+ * Writes one of this plugin's /config rows. The engine reloads the module with
+ * the new options; applying them here too redraws the panel without waiting.
+ */
+async function setOption($: EngineInterface, field: string, value: boolean | string | number) {
+  const r = await $.config.set({ key: `user-hd.${field}`, value }).catch(err => ({ deny: String(err).slice(0, 120) }))
+  if (r.deny !== undefined) {
+    $.ui.toast(`Could not change ${field}: ${r.deny}`)
+    return
+  }
+  options = { ...options, [field]: value }
+  cfg = readCfg(options)
+  if (field === 'cacheTtl') await resolveTtl($)
+  $.ui.invalidate('ui.render')
+}
+
 // ---------- handoff ----------
 
 /** The project root, absolute; paths shown and handed to Claude stay relative to it. */
@@ -229,8 +293,9 @@ async function openHandoffPane($: EngineInterface) {
   if (files.length === 0) $.ui.toast('No handoff note found yet: press h on the band (or run /handoff) to write one.')
 }
 
-export const register: Register = (on, options) => {
-  cfg = readCfg((options ?? {}) as Record<string, unknown>)
+export const register: Register = (on, given) => {
+  options = { ...((given ?? {}) as Record<string, unknown>) }
+  cfg = readCfg(options)
   isHandoffPending = false
 
   // ---------- lifecycle ----------
@@ -240,14 +305,13 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'cache', description: 'Prompt cache status: time left, size, hit rate and lifetime' })
     await $.command.register({ name: 'keepwarm', description: 'Refresh the prompt cache now with a one-line ping (adds nothing to the chat)' })
     await $.command.register({ name: 'read-handoff', description: 'Show the newest handoff note, with a button to continue from it' })
+    await $.command.register({ name: 'hud', description: 'Open or close the user-hd panel in the corner above the prompt' })
 
-    let ttl: TtlInfo = { ttl: '5m', source: 'assumed' }
-    if (cfg.cacheTtl !== 'auto') ttl = { ttl: cfg.cacheTtl, source: 'setting' }
-    else {
-      const learned = await $.store.get(STORE_TTL).catch(() => undefined)
-      if (learned === '1h') ttl = { ttl: '1h', source: 'learned' }
-    }
-    await update($, ttlA, () => ttl)
+    await resolveTtl($)
+    const isOpen = (await $.store.get(STORE_OPEN).catch(() => undefined)) === true
+    const model = await $.session.model().catch(() => null)
+    const settings = await $.settings.read().catch(() => ({}) as Record<string, unknown>)
+    await update($, hudA, s => ({ isOpen, model: model ?? s.model, effort: s.effort ?? asEffort(settings.effortLevel) }))
     await scanHandoffs($).catch(() => [])
 
     $.clock.every(1000, () => void tick($))
@@ -274,6 +338,9 @@ export const register: Register = (on, options) => {
   on('turn.step', async function* ($, e, next) {
     if (e.agentId !== undefined) return yield* next(e)
     const at = await $.clock.now()
+    // The effort the request really carries, after any downgrade for the model.
+    const effort = asEffort(e.effort)
+    if (effort) await update($, hudA, s => (s.effort === effort ? s : { ...s, effort })).catch(() => {})
     const result = yield* next(e)
     try {
       const usage = result.usage
@@ -311,6 +378,7 @@ export const register: Register = (on, options) => {
 
   on('classic.PostModelSwitch', async ($, e, next) => {
     await reset($, 'model switched')
+    await update($, hudA, s => ({ ...s, model: e.to_model }))
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -346,7 +414,13 @@ export const register: Register = (on, options) => {
     return { text: files[0] ? `Handoff: ${files[0].path}` : 'No handoff note found.' }
   })
 
-  // ---------- band above the prompt ----------
+  on('command.run', { command: 'hud' }, async $ => {
+    const { isOpen } = await read($, hudA)
+    await setPanelOpen($, !isOpen)
+    return { text: isOpen ? 'user-hd panel closed.' : 'user-hd panel open.' }
+  })
+
+  // ---------- corner panel above the prompt ----------
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     // Whatever other plugins draw above the prompt comes first; this band goes under it.
@@ -354,56 +428,211 @@ export const register: Register = (on, options) => {
     if (!cfg.showBand || e.props.hasSurvey) return beneath
     const c = await read($, cacheA)
     const t = await read($, ttlA)
+    const hud = await read($, hudA)
     const handoff = await read($, handoffA)
     const { Box, Text, Button } = $.ui.resolve(e)
     const now = await $.clock.now()
     const rem = remainingMs(c.lastHitAt, t.ttl, now)
     const lv = level(rem, cfg.warnMs, e.props.isWorking || c.isWorking)
     const hit = hitRate(c)
+    const width = Math.max(24, Math.min(PANEL_WIDTH, e.props.bodyColumns))
+    const setup = [modelLabel(hud.model), effortLabel(hud.effort)].filter(Boolean).join(' · ')
+    const canWarm = !c.isPinging && (lv === 'warm' || lv === 'cooling')
 
-    const cachePart =
-      lv === 'none' ? null : (
-        <Box key="cache" flexDirection="row" gap={1}>
-          {lv === 'live' && <Text color="success">◆ cache live</Text>}
-          {lv === 'warm' && <Text color="success">◆ cache {fmtClock(rem ?? 0)}</Text>}
-          {lv === 'cooling' && (
-            <Text color="warning" bold>
-              ◆ cache {fmtClock(rem ?? 0)} left
-            </Text>
-          )}
-          {lv === 'cold' && <Text color="error">◇ cache cold · next prompt re-writes {fmtTokens(promptTokens(c))}</Text>}
-          {lv !== 'cold' && (
-            <Text dimColor>
-              {fmtTokens(cachedTokens(c))} cached{hit !== null ? ` · hit ${hit}%` : ''} · {t.ttl}
-            </Text>
-          )}
-          {c.isPinging && <Text dimColor>pinging…</Text>}
-          {!c.isPinging && (lv === 'warm' || lv === 'cooling') && (
-            <Button
-              key="keepwarm"
-              label="Keep warm"
-              hotkey="w"
-              variant={lv === 'cooling' ? 'primary' : undefined}
-              dimColor={lv === 'warm'}
-              onPress={() => void ping($, 'manual')}
-            />
-          )}
+    const keepWarm = (
+      <Button
+        key="keepwarm"
+        label="Keep warm"
+        hotkey="w"
+        variant={lv === 'cooling' ? 'primary' : undefined}
+        dimColor={lv === 'warm'}
+        onPress={() => void ping($, 'manual')}
+      />
+    )
+
+    // ----- the tab row: always there, at the band's right edge -----
+
+    const chip =
+      c.isPinging ? <Text dimColor>◆ pinging…</Text>
+      : lv === 'live' ? <Text color="success">◆ cache live</Text>
+      : lv === 'warm' ? <Text color="success">◆ {fmtClock(rem ?? 0)}</Text>
+      : lv === 'cooling' ? <Text color="warning" bold>◆ {fmtClock(rem ?? 0)} left</Text>
+      : lv === 'cold' ? <Text color="error">◇ cache cold</Text>
+      : null
+
+    const tab = (
+      <Box key="tabrow" flexDirection="row" flexWrap="wrap" justifyContent="flex-end" columnGap={2}>
+        {!hud.isOpen && chip}
+        {!hud.isOpen && setup !== '' && <Text dimColor>{setup}</Text>}
+        {!hud.isOpen && lv === 'cooling' && canWarm && keepWarm}
+        <Box key="tab" backgroundColor="claude" paddingX={1}>
+          <Button key="panel" plain label={`◆ user-hd ${hud.isOpen ? '▾' : '▴'}`} onPress={() => void setPanelOpen($, !hud.isOpen)} />
+        </Box>
+      </Box>
+    )
+    if (!hud.isOpen) {
+      return (
+        <Box flexDirection="column">
+          {beneath}
+          {tab}
         </Box>
       )
+    }
 
-    const handoffPart = (
-      <Box key="handoff" flexDirection="row" gap={1}>
-        <Button key="handoff" label="Handoff" hotkey="h" dimColor onPress={() => void runHandoff($)} />
-        {handoff.files.length > 0 && <Button key="readhandoff" label="Read handoff" hotkey="r" dimColor onPress={() => void openHandoffPane($)} />}
+    // ----- the panel: grows up from the tab -----
+
+    const segment = (key: string, label: string, isOn: boolean, onPress: () => void) => (
+      <Box key={`seg-${key}`} backgroundColor={isOn ? 'claude' : undefined}>
+        <Button key={key} plain label={` ${label} `} onPress={onPress} />
+      </Box>
+    )
+    const field = (label: string, body: JSX.Element) => (
+      <Box key={`field-${label}`} flexDirection="row">
+        <Box width={8} flexShrink={0}>
+          <Text dimColor>{label}</Text>
+        </Box>
+        {body}
+      </Box>
+    )
+
+    const alias = modelAlias(hud.model)
+    const models = (
+      <Box flexDirection="row">
+        {MODELS.map(m => segment(`model-${m.alias}`, m.label, alias === m.alias, () => void pickModel($, m.alias)))}
+      </Box>
+    )
+    const efforts = (
+      <Box flexDirection="row" backgroundColor="subtle">
+        {EFFORTS.map(f => segment(`effort-${f.level}`, f.label, hud.effort === f.level, () => void pickEffort($, f.level)))}
+      </Box>
+    )
+
+    const bar = lifeBar(rem ?? 0, TTL_MS[t.ttl])
+    const cacheLine = (
+      <Box key="cacheline" flexDirection="row" columnGap={1}>
+        {lv === 'none' && (
+          <Text dimColor wrap="truncate">
+            {c.resetReason ? `◇ cache reset (${c.resetReason}): the next prompt writes a new one` : '◇ nothing cached yet: send a first prompt'}
+          </Text>
+        )}
+        {lv === 'live' && <Text color="success">◆ cache live</Text>}
+        {lv === 'warm' && <Text color="success">◆ cache {fmtClock(rem ?? 0)}</Text>}
+        {lv === 'cooling' && (
+          <Text color="warning" bold>
+            ◆ cache {fmtClock(rem ?? 0)} left
+          </Text>
+        )}
+        {lv === 'cold' && (
+          <Text color="error" wrap="truncate">
+            ◇ cache cold · next prompt re-writes {fmtTokens(promptTokens(c))}
+          </Text>
+        )}
+        {(lv === 'warm' || lv === 'cooling') && (
+          <Text>
+            <Text color={lv === 'cooling' ? 'warning' : 'success'}>{bar.on}</Text>
+            <Text dimColor>{bar.off}</Text>
+          </Text>
+        )}
+        {(lv === 'live' || lv === 'warm' || lv === 'cooling') && (
+          <Text dimColor wrap="truncate">
+            {fmtTokens(cachedTokens(c))} cached{hit !== null ? ` · hit ${hit}%` : ''} · {t.ttl}
+          </Text>
+        )}
+        <Box flexGrow={1} />
+        {c.isPinging && <Text dimColor>pinging…</Text>}
+        {canWarm && keepWarm}
+      </Box>
+    )
+
+    const toggle = (key: string, label: string, desc: string, isOn: boolean) => (
+      <Box key={`row-${key}`} flexDirection="row" columnGap={1}>
+        {isOn ? <Text color="success">●</Text> : <Text dimColor>○</Text>}
+        <Box width={16} flexShrink={0}>
+          <Text bold>{label}</Text>
+        </Box>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text dimColor wrap="truncate">
+            {desc}
+          </Text>
+        </Box>
+        <Box key={`pill-${key}`} flexShrink={0} backgroundColor={isOn ? 'success' : 'subtle'}>
+          <Button key={`set-${key}`} plain label={isOn ? ' ● On ' : ' ○ Off '} onPress={() => void setOption($, key, !isOn)} />
+        </Box>
+      </Box>
+    )
+    const choice = (key: string, label: string, desc: string, value: string, onPress: () => void) => (
+      <Box key={`row-${key}`} flexDirection="row" columnGap={1}>
+        <Text dimColor>◇</Text>
+        <Box width={16} flexShrink={0}>
+          <Text bold>{label}</Text>
+        </Box>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text dimColor wrap="truncate">
+            {desc}
+          </Text>
+        </Box>
+        <Box key={`pill-${key}`} flexShrink={0} backgroundColor="subtle">
+          <Button key={`set-${key}`} plain label={` ${value} `} onPress={onPress} />
+        </Box>
+      </Box>
+    )
+    const warnSeconds = Math.round(cfg.warnMs / 1000)
+
+    const newestNote = handoff.files[0]
+    const handoffRow = (
+      <Box key="handoffrow" flexDirection="row" columnGap={3}>
+        <Box flexDirection="row" columnGap={1}>
+          <Text color="claude">✦</Text>
+          <Button key="handoff" plain hotkey="h" label="Write handoff" onPress={() => void runHandoff($)} />
+        </Box>
+        {newestNote && (
+          <Box flexDirection="row" columnGap={1}>
+            <Text color="suggestion">◆</Text>
+            <Button key="readhandoff" plain hotkey="r" label="Read handoff" onPress={() => void openHandoffPane($)} />
+          </Box>
+        )}
+        <Text dimColor wrap="truncate">
+          {newestNote ? `newest · ${age(newestNote.mtimeMs, now)}` : 'no notes yet'}
+        </Text>
+      </Box>
+    )
+
+    const rule = (text: string) => (
+      <Text dimColor wrap="truncate">
+        {text}
+      </Text>
+    )
+
+    const panel = (
+      <Box key="panel" flexDirection="column" width={width}>
+        {field('MODEL', models)}
+        {field('EFFORT', efforts)}
+        {rule(sectionRule('CACHE', width))}
+        {cacheLine}
+        {rule(sectionRule('SETTINGS', width))}
+        {toggle('autoKeepWarm', 'Auto keep-warm', `ping 30s before expiry, up to ${cfg.maxAutoPings}`, cfg.autoKeepWarm)}
+        {toggle('sound', 'Alert sound', 'Glass at the warning', cfg.sound)}
+        {toggle('notifyMac', 'Mac banner', 'see the alert from other apps', cfg.notifyMac)}
+        {choice(
+          'cacheTtl',
+          'Cache lifetime',
+          cfg.cacheTtl === 'auto' ? 'auto learns 1h when it sees one' : 'fixed',
+          cfg.cacheTtl === 'auto' ? `auto · ${t.ttl}` : cfg.cacheTtl,
+          () => void setOption($, 'cacheTtl', nextTtl(cfg.cacheTtl)),
+        )}
+        {choice('warnSeconds', 'Alert at', 'time left when the alert fires', fmtClock(warnSeconds * 1000), () => void setOption($, 'warnSeconds', nextWarn(warnSeconds)))}
+        {rule(sectionRule('HANDOFF', width))}
+        {handoffRow}
+        {rule(footerRule('user-hd', width))}
       </Box>
     )
 
     return (
       <Box flexDirection="column">
         {beneath}
-        <Box flexDirection="row" flexWrap="wrap" columnGap={3}>
-          {cachePart}
-          {handoffPart}
+        <Box flexDirection="column" alignItems="flex-end">
+          {panel}
+          {tab}
         </Box>
       </Box>
     )

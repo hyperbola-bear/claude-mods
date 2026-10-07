@@ -39,12 +39,24 @@ export type HandoffState = {
   hasCommand: boolean
 }
 
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+export type HudState = {
+  /** True while the corner panel is open; only the tab shows otherwise. */
+  isOpen: boolean
+  /** The main loop's model as `/model` shows it; null before it is known. */
+  model: string | null
+  /** The effort the last main-thread request carried, or the one picked in the panel; null when unknown. */
+  effort: Effort | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'user-hd': {
       cache: CacheState
       ttl: TtlInfo
       handoff: HandoffState
+      hud: HudState
     }
   }
 }
