@@ -398,7 +398,7 @@ test('the corner tab opens and closes the panel, and /hud does the same', async 
   await start($)
   await request($, w, 50_000)
   for (const surface of SURFACES) {
-    const band = await $.ui.mount({ plugin: 'user-hd', surface, component: 'AbovePrompt', props: BAND() })
+    const band = await $.ui.mount({ plugin: 'user-hd', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
     expect((await band.find({ type: 'Button', key: 'panel' }))?.props.label).toBe('◆ user-hd ▴')
     expect(await band.find({ type: 'Button', key: 'handoff' })).toBe(undefined)
     expect(await band.find({ type: 'Button', key: 'model-opus' })).toBe(undefined)
@@ -424,6 +424,46 @@ test('the corner tab opens and closes the panel, and /hud does the same', async 
   expect((await $.command.run(hud)).text).toBe('user-hd panel closed.')
   await band.redraw()
   expect(await band.find({ type: 'Button', key: 'handoff' })).toBe(undefined)
+})
+
+test('the tree grows to the band width, and a short band drops the dividers', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await request($, w, 50_000)
+  for (const surface of SURFACES) {
+    const band = await $.ui.mount({ plugin: 'user-hd', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 12 } })
+    // The desktop sets the tree beside its own collapse control; ungrown, the tab would sit on the left.
+    expect((await band.find({ type: 'Box' }))?.props.flexGrow).toBe(1)
+    await band.press({ key: 'panel' })
+    expect((await band.find({ type: 'Box' }))?.props.flexGrow).toBe(1)
+    expect(await band.find({ type: 'Text', text: /S E T T I N G S/ })).toBeTruthy()
+    expect(await band.find({ type: 'Text', text: /C A C H E|H A N D O F F|─ user-hd ─/ })).toBe(undefined)
+    expect(await band.find({ type: 'Button', key: 'handoff' })).toBeTruthy()
+    await band.press({ key: 'panel' })
+    await band.unmount()
+  }
+})
+
+test('the desktop gets its own buttons: the choice in use is the primary one', { options: { sound: true, autoKeepWarm: false } }, async ($, on) => {
+  const w = world(on)
+  w.settings = { effortLevel: 'high' }
+  await start($)
+  const desktop = await $.ui.mount({ plugin: 'user-hd', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  await openPanel(desktop)
+  const button = async (key: string) => (await desktop.find({ type: 'Button', key }))?.props
+  expect(await button('model-opus')).toMatchObject({ label: 'Opus 5.5', variant: 'primary' })
+  expect(await button('model-sonnet')).toMatchObject({ label: 'Sonnet 5.5', plain: true })
+  expect(await button('effort-high')).toMatchObject({ variant: 'primary' })
+  expect(await button('set-sound')).toMatchObject({ label: 'On', variant: 'primary' })
+  expect((await button('set-autoKeepWarm'))?.label).toBe('Off')
+  expect((await button('set-autoKeepWarm'))?.variant).toBe(undefined)
+  expect(await desktop.find({ type: 'Box', key: 'seg-model-opus' })).toBe(undefined)
+  await desktop.unmount()
+
+  // The terminal keeps its filled-cell pills.
+  const terminal = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect((await terminal.find({ type: 'Box', key: 'seg-model-opus' }))?.props.backgroundColor).toBe('claude')
+  expect((await terminal.find({ type: 'Button', key: 'set-sound' }))?.props.label).toBe(' ● On ')
 })
 
 test('the model and effort pickers run /model and /effort and show what requests carry', async ($, on) => {

@@ -57,6 +57,8 @@ const STORE_TTL = 'learnedTtl'
 const STORE_OPEN = 'panelOpen'
 const HANDOFF_PANE = 'handoff'
 const PANEL_WIDTH = 72
+/** Rows the open panel takes with its dividers, the tab row included. */
+const FULL_PANEL_ROWS = 14
 
 const EMPTY_HANDOFF: HandoffState = { files: [], index: 0, text: null, error: null, hasCommand: false }
 
@@ -436,6 +438,11 @@ export const register: Register = (on, given) => {
     const lv = level(rem, cfg.warnMs, e.props.isWorking || c.isWorking)
     const hit = hitRate(c)
     const width = Math.max(24, Math.min(PANEL_WIDTH, e.props.bodyColumns))
+    // The terminal draws pills as filled cells; the other surfaces draw native buttons, which only look
+    // right as themselves (a coloured Box behind a plain Button paints a square block there).
+    const isNative = e.surface !== 'terminal'
+    // The desktop caps the band at 12 rows; drop the dividers rather than make the panel scroll.
+    const isCompact = e.props.maxRows < FULL_PANEL_ROWS
     const setup = [modelLabel(hud.model), effortLabel(hud.effort)].filter(Boolean).join(' · ')
     const canWarm = !c.isPinging && (lv === 'warm' || lv === 'cooling')
 
@@ -470,9 +477,11 @@ export const register: Register = (on, given) => {
         </Box>
       </Box>
     )
+    // flexGrow: the desktop sets the tree beside its own collapse control in a row, where an ungrown
+    // tree shrinks to its content and the tab lands on the left.
     if (!hud.isOpen) {
       return (
-        <Box flexDirection="column">
+        <Box flexDirection="column" flexGrow={1}>
           {beneath}
           {tab}
         </Box>
@@ -481,11 +490,22 @@ export const register: Register = (on, given) => {
 
     // ----- the panel: grows up from the tab -----
 
-    const segment = (key: string, label: string, isOn: boolean, onPress: () => void) => (
-      <Box key={`seg-${key}`} backgroundColor={isOn ? 'claude' : undefined}>
-        <Button key={key} plain label={` ${label} `} onPress={onPress} />
-      </Box>
-    )
+    const segment = (key: string, label: string, isOn: boolean, onPress: () => void) =>
+      isNative ? (
+        <Button key={key} label={label} plain={isOn ? undefined : true} variant={isOn ? 'primary' : undefined} onPress={onPress} />
+      ) : (
+        <Box key={`seg-${key}`} backgroundColor={isOn ? 'claude' : undefined}>
+          <Button key={key} plain label={` ${label} `} onPress={onPress} />
+        </Box>
+      )
+    const pill = (key: string, label: string, isOn: boolean, onPress: () => void) =>
+      isNative ? (
+        <Button key={`set-${key}`} label={label} variant={isOn ? 'primary' : undefined} onPress={onPress} />
+      ) : (
+        <Box key={`pill-${key}`} flexShrink={0} backgroundColor={isOn ? 'success' : 'subtle'}>
+          <Button key={`set-${key}`} plain label={` ${label} `} onPress={onPress} />
+        </Box>
+      )
     const field = (label: string, body: JSX.Element) => (
       <Box key={`field-${label}`} flexDirection="row">
         <Box width={8} flexShrink={0}>
@@ -502,7 +522,7 @@ export const register: Register = (on, given) => {
       </Box>
     )
     const efforts = (
-      <Box flexDirection="row" backgroundColor="subtle">
+      <Box flexDirection="row" backgroundColor={isNative ? undefined : 'subtle'}>
         {EFFORTS.map(f => segment(`effort-${f.level}`, f.label, hud.effort === f.level, () => void pickEffort($, f.level)))}
       </Box>
     )
@@ -555,9 +575,7 @@ export const register: Register = (on, given) => {
             {desc}
           </Text>
         </Box>
-        <Box key={`pill-${key}`} flexShrink={0} backgroundColor={isOn ? 'success' : 'subtle'}>
-          <Button key={`set-${key}`} plain label={isOn ? ' ● On ' : ' ○ Off '} onPress={() => void setOption($, key, !isOn)} />
-        </Box>
+        {pill(key, isNative ? (isOn ? 'On' : 'Off') : isOn ? '● On' : '○ Off', isOn, () => void setOption($, key, !isOn))}
       </Box>
     )
     const choice = (key: string, label: string, desc: string, value: string, onPress: () => void) => (
@@ -571,9 +589,7 @@ export const register: Register = (on, given) => {
             {desc}
           </Text>
         </Box>
-        <Box key={`pill-${key}`} flexShrink={0} backgroundColor="subtle">
-          <Button key={`set-${key}`} plain label={` ${value} `} onPress={onPress} />
-        </Box>
+        {pill(key, value, false, onPress)}
       </Box>
     )
     const warnSeconds = Math.round(cfg.warnMs / 1000)
@@ -607,7 +623,7 @@ export const register: Register = (on, given) => {
       <Box key="panel" flexDirection="column" width={width}>
         {field('MODEL', models)}
         {field('EFFORT', efforts)}
-        {rule(sectionRule('CACHE', width))}
+        {!isCompact && rule(sectionRule('CACHE', width))}
         {cacheLine}
         {rule(sectionRule('SETTINGS', width))}
         {toggle('autoKeepWarm', 'Auto keep-warm', `ping 30s before expiry, up to ${cfg.maxAutoPings}`, cfg.autoKeepWarm)}
@@ -621,14 +637,14 @@ export const register: Register = (on, given) => {
           () => void setOption($, 'cacheTtl', nextTtl(cfg.cacheTtl)),
         )}
         {choice('warnSeconds', 'Alert at', 'time left when the alert fires', fmtClock(warnSeconds * 1000), () => void setOption($, 'warnSeconds', nextWarn(warnSeconds)))}
-        {rule(sectionRule('HANDOFF', width))}
+        {!isCompact && rule(sectionRule('HANDOFF', width))}
         {handoffRow}
-        {rule(footerRule('user-hd', width))}
+        {!isCompact && rule(footerRule('user-hd', width))}
       </Box>
     )
 
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" flexGrow={1}>
         {beneath}
         <Box flexDirection="column" alignItems="flex-end">
           {panel}
