@@ -13,7 +13,7 @@
     {
       "name": "pr-review-ui",
       "source": "./plugins/pr-review-ui",
-      "description": "PR reviews as numbered points in the conversation; picking a point opens its code beside it in terminal-browser (the GitHub page, lines highlighted), or in a code pane."
+      "description": "PR reviews as numbered points in one standard format; the PR is checked out into a review worktree and each point's code opens beside the review with the changes highlighted: in your editor, in terminal-browser, or in a code pane."
     }
   ]
 }

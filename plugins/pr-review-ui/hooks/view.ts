@@ -1,10 +1,10 @@
 // Pure view logic: where the code shows (browser, IDE or pane), how to open
-// an IDE at a line, and the rows the code pane draws. No `$` here.
-import type { CodeRef, PrFileStat, Snippet } from '../types'
+// an editor at a line, and where the review worktree lives. No `$` here.
+import type { CodeRef, PrFileStat } from '../types'
 import type { Hunk } from './review.ts'
 
 export type View = 'browser' | 'ide' | 'pane'
-export type Ide = 'vscode' | 'jetbrains'
+export type Ide = 'vscode' | 'jetbrains' | 'zed' | 'nvim'
 
 /** What the terminal Claude Code runs in says about itself. */
 export type TermEnv = {
@@ -14,14 +14,20 @@ export type TermEnv = {
   terminalEmulator?: string
   kittyWindow?: string
   bundleId?: string
+  /** `$NVIM`: the socket of the Neovim whose :terminal this is. */
+  nvim?: string
 }
 
-/** The IDE whose built-in terminal this is, if any. */
+/** The editor whose built-in terminal this is, if any. Neovim first: it may itself run in another editor's terminal. */
 export function ideOf(env: TermEnv): Ide | null {
+  if (env.nvim) return 'nvim'
   if (env.termProgram === 'vscode') return 'vscode' // VS Code, and forks such as Cursor
+  if (env.termProgram === 'zed') return 'zed'
   if (env.terminalEmulator?.startsWith('JetBrains') || env.bundleId?.startsWith('com.jetbrains.') || env.bundleId === 'com.google.android.studio') return 'jetbrains'
   return null
 }
+
+export const IDE_NAME: Record<Ide, string> = { vscode: 'VS Code', jetbrains: 'the IDE', zed: 'Zed', nvim: 'Neovim' }
 
 /** Whether the terminal can draw terminal-browser's page: Ghostty or kitty, with no tmux in between. */
 export function canDrawImages(env: TermEnv): boolean {
@@ -33,9 +39,9 @@ export function canDrawImages(env: TermEnv): boolean {
 
 /**
  * Where a code location shows. `auto` follows the terminal: the editor when
- * Claude Code runs in an IDE's terminal, terminal-browser in Ghostty or kitty
- * (when installed and the review is a PR), the code pane everywhere else,
- * including the desktop app.
+ * Claude Code runs in an editor's terminal, terminal-browser in Ghostty or
+ * kitty (when installed and the review is a PR), the code pane everywhere
+ * else, including the desktop app.
  */
 export function pickView(
   setting: 'auto' | View,
@@ -63,17 +69,30 @@ export function vscodeCliFrom(askpassNode: string | undefined): string | null {
 
 const JETBRAINS_NAME = /idea|goland|pycharm|webstorm|rider|clion|phpstorm|rubymine|datagrip|studio|fleet/i
 
-/** The commands to try, in order, to open `file` at `line` in the IDE. */
+/** A string as a Vim single-quoted literal holds it. */
+const vimQuoted = (s: string) => `'${s.replace(/'/g, "''")}'`
+
+/**
+ * What Neovim runs to show `file` at `line` in the window beside its
+ * terminal: the previous window, or a new split when the terminal is alone.
+ */
+export function nvimOpenExpr(file: string, line: number): string {
+  return `execute('if winnr(''$'') == 1 | vsplit | else | wincmd p | endif | edit +${line} ' . fnameescape(${vimQuoted(file)}))`
+}
+
+/** The commands to try, in order, to open `file` at `line` in the editor. */
 export function ideCommands(
   ide: Ide | null,
   file: string,
   line: number,
-  opts: { command?: string; askpassNode?: string; bundleId?: string },
+  opts: { command?: string; askpassNode?: string; bundleId?: string; nvim?: string },
 ): string[][] {
   const out: string[][] = []
   const custom = opts.command?.trim()
   if (custom) {
-    out.push(JETBRAINS_NAME.test(custom) ? [custom, '--line', String(line), file] : [custom, '-r', '-g', `${file}:${line}`])
+    if (JETBRAINS_NAME.test(custom)) out.push([custom, '--line', String(line), file])
+    else if (/(^|\/)zed$/.test(custom)) out.push([custom, `${file}:${line}`])
+    else out.push([custom, '-r', '-g', `${file}:${line}`])
   }
   if (ide === 'vscode') {
     // The running app's own command line first, so Cursor opens Cursor even with VS Code's `code` on the PATH.
@@ -85,10 +104,12 @@ export function ideCommands(
     if (opts.bundleId) out.push(['open', '-nb', opts.bundleId, '--args', '--line', String(line), file])
     out.push(['idea', '--line', String(line), file])
   }
+  if (ide === 'zed') out.push(['zed', `${file}:${line}`])
+  if (ide === 'nvim' && opts.nvim) out.push(['nvim', '--server', opts.nvim, '--remote-expr', nvimOpenExpr(file, line)])
   return out
 }
 
-/** Where a read-only copy of a file at the PR head goes, under the temp folder. */
+/** Where a read-only copy of a file at the PR head goes, under the temp folder: the fallback when no worktree can be made. */
 export function headCopyPath(tmp: string, repo: string, number: number, sha: string, path: string): string {
   return `${tmp.replace(/\/$/, '')}/pr-review-ui/${repo.replace(/[^\w.-]+/g, '-')}-${number}-${sha.slice(0, 7)}/${path}`
 }
@@ -97,6 +118,25 @@ export function headCopyPath(tmp: string, repo: string, number: number, sha: str
 export function sameRepo(remote: string, repo: string): boolean {
   const m = /[/:]([^/:]+\/[^/]+?)(?:\.git)?\/?$/.exec(remote.trim())
   return Boolean(m?.[1]) && m?.[1]?.toLowerCase() === repo.toLowerCase()
+}
+
+/** The remote of `git remote -v` that is the PR's repository (`upstream` when `origin` is a fork), if any. */
+export function remoteFor(remotes: string, repo: string): string | null {
+  for (const line of remotes.split('\n')) {
+    const [name, url, kind] = line.trim().split(/\s+/)
+    if (name && url && kind !== '(push)' && sameRepo(url, repo)) return name
+  }
+  return null
+}
+
+/**
+ * The cache folders: a clone of the repository, made once when the session's
+ * folder is some other repository, and the review worktree of one PR head.
+ */
+export function cacheDirs(home: string, host: string, repo: string, number: number, sha: string): { clone: string; worktree: string; prefix: string } {
+  const base = `${home.replace(/\/$/, '')}/.cache/pr-review-ui`
+  const name = `${repo.replace(/[^\w.-]+/g, '-')}-${number}`
+  return { clone: `${base}/repos/${host}/${repo}`, worktree: `${base}/review/${name}-${sha.slice(0, 7)}`, prefix: `${base}/review/${name}-` }
 }
 
 /** The PR's files with their added and removed line counts, from its diff. */
@@ -114,40 +154,11 @@ export function prFiles(files: Map<string, Hunk[]>): PrFileStat[] {
   })
 }
 
-export type CodeRow = { oldNo: string; newNo: string; mark: '+' | '-' | ' '; text: string; isTarget: boolean }
-
-/** The rows the code pane draws for a snippet, the reference's lines marked. */
-export function codeRows(snippet: Snippet, ref: CodeRef): CodeRow[] {
-  if (snippet.kind === 'error') return []
-  const lines = snippet.code.split('\n')
-  const inRef = (n: number) => n >= ref.line && n <= ref.endLine
-  if (snippet.kind === 'source') {
-    return lines.map((text, i) => {
-      const n = snippet.startLine + i
-      return { oldNo: '', newNo: String(n), mark: ' ', text, isTarget: inRef(n) }
-    })
-  }
-  const head = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(lines[0] ?? '')
-  let oldNo = Number(head?.[1] ?? 1)
-  let newNo = Number(head?.[2] ?? 1)
-  const rows: CodeRow[] = []
-  for (const raw of lines.slice(head ? 1 : 0)) {
-    const mark = raw[0] === '+' || raw[0] === '-' ? raw[0] : ' '
-    const text = raw.slice(1)
-    if (mark === '-') {
-      rows.push({ oldNo: String(oldNo), newNo: '', mark, text, isTarget: inRef(newNo) })
-      oldNo += 1
-    } else {
-      rows.push({ oldNo: mark === '+' ? '' : String(oldNo), newNo: String(newNo), mark, text, isTarget: inRef(newNo) })
-      if (mark !== '+') oldNo += 1
-      newNo += 1
-    }
-  }
-  return rows
-}
-
 /** `repository/mixed_order_fetcher.go:51-72`: the last two path segments and the lines, short enough to sit in a row. */
 export function shortRef(r: CodeRef): string {
   const tail = r.path.split('/').slice(-2).join('/')
   return `${tail}:${r.line}${r.endLine > r.line ? `-${r.endLine}` : ''}`
 }
+
+/** The width from which a pane opened unasked docks beside the transcript. */
+export const PANE_FLOOR = 144
