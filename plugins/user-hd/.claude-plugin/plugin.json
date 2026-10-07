@@ -1,10 +1,10 @@
 {
   "name": "user-hd",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "Polar"
   },
-  "description": "A band above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert, and handoff buttons (write one, read the newest).",
+  "description": "A control panel tucked into the corner above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert, model and effort pickers, quick settings, and handoff buttons (write one, read the newest).",
   "types": "./types/index.d.ts",
   "license": "MIT",
   "keywords": [
@@ -61,8 +61,8 @@
     },
     "showBand": {
       "type": "boolean",
-      "title": "Show the band above the prompt",
-      "description": "The cache countdown and handoff buttons above the prompt.",
+      "title": "Show the corner panel above the prompt",
+      "description": "The ◆ user-hd tab and its panel (cache, model, effort, settings, handoff) above the prompt.",
       "default": true
     },
     "handoffPath": {

@@ -8,7 +8,7 @@
     {
       "name": "user-hd",
       "source": "./plugins/user-hd",
-      "description": "A band above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert, and handoff buttons (write one, read the newest)."
+      "description": "A control panel tucked into the corner above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert, model and effort pickers, quick settings, and handoff buttons (write one, read the newest)."
     },
     {
       "name": "pr-review-ui",
