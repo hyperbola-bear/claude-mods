@@ -1,20 +1,27 @@
 /**
  * pr-review-ui: PR reviews as points, with the code beside them.
  *
- * A review written in REVIEW_FORMAT (the bundled pr-review skill) is drawn in
- * the transcript as points: the one being reviewed open, the rest folded to a
- * line. Picking a point (a click, or 1-9 on the band, even from an empty
- * prompt) opens its first code location in terminal-browser beside the
- * conversation: the PR's Files tab with those lines highlighted, or the file at
- * the PR head when the PR did not change them. A point's other code locations
- * are one press away (s). Without terminal-browser (or for a local review) a
- * code pane of this mod's own shows the same lines.
+ * A review written in REVIEW_FORMAT (the bundled pr-review skill, or any
+ * prompt that says "review" and holds a PR link) is drawn in the transcript as
+ * points: the one being reviewed open, the rest folded to a line. As soon as
+ * the review text arrives, point 1's first code location shows beside the
+ * conversation, and picking a point (a click, or 1-9 on the band, even from an
+ * empty prompt) moves it. Where it shows follows the terminal (`auto`):
+ *
+ *   - in VS Code's or a JetBrains IDE's terminal: the IDE opens the file at the
+ *     point's line, your checkout when it is on the PR head, else a read-only
+ *     copy of the PR head (with a button to check the PR out);
+ *   - in Ghostty or kitty, with terminal-browser installed: the GitHub page,
+ *     the PR's Files tab with those lines highlighted;
+ *   - anywhere else (and in the desktop app): this mod's code pane, the lines
+ *     highlighted, beside a list of the PR's files.
  *
  * The band draws whatever other plugins put above the prompt under its own row
  * (it calls `next`), so it sits beside user-hd's band rather than replacing it.
  *
- * Reaches: process.run (gh, git, open), the `browser` noun terminal-browser
- * adds (when installed), fs reads (local review files). Writes no files.
+ * Reaches: process.run (gh, git, open, the IDE's command line), the `browser`
+ * noun terminal-browser adds (when installed), fs reads (local review files)
+ * and writes (read-only PR-head copies under the temp folder, for the IDE).
  */
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderSurface } from 'claude-code'
@@ -33,46 +40,70 @@ import {
   parseSource,
   parseSummary,
   prLineAnchor,
-  reviewContext,
-  reviewRequest,
   refKey,
-  refLabel,
   refsIn,
+  reviewContext,
   reviewKey,
+  reviewRequest,
   severityCounts,
   sourceSnippet,
   splitPath,
 } from './review.ts'
 import type { Hunk } from './review.ts'
+import { codeRows, headCopyPath, ideCommands, ideOf, pickView, prFiles, sameRepo, shortRef } from './view.ts'
+import type { TermEnv, View } from './view.ts'
 
 const REVIEW_PANE = 'review'
 
-const EMPTY_REVIEW: ReviewState = { key: null, source: null, findings: [], current: 0, section: 0, urls: {}, snippets: {}, error: null }
+const EMPTY_REVIEW: ReviewState = {
+  key: null,
+  source: null,
+  findings: [],
+  current: 0,
+  section: 0,
+  urls: {},
+  snippets: {},
+  files: [],
+  view: null,
+  ideNote: null,
+  canCheckout: false,
+  error: null,
+}
 
 const browserA = atom({ plugin: 'pr-review-ui', key: 'hasBrowser' } as const, false)
 const reviewA = atom({ plugin: 'pr-review-ui', key: 'review' } as const, EMPTY_REVIEW)
 
 type Cfg = {
   ghPath: string
-  codeView: 'auto' | 'browser' | 'pane'
+  codeView: 'auto' | View
+  ideCommand: string
   autoReview: boolean
 }
 
 export function readCfg(o: Record<string, unknown>): Cfg {
-  const view = o.codeView === 'browser' || o.codeView === 'pane' ? o.codeView : 'auto'
+  const view = o.codeView === 'browser' || o.codeView === 'pane' || o.codeView === 'ide' ? o.codeView : 'auto'
   return {
     ghPath: typeof o.ghPath === 'string' && o.ghPath.trim() ? o.ghPath.trim() : 'gh',
     codeView: view,
+    ideCommand: typeof o.ideCommand === 'string' ? o.ideCommand.trim() : '',
     autoReview: typeof o.autoReview === 'boolean' ? o.autoReview : true,
   }
 }
 
 // Module state: set by register(); lost on a reload, which only costs refetching.
 let cfg: Cfg = readCfg({})
+let term: TermEnv = {}
+let askpassNode: string | undefined
+let tmpDir = '/tmp'
+let isTerminal = true
 const diffCache = new Map<string, Map<string, Hunk[]>>()
 const headCache = new Map<string, string>()
 const fileCache = new Map<string, string>()
 const inflight = new Set<string>()
+/** Reviews whose code was already shown by itself once, so a later step or redraw does not show it again. */
+const shown = new Set<string>()
+/** Reviews already told that the pane is waiting for a wider terminal. */
+const toldNarrow = new Set<string>()
 
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, Math.max(1, n - 1))}…` : s)
 
@@ -80,9 +111,9 @@ const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, Math.max(1
 
 type GhResult = { isOk: true; stdout: string } | { isOk: false; error: string }
 
-async function gh($: EngineInterface, args: string[]): Promise<GhResult> {
+async function gh($: EngineInterface, args: string[], cwd?: string): Promise<GhResult> {
   try {
-    const r = await $.process.run([cfg.ghPath, ...args], { timeoutMs: 30_000 })
+    const r = await $.process.run([cfg.ghPath, ...args], { timeoutMs: 30_000, ...(cwd ? { cwd } : {}) })
     return r.exitCode === 0 ? { isOk: true, stdout: r.stdout } : { isOk: false, error: ghError(r.stderr, r.exitCode) }
   } catch {
     return { isOk: false, error: `Could not run ${cfg.ghPath}: install the GitHub CLI (brew install gh) and run gh auth login.` }
@@ -102,6 +133,15 @@ async function openUrl($: EngineInterface, url: string, surface: RenderSurface) 
   $.ui.toast(copied.isCopied ? 'Could not open a browser; link copied.' : url)
 }
 
+async function git($: EngineInterface, cwd: string, args: string[]): Promise<string | null> {
+  try {
+    const r = await $.process.run(['git', ...args], { cwd, timeoutMs: 10_000 })
+    return r.exitCode === 0 ? r.stdout.trim() : null
+  } catch {
+    return null
+  }
+}
+
 // ---------- review: points and their code ----------
 
 async function activateReview($: EngineInterface, text: string, shouldShow: boolean) {
@@ -111,7 +151,10 @@ async function activateReview($: EngineInterface, text: string, shouldShow: bool
   if (!source || findings.length === 0) return
   const st = await read($, reviewA)
   if (st.key !== key) await update($, reviewA, () => ({ ...EMPTY_REVIEW, key, source, findings }))
-  if (shouldShow) await showCurrent($)
+  if (shouldShow && !shown.has(key)) {
+    shown.add(key)
+    await showCurrent($, false)
+  }
 }
 
 /** Picks a point, at its first code location unless told which. */
@@ -122,7 +165,7 @@ async function select($: EngineInterface, key: string, index: number, section = 
   const sections = st.findings[i]?.sections.length ?? 1
   const j = Math.max(0, Math.min(sections - 1, section))
   await update($, reviewA, s => (s.key === key ? { ...s, current: i, section: j } : s))
-  await showCurrent($)
+  await showCurrent($, true)
 }
 
 async function stepSection($: EngineInterface, delta: number) {
@@ -133,23 +176,46 @@ async function stepSection($: EngineInterface, delta: number) {
   await select($, st.key, st.current, (((st.section + delta) % n) + n) % n)
 }
 
-async function useBrowser($: EngineInterface, st: ReviewState): Promise<boolean> {
-  if (cfg.codeView === 'pane' || st.source?.kind !== 'pr') return false
-  if (cfg.codeView === 'browser') return true
-  return read($, browserA)
+async function viewFor($: EngineInterface, st: ReviewState): Promise<View> {
+  return pickView(cfg.codeView, term, {
+    isTerminal,
+    hasBrowser: await read($, browserA),
+    isPr: st.source?.kind === 'pr',
+    hasIdeCommand: cfg.ideCommand !== '',
+  })
 }
 
-/** Shows the current point's current code location: in terminal-browser, else in the code pane. */
-async function showCurrent($: EngineInterface) {
+/**
+ * Shows the current point's current code location where `viewFor` says,
+ * falling back to the pane. `isAsked` is true when the person's press or
+ * command led here: an asked pane opens at any width.
+ */
+async function showCurrent($: EngineInterface, isAsked: boolean) {
   const st = await read($, reviewA)
   const ref = st.findings[st.current]?.sections[st.section]
   if (!st.key || !ref) return
-  if (await useBrowser($, st)) {
-    const url = await urlFor($, st.key, ref)
-    if (url && (await openInBrowser($, url))) return
+  const key = st.key
+  const view = await viewFor($, st)
+  if (view === 'browser') {
+    const url = await urlFor($, key, ref)
+    if (url && (await openInBrowser($, url))) {
+      await update($, reviewA, s => (s.key === key ? { ...s, view: 'browser' as const } : s))
+      return
+    }
   }
-  void ensureSnippet($, st.key, ref)
-  await $.ui.open({ id: REVIEW_PANE, title: 'Review code' })
+  if (view === 'ide' && (await openInIde($, key, ref))) {
+    await update($, reviewA, s => (s.key === key ? { ...s, view: 'ide' as const } : s))
+    void loadFiles($, key)
+    return
+  }
+  await update($, reviewA, s => (s.key === key ? { ...s, view: 'pane' as const } : s))
+  void ensureSnippet($, key, ref)
+  void loadFiles($, key)
+  const opened = await $.ui.open({ id: REVIEW_PANE, title: 'Review code' })
+  if (!opened.isPlaced && !isAsked && !toldNarrow.has(key)) {
+    toldNarrow.add(key)
+    $.ui.toast('The review code pane waits for a wider terminal: press 1 on the band, or Show code, to open it now.', { timeoutMs: 10_000 })
+  }
 }
 
 /** The GitHub page for a code location: the Files tab when the diff shows those lines, else the file at the PR head. */
@@ -187,6 +253,78 @@ async function openInBrowser($: EngineInterface, url: string): Promise<boolean> 
   }
 }
 
+/**
+ * The file the IDE opens for a code location: your checkout when it is the
+ * PR's repository on the PR head commit (or any local review), else a
+ * read-only copy of the file at the PR head under the temp folder.
+ */
+async function ideFile($: EngineInterface, key: string, ref: CodeRef): Promise<{ path: string; note: string | null; canCheckout: boolean } | null> {
+  const st = await read($, reviewA)
+  const src = st.source
+  if (st.key !== key || !src) return null
+  if (src.kind === 'local') return { path: `${src.root.replace(/\/$/, '')}/${ref.path}`, note: null, canCheckout: false }
+  const root = (await $.session.root().catch(() => '')).replace(/\/$/, '')
+  const sha = await prHead($, src.url)
+  const remote = root ? await git($, root, ['remote', 'get-url', 'origin']) : null
+  const isSameRepo = remote !== null && sameRepo(remote, src.repo)
+  const local = isSameRepo ? await git($, root, ['rev-parse', 'HEAD']) : null
+  if (isSameRepo && sha && local === sha) return { path: `${root}/${ref.path}`, note: null, canCheckout: false }
+  if (!sha) return isSameRepo ? { path: `${root}/${ref.path}`, note: 'your checkout (could not read the PR head)', canCheckout: false } : null
+  const text = await headFile($, src, ref.path, sha)
+  if (text === null) return null
+  const copy = headCopyPath(tmpDir, src.repo, src.number, sha, ref.path)
+  try {
+    await $.fs.write(copy, text)
+  } catch {
+    return null
+  }
+  return {
+    path: copy,
+    note: isSameRepo ? 'a copy of the PR head: your checkout is on another commit' : 'a copy of the PR head: this folder is not that repository',
+    canCheckout: isSameRepo,
+  }
+}
+
+async function openInIde($: EngineInterface, key: string, ref: CodeRef): Promise<boolean> {
+  const target = await ideFile($, key, ref)
+  if (!target) return false
+  const ide = ideOf(term)
+  const tries = ideCommands(ide, target.path, ref.line, { command: cfg.ideCommand, askpassNode, bundleId: term.bundleId })
+  for (const argv of tries) {
+    try {
+      const r = await $.process.run(argv, { timeoutMs: 15_000 })
+      if (r.exitCode === 0) {
+        await update($, reviewA, s => (s.key === key ? { ...s, ideNote: target.note, canCheckout: target.canCheckout } : s))
+        return true
+      }
+    } catch {
+      // try the next way of reaching the IDE
+    }
+  }
+  $.ui.toast(
+    ide === 'jetbrains'
+      ? 'Could not open the IDE: set Editor command in /config (pr-review-ui) to its launcher, e.g. idea or goland. Showing the pane instead.'
+      : "Could not open VS Code: run Shell Command: Install 'code' command in PATH, or set Editor command in /config. Showing the pane instead.",
+    { timeoutMs: 10_000 },
+  )
+  return false
+}
+
+async function checkoutPr($: EngineInterface) {
+  const st = await read($, reviewA)
+  const src = st.source
+  if (!st.key || !src || src.kind !== 'pr') return
+  const root = (await $.session.root().catch(() => '')).replace(/\/$/, '')
+  const r = await gh($, ['pr', 'checkout', src.url], root || undefined)
+  if (!r.isOk) {
+    $.ui.toast(`gh pr checkout failed: ${r.error}`, { timeoutMs: 10_000 })
+    return
+  }
+  $.ui.toast(`Checked out #${src.number}: the editor now follows your checkout.`)
+  await update($, reviewA, s => ({ ...s, ideNote: null, canCheckout: false }))
+  await showCurrent($, true)
+}
+
 async function prDiff($: EngineInterface, url: string): Promise<Map<string, Hunk[]> | null> {
   const cached = diffCache.get(url)
   if (cached) return cached
@@ -212,6 +350,25 @@ async function prHead($: EngineInterface, url: string): Promise<string | null> {
   return sha || null
 }
 
+async function headFile($: EngineInterface, src: { url: string; repo: string }, path: string, sha: string): Promise<string | null> {
+  const cacheKey = `${src.url}@${sha}@${path}`
+  const cached = fileCache.get(cacheKey)
+  if (cached !== undefined) return cached
+  const host = /^https?:\/\/([^/]+)\//.exec(src.url)?.[1] ?? ''
+  const enc = path.split('/').map(encodeURIComponent).join('/')
+  const r = await gh($, ['api', ...hostArgs(host), '-H', 'Accept: application/vnd.github.raw', `repos/${src.repo}/contents/${enc}?ref=${sha}`])
+  if (!r.isOk) return null
+  fileCache.set(cacheKey, r.stdout)
+  return r.stdout
+}
+
+async function loadFiles($: EngineInterface, key: string) {
+  const st = await read($, reviewA)
+  if (st.key !== key || st.files.length > 0 || st.source?.kind !== 'pr') return
+  const files = await prDiff($, st.source.url)
+  if (files) await update($, reviewA, s => (s.key === key ? { ...s, files: prFiles(files) } : s))
+}
+
 async function fetchSnippet($: EngineInterface, st: ReviewState, ref: CodeRef): Promise<Snippet> {
   const src = st.source
   if (!src) return { kind: 'error', note: 'No review source.' }
@@ -232,16 +389,8 @@ async function fetchSnippet($: EngineInterface, st: ReviewState, ref: CodeRef): 
   if (fromDiff) return fromDiff
   const sha = await prHead($, src.url)
   if (!sha) return { kind: 'error', note: 'Could not find the PR head commit.' }
-  const cacheKey = `${src.url}@${ref.path}`
-  let text = fileCache.get(cacheKey)
-  if (text === undefined) {
-    const host = /^https?:\/\/([^/]+)\//.exec(src.url)?.[1] ?? ''
-    const path = ref.path.split('/').map(encodeURIComponent).join('/')
-    const r = await gh($, ['api', ...hostArgs(host), '-H', 'Accept: application/vnd.github.raw', `repos/${src.repo}/contents/${path}?ref=${sha}`])
-    if (!r.isOk) return { kind: 'error', note: `${ref.path}: ${r.error}` }
-    text = r.stdout
-    fileCache.set(cacheKey, text)
-  }
+  const text = await headFile($, src, ref.path, sha)
+  if (text === null) return { kind: 'error', note: `Could not read ${ref.path} at the PR head with gh.` }
   return sourceSnippet(text, ref, 'not changed in this PR (head version)')
 }
 
@@ -292,6 +441,18 @@ export const register: Register = (on, options) => {
     })
     const commands = await $.command.list().catch(() => [])
     await update($, browserA, () => commands.some(c => c.name === 'browser'))
+    term = {
+      termProgram: await $.env.get('TERM_PROGRAM'),
+      term: await $.env.get('TERM'),
+      tmux: await $.env.get('TMUX'),
+      terminalEmulator: await $.env.get('TERMINAL_EMULATOR'),
+      kittyWindow: await $.env.get('KITTY_WINDOW_ID'),
+      bundleId: await $.env.get('__CFBundleIdentifier'),
+    }
+    askpassNode = await $.env.get('VSCODE_GIT_ASKPASS_NODE')
+    tmpDir = (await $.env.get('TMPDIR')) || '/tmp'
+    const surfaces = await $.session.surfaces().catch((): readonly RenderSurface[] => [])
+    isTerminal = surfaces.length === 0 || surfaces.includes('terminal')
     return started
   })
 
@@ -302,6 +463,13 @@ export const register: Register = (on, options) => {
     return next({ ...e, context: [...(e.context ?? []), reviewContext(url)] })
   }).catch(($, e, next) => next(e))
 
+  // The review shows its code as soon as its text arrives, while the turn may still run.
+  on('turn.step', async function* ($, e, next) {
+    const result = yield* next(e)
+    if (e.agentId === undefined && looksLikeReview(result.answer)) void activateReview($, result.answer, true)
+    return result
+  })
+
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined && looksLikeReview(e.answer)) void activateReview($, e.answer, true)
     return next(e)
@@ -309,7 +477,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'point' }, async ($, e) => {
     const st = await read($, reviewA)
-    if (st.key === null) return { text: 'No review in this session yet: ask for one with /pr-review-ui:pr-review <PR URL>.' }
+    if (st.key === null) return { text: 'No review in this session yet: paste a PR link and say review.' }
     const [a, b] = e.args.trim().split(/\s+/).map(Number)
     const index = st.findings.findIndex(f => f.n === a)
     if (!a || index < 0) return { text: `Points: ${st.findings.map(f => f.n).join(', ')}. Usage: /point <point> [code location].` }
@@ -358,6 +526,21 @@ export const register: Register = (on, options) => {
       />
     )
 
+    const chips = (f: Finding, i: number) => (
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+        <Text dimColor>Code</Text>
+        {f.sections.map((r, j) =>
+          j === section ? (
+            <Text key={`cur:${i}:${j}`} color="suggestion" bold>
+              ▸ {shortRef(r)}
+            </Text>
+          ) : (
+            <Button key={`sec:${i}:${j}`} plain dimColor label={shortRef(r)} onPress={() => void pickIn($, text, i, j)} />
+          ),
+        )}
+      </Box>
+    )
+
     const point = (f: Finding, i: number) => {
       const isOpen = i === current
       const head = (
@@ -380,18 +563,7 @@ export const register: Register = (on, options) => {
           {head}
           <Box flexDirection="column" paddingLeft={7}>
             {f.body !== '' && body(f, i)}
-            <Box flexDirection="row" flexWrap="wrap" gap={1}>
-              <Text dimColor>Code:</Text>
-              {f.sections.map((r, j) => (
-                <Button
-                  key={`sec:${i}:${j}`}
-                  label={refLabel(r)}
-                  variant={j === section ? 'primary' : undefined}
-                  dimColor={j !== section}
-                  onPress={() => void pickIn($, text, i, j)}
-                />
-              ))}
-            </Box>
+            {chips(f, i)}
           </Box>
         </Box>
       )
@@ -426,8 +598,11 @@ export const register: Register = (on, options) => {
     const f = review.findings[review.current]
     const ref = f?.sections[review.section]
     const rk = review.key
-    const reviewPart =
-      rk === null || !f || !ref ? null : (
+    if (rk === null || !f || !ref) return beneath
+    const { dir, file } = splitPath(ref.path)
+    const where = review.view === 'ide' ? 'in the editor' : review.view === 'browser' ? 'in the browser' : review.view === 'pane' ? 'in the pane' : ''
+    return (
+      <Box flexDirection="column">
         <Box key="review" flexDirection="row" flexWrap="wrap" gap={1}>
           <Text dimColor>Point</Text>
           {review.findings.slice(0, 9).map((p, i) => (
@@ -446,69 +621,79 @@ export const register: Register = (on, options) => {
             <Button key="nextsec" label={`code ${review.section + 1}/${f.sections.length}`} hotkey="s" onPress={() => void stepSection($, 1)} />
           )}
           <Text>
-            <Text dimColor>{splitPath(ref.path).dir}</Text>
-            <Text bold>{splitPath(ref.path).file}</Text>
+            <Text dimColor>{dir}</Text>
+            <Text bold>{file}</Text>
             <Text dimColor>
               :{ref.line}
               {ref.endLine > ref.line ? `-${ref.endLine}` : ''}
+              {where ? ` · ${where}` : ''}
             </Text>
           </Text>
+          <Button key="showcode" label="Show code" hotkey="v" dimColor onPress={() => void showCurrent($, true)} />
+          {review.view === 'ide' && review.canCheckout && <Button key="checkout" label="Check out PR" hotkey="c" dimColor onPress={() => void checkoutPr($)} />}
           <Button key="donereview" label="Done" hotkey="x" dimColor onPress={() => void update($, reviewA, () => EMPTY_REVIEW)} />
         </Box>
-      )
-
-    if (reviewPart === null) return beneath
-    return (
-      <Box flexDirection="column">
-        {reviewPart}
+        {review.view === 'ide' && review.ideNote && (
+          <Text key="idenote" dimColor wrap="truncate-end">
+            The editor shows {review.ideNote}.
+          </Text>
+        )}
         {beneath}
       </Box>
     )
   })
 
-  // ---------- code pane (no terminal-browser, or a local review) ----------
+  // ---------- code pane ----------
 
   on('ui.render', { component: 'Pane', requestId: REVIEW_PANE }, async ($, e) => {
-    const { Box, Text, Button, Code } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const st = await read($, reviewA)
     const f = st.findings[st.current]
     const ref = f?.sections[st.section]
     if (st.key === null || !st.source || !f || !ref) {
-      return <Text dimColor>No review yet. Ask for one with /pr-review-ui:pr-review and its code shows here.</Text>
+      return <Text dimColor>No review yet. Paste a PR link and say review, and its code shows here.</Text>
     }
     const key = st.key
     const src = st.source
     const snippet = st.snippets[refKey(ref)]
     const { dir, file } = splitPath(ref.path)
+    const width = Math.max(30, e.props.bodyColumns)
+    const rows = snippet ? codeRows(snippet, ref) : []
+    const gutter = Math.max(3, ...rows.map(r => Math.max(r.oldNo.length, r.newNo.length)))
+    const touched = new Set(f.sections.map(s => s.path))
+
     return (
       <Box flexDirection="column">
         <Box flexDirection="row" flexWrap="wrap" gap={1}>
           <Button key="prev" label="◀ Prev" hotkey="k" onPress={() => void select($, key, st.current - 1)} />
           <Button key="next" label="Next ▶" hotkey="j" variant="primary" onPress={() => void select($, key, st.current + 1)} />
           {src.kind === 'pr' && (
-            <Button key="github" label="Open on GitHub" hotkey="o" dimColor onPress={p => void prLineAnchor(src.url, ref).then(url => openUrl($, url, p.surface))} />
+            <Button key="github" label="GitHub" hotkey="o" dimColor onPress={p => void prLineAnchor(src.url, ref).then(url => openUrl($, url, p.surface))} />
           )}
           <Text dimColor>
             {st.current + 1} / {st.findings.length}
           </Text>
         </Box>
+
         <Text wrap="wrap">
           <Text color={SEVERITY_COLOR[f.severity]} bold>
             {f.n}. {f.severity}
           </Text>{' '}
           <Text bold>{f.title}</Text>
         </Text>
-        <Box flexDirection="row" flexWrap="wrap" gap={1}>
-          {f.sections.map((r, j) => (
-            <Button
-              key={`psec:${j}`}
-              label={refLabel(r)}
-              variant={j === st.section ? 'primary' : undefined}
-              dimColor={j !== st.section}
-              onPress={() => void select($, key, st.current, j)}
-            />
-          ))}
+
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+          {f.sections.map((r, j) =>
+            j === st.section ? (
+              <Text key={`pcur:${j}`} color="suggestion" bold>
+                ▸ {shortRef(r)}
+              </Text>
+            ) : (
+              <Button key={`psec:${j}`} plain dimColor label={shortRef(r)} onPress={() => void select($, key, st.current, j)} />
+            ),
+          )}
         </Box>
+
         <Text wrap="truncate-start">
           <Text dimColor>{dir}</Text>
           <Text bold>{file}</Text>
@@ -518,16 +703,57 @@ export const register: Register = (on, options) => {
             {snippet && snippet.kind !== 'error' ? `  ·  ${snippet.note}` : ''}
           </Text>
         </Text>
+
         {!snippet && <Text dimColor>Loading code…</Text>}
         {snippet?.kind === 'error' && (
           <Text color="error" wrap="wrap">
             {snippet.note}
           </Text>
         )}
-        {snippet?.kind === 'diff' && <Code key="code" source={snippet.code} format="diff" path={snippet.path} wrap="truncate-end" />}
-        {snippet?.kind === 'source' && <Code key="code" source={snippet.code} startLine={snippet.startLine} path={snippet.path} wrap="truncate-end" />}
+        {rows.length > 0 && (
+          <Box key="code" flexDirection="column">
+            {rows.map((r, i) => (
+              <Box key={`row:${i}`} flexDirection="row">
+                <Text color={r.isTarget ? 'warning' : undefined} dimColor={!r.isTarget}>
+                  {r.isTarget ? '▌' : ' '}
+                  {(r.newNo || r.oldNo).padStart(gutter)}{' '}
+                </Text>
+                <Text color={r.mark === '+' ? 'diffAdded' : r.mark === '-' ? 'diffRemoved' : undefined} dimColor={r.mark === ' '}>
+                  {r.mark}{' '}
+                </Text>
+                <Text
+                  wrap="truncate-end"
+                  bold={r.isTarget}
+                  dimColor={!r.isTarget && r.mark === ' '}
+                  color={r.mark === '+' ? 'diffAdded' : r.mark === '-' ? 'diffRemoved' : undefined}
+                >
+                  {r.text === '' ? ' ' : r.text}
+                </Text>
+              </Box>
+            ))}
+          </Box>
+        )}
+
+        {st.files.length > 0 && (
+          <Box key="files" flexDirection="column" marginTop={1}>
+            <Text dimColor>Files in this PR</Text>
+            {st.files.slice(0, 14).map((pf, i) => {
+              const parts = splitPath(pf.path)
+              const isHere = touched.has(pf.path)
+              return (
+                <Text key={`file:${i}`} wrap="truncate-start">
+                  <Text color="warning">{isHere ? '● ' : '  '}</Text>
+                  <Text dimColor>{short(parts.dir, Math.max(8, width - parts.file.length - 18))}</Text>
+                  <Text bold={isHere}>{parts.file}</Text>
+                  <Text color="diffAdded"> +{pf.adds}</Text>
+                  <Text color="diffRemoved"> −{pf.dels}</Text>
+                </Text>
+              )
+            })}
+            {st.files.length > 14 && <Text dimColor>  …{st.files.length - 14} more</Text>}
+          </Box>
+        )}
       </Box>
     )
   })
-
 }

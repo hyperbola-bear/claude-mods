@@ -36,8 +36,30 @@ type World = {
   argv: string[][]
   forks: string[]
   opens: string[]
+  writes: string[]
+  /** What the turn's model step answers. */
+  answer: string
+  /** Whether a pane opened unasked gets placed. */
+  isPlaced: boolean
+  /** The commit the session's checkout is on. */
+  head: string
+  /** Editor command lines that succeed. */
+  editors: string[]
   clock: ReturnType<typeof mock.clock>
 }
+
+/** Ghostty, where terminal-browser can draw. */
+const GHOSTTY = { TERM_PROGRAM: 'ghostty', TERM: 'xterm-ghostty' }
+const VSCODE_APP = '/Applications/Visual Studio Code.app'
+const VSCODE = {
+  TERM_PROGRAM: 'vscode',
+  TERM: 'xterm-256color',
+  TMPDIR: '/tmp/x/',
+  VSCODE_GIT_ASKPASS_NODE: `${VSCODE_APP}/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)`,
+}
+const INTELLIJ = { TERMINAL_EMULATOR: 'JetBrains-JediTerm', TERM: 'xterm-256color', TMPDIR: '/tmp/x', __CFBundleIdentifier: 'com.jetbrains.intellij' }
+const VSCODE_CLI = `${VSCODE_APP}/Contents/Resources/app/bin/code`
+const HEAD_COPY = '/tmp/x/pr-review-ui/acme-billing-12-abc123/infra/iam.tf'
 
 /** A stand-in for terminal-browser: adds the `browser` noun and records what it opens. */
 const fakeBrowser = {
@@ -59,14 +81,24 @@ const fakeBrowser = {
 }
 
 /** The world beneath the plugin: clock, store, gh, git, files, the model fork and the UI calls. */
-function world(on: On): World {
-  const w: World = { contexts: [], opened: [], read: 0, submits: [], commandRuns: [], files: {}, commands: [], toasts: [], argv: [], forks: [], opens: [], clock: mock.clock(on, { now: Date.parse('2026-10-07T06:00:00Z') }) }
+function world(on: On, env: Record<string, string> = GHOSTTY, surfaces: readonly ('terminal' | 'desktop')[] = ['terminal']): World {
+  const w: World = {
+    contexts: [], opened: [], read: 0, submits: [], commandRuns: [], files: {}, commands: [], toasts: [], argv: [], forks: [], opens: [], writes: [],
+    answer: 'done', isPlaced: true, head: 'abc123', editors: [VSCODE_CLI],
+    clock: mock.clock(on, { now: Date.parse('2026-10-07T06:00:00Z') }),
+  }
   mock.store(on)
+  mock.env(on, env)
+  on('session.surfaces', () => ({ value: surfaces }))
+  on('fs.write', ($, e) => {
+    w.writes.push(e.path)
+    return { value: undefined }
+  })
   on('turn.step', async function* (_$, e) {
     return {
       turnId: e.turnId,
       index: e.index,
-      answer: 'done',
+      answer: w.answer,
       toolUses: [],
       stopReason: 'end_turn' as const,
       usage: { model: 'claude-opus-5-5', input_tokens: 40, output_tokens: 300, cache_read_input_tokens: w.read, cache_creation_input_tokens: 2_000 },
@@ -86,7 +118,7 @@ function world(on: On): World {
   on('ui.invalidate', () => ({ value: undefined }))
   on('ui.open', ($, e) => {
     w.opens.push(e.id)
-    return { value: { isPlaced: true as const } }
+    return { value: { isPlaced: w.isPlaced } as never }
   })
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('command.list', () => ({ value: w.commands.map(name => ({ name, description: '', source: 'user' as const })) }))
@@ -133,7 +165,14 @@ function world(on: On): World {
     const args = e.argv.join(' ')
     if (args.startsWith('gh pr diff')) return out(DIFF)
     if (args.includes('pr view') && args.includes('headRefOid')) return out(JSON.stringify({ headRefOid: 'abc123' }))
-    if (args.includes('contents/infra/firehose.tf')) return out(Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n'))
+    if (args.includes('/contents/')) return out(Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n'))
+    if (args === 'git remote get-url origin') return out('git@github.com:acme/billing.git\n')
+    if (args === 'git rev-parse HEAD') return out(`${w.head}\n`)
+    if (args.startsWith('gh pr checkout')) {
+      w.head = 'abc123'
+      return out('')
+    }
+    if (w.editors.includes(e.argv[0] ?? '')) return out('')
     return { value: { exitCode: 1, stdout: '', stderr: 'not on this machine', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   return w
@@ -222,7 +261,8 @@ test('a review is drawn as points, the first open, and its first code location o
     expect((await msg.find({ type: 'Button', key: 'pt:1' }))?.text).toContain('▸ 2. Missing iam:UntagRole')
     expect((await msg.find({ type: 'Markdown', key: 'body:0' }))?.text).toContain('[infra/firehose.tf:17](')
     expect(await msg.find({ type: 'Markdown', key: 'body:1' })).toBe(undefined)
-    expect((await msg.findAll({ type: 'Button', text: /^infra\// })).map(b => b.text)).toEqual(['infra/iam.tf:42-44', 'infra/firehose.tf:17'])
+    expect(await msg.find({ type: 'Text', text: '▸ infra/iam.tf:42-44' })).toBeTruthy()
+    expect((await msg.findAll({ type: 'Button', text: /^infra\// })).map(b => b.text)).toEqual(['infra/firehose.tf:17'])
     expect((await msg.find({ type: 'Markdown', key: 'summary' }))?.text).toContain('One blocking issue.')
     await msg.unmount()
   }
@@ -269,7 +309,7 @@ test('a ref in the open point is a link to that code location', { plugins: [fake
   expect(w.opened.at(-1)).toContain('/blob/abc123/infra/firehose.tf#L17')
 })
 
-test('without terminal-browser the code pane shows the same code, folder and file apart', async ($, on) => {
+test('without terminal-browser the code pane shows the lines marked, the other locations and the PR files', async ($, on) => {
   const w = world(on)
   await start($)
   await review($, w)
@@ -277,19 +317,122 @@ test('without terminal-browser the code pane shows the same code, folder and fil
   expect(w.opens).toContain('review')
   for (const surface of SURFACES) {
     const pane = await $.ui.mount({ plugin: 'pr-review-ui', surface, component: 'Pane', requestId: 'review', props: PANE_PROPS })
-    const code = await pane.find({ type: 'Code' })
-    expect(code?.props.format).toBe('diff')
-    expect(code?.text).toContain('+      "iam:PassRole",')
+    expect(await pane.find({ type: 'Text', text: /^\s*\+\s*$/ })).toBeTruthy()
+    expect(await pane.find({ type: 'Text', text: '"iam:PassRole",' })).toBeTruthy()
+    expect(await pane.find({ type: 'Text', text: /^▌\s*43 $/ })).toBeTruthy() // the reviewed lines carry a marker
+    expect(await pane.find({ type: 'Text', text: /^ \s*40 $/ })).toBeTruthy() // context lines do not
     expect(await pane.find({ type: 'Text', text: 'infra/' })).toBeTruthy()
+    expect(await pane.find({ type: 'Text', text: '▸ infra/iam.tf:42-44' })).toBeTruthy()
+    expect(await pane.find({ type: 'Text', text: 'Files in this PR' })).toBeTruthy()
+    expect(await pane.find({ type: 'Text', text: '● infra/iam.tf +3 −1' })).toBeTruthy()
     await pane.press({ key: 'psec:1' })
-    const source = await pane.find({ type: 'Code' })
-    expect(source?.props.startLine).toBe(11)
-    expect(source?.text).toContain('line 17')
+    await w.clock.settle()
+    await pane.redraw()
+    expect(await pane.find({ type: 'Text', text: /^▌\s*17 $/ })).toBeTruthy()
+    expect(await pane.find({ type: 'Text', text: 'line 17' })).toBeTruthy()
+    expect(await pane.find({ type: 'Text', text: /not changed in this PR/ })).toBeTruthy()
     await pane.press({ key: 'next' })
     expect(await pane.find({ type: 'Text', text: /Missing iam:UntagRole/ })).toBeTruthy()
     await pane.press({ key: 'prev' })
     await pane.unmount()
   }
+})
+
+test('the review shows its code as soon as its text arrives, once', { plugins: [fakeBrowser] }, async ($, on) => {
+  const w = world(on)
+  w.commands = ['browser']
+  w.answer = REVIEW
+  await start($)
+  await request($, w, 0)
+  await w.clock.settle()
+  expect(w.opened).toHaveLength(1)
+  expect(w.opened[0]).toMatch(/R42-R44$/)
+  await review($, w) // the turn ends with the same review: nothing opens again
+  expect(w.opened).toHaveLength(1)
+})
+
+test('a pane the terminal is too narrow for says how to open it', async ($, on) => {
+  const w = world(on)
+  w.isPlaced = false
+  await start($)
+  await review($, w)
+  expect(w.toasts.some(t => t.includes('waits for a wider terminal'))).toBe(true)
+  const band = await $.ui.mount({ plugin: 'pr-review-ui', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  w.isPlaced = true
+  await band.press({ key: 'showcode' })
+  expect(w.opens.filter(id => id === 'review')).toHaveLength(2)
+  expect(w.toasts.filter(t => t.includes('waits for a wider terminal'))).toHaveLength(1)
+})
+
+const editorRuns = (w: World) => w.argv.filter(a => !['gh', 'git'].includes(a[0] ?? ''))
+
+test('in VS Code on the PR head, the editor opens your checkout at the line, following each point', async ($, on) => {
+  const w = world(on, VSCODE)
+  await start($)
+  await review($, w)
+  expect(editorRuns(w)).toEqual([[VSCODE_CLI, '-r', '-g', '/work/infra/iam.tf:42']])
+  expect(w.opens).not.toContain('review')
+  expect(w.writes).toEqual([])
+  const band = await $.ui.mount({ plugin: 'pr-review-ui', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect(await band.find({ type: 'Text', text: /in the editor/ })).toBeTruthy()
+  expect(await band.find({ type: 'Button', key: 'checkout' })).toBe(undefined)
+  await band.press({ key: 'nextsec' })
+  expect(editorRuns(w).at(-1)).toEqual([VSCODE_CLI, '-r', '-g', '/work/infra/firehose.tf:17'])
+  await band.press({ key: 'band:1' })
+  expect(editorRuns(w).at(-1)).toEqual([VSCODE_CLI, '-r', '-g', '/work/infra/iam.tf:45'])
+})
+
+test('in VS Code on another commit, the editor opens a copy of the PR head until you check the PR out', async ($, on) => {
+  const w = world(on, VSCODE)
+  w.head = 'old456'
+  await start($)
+  await review($, w)
+  expect(w.writes).toEqual([HEAD_COPY])
+  expect(editorRuns(w)).toEqual([[VSCODE_CLI, '-r', '-g', `${HEAD_COPY}:42`]])
+  const band = await $.ui.mount({ plugin: 'pr-review-ui', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect(await band.find({ type: 'Text', text: /The editor shows a copy of the PR head/ })).toBeTruthy()
+  await band.press({ key: 'checkout' })
+  expect(w.argv.find(a => a.join(' ').startsWith('gh pr checkout'))).toEqual(['gh', 'pr', 'checkout', 'https://github.com/acme/billing/pull/12'])
+  expect(editorRuns(w).at(-1)).toEqual([VSCODE_CLI, '-r', '-g', '/work/infra/iam.tf:42'])
+  await band.redraw()
+  expect(await band.find({ type: 'Button', key: 'checkout' })).toBe(undefined)
+  expect(await band.find({ type: 'Text', text: /The editor shows/ })).toBe(undefined)
+})
+
+test('outside VS Code itself, code on the PATH is used; with no editor at all, the pane', async ($, on) => {
+  const w = world(on, { ...VSCODE, VSCODE_GIT_ASKPASS_NODE: '' })
+  w.editors = ['code']
+  await start($)
+  await review($, w)
+  expect(editorRuns(w)).toEqual([['code', '-r', '-g', '/work/infra/iam.tf:42']])
+  w.editors = []
+  await $.command.run({ command: 'point', args: '2', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 200 } })
+  expect(w.toasts.some(t => t.includes('Could not open VS Code'))).toBe(true)
+  expect(w.opens).toContain('review')
+})
+
+test('in a JetBrains terminal, the IDE that runs it opens the file at the line', async ($, on) => {
+  const w = world(on, INTELLIJ)
+  w.editors = ['open']
+  await start($)
+  await review($, w)
+  expect(editorRuns(w)).toEqual([['open', '-nb', 'com.jetbrains.intellij', '--args', '--line', '42', '/work/infra/iam.tf']])
+})
+
+test('an editor command set in config is used anywhere; codeView pane always uses the pane', { options: { ideCommand: 'goland' } }, async ($, on) => {
+  const w = world(on, GHOSTTY)
+  w.editors = ['goland']
+  await start($)
+  await review($, w)
+  expect(editorRuns(w)).toEqual([['goland', '--line', '42', '/work/infra/iam.tf']])
+})
+
+test('the desktop app uses the pane, even in VS Code', async ($, on) => {
+  const w = world(on, VSCODE, ['desktop'])
+  await start($)
+  await review($, w)
+  expect(editorRuns(w)).toEqual([])
+  expect(w.opens).toContain('review')
 })
 
 test('when terminal-browser is listed but cannot open, the pane takes over', async ($, on) => {

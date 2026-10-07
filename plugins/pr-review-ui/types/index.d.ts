@@ -19,6 +19,8 @@ export type Snippet =
   | { kind: 'source'; code: string; path: string; startLine: number; note: string }
   | { kind: 'error'; note: string }
 
+export type PrFileStat = { path: string; adds: number; dels: number }
+
 export type ReviewState = {
   /** Identifies the review message (a hash of its text); null with no review. */
   key: string | null
@@ -32,6 +34,14 @@ export type ReviewState = {
   urls: Record<string, string>
   /** Code fetched per code location (refKey), for the code pane. */
   snippets: Record<string, Snippet>
+  /** The PR's changed files, for the code pane's file list. */
+  files: PrFileStat[]
+  /** Where the last code location was shown. */
+  view: 'browser' | 'ide' | 'pane' | null
+  /** One line about what the editor shows (a PR-head copy, your checkout); null when nothing to say. */
+  ideNote: string | null
+  /** True when the editor shows a PR-head copy because the checkout is on another commit of the same repo. */
+  canCheckout: boolean
   error: string | null
 }
 

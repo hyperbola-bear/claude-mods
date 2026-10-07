@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Review a GitHub pull request, or the local uncommitted changes, as numbered points whose code pr-review-ui opens beside the conversation. Use whenever the user asks to review something and pastes a GitHub pull request link (github.com/.../pull/N), asks to review a PR, or asks to review a branch's changes or the working tree.
+description: Review a GitHub pull request, or the local uncommitted changes, as numbered points whose code pr-review-ui opens beside the conversation (in the editor, terminal-browser or a code pane). Use whenever the user asks to review something and pastes a GitHub pull request link (github.com/.../pull/N), asks to review a PR, or asks to review a branch's changes or the working tree.
 argument-hint: "[PR URL or number, or nothing for local changes]"
 ---
 

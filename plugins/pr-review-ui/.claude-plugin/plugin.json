@@ -1,10 +1,10 @@
 {
   "name": "pr-review-ui",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "Polar"
   },
-  "description": "PR reviews as numbered points in the conversation; picking a point opens its code beside it in terminal-browser (the GitHub page, lines highlighted), or in a code pane.",
+  "description": "PR reviews as numbered points in the conversation; picking a point opens its code beside it: in your editor when Claude Code runs in a VS Code or JetBrains terminal, in terminal-browser in Ghostty or kitty, or in a code pane.",
   "types": "./types/index.d.ts",
   "license": "MIT",
   "keywords": [
@@ -12,19 +12,28 @@
     "github",
     "pull-requests",
     "terminal-browser",
+    "vscode",
+    "jetbrains",
     "mod"
   ],
   "userConfig": {
     "codeView": {
       "type": "string",
       "title": "Where review code shows",
-      "description": "auto opens each point's code in terminal-browser when it is installed (the GitHub page, lines highlighted) and falls back to this mod's code pane; browser always uses terminal-browser; pane always uses the code pane.",
+      "description": "auto follows your terminal: the editor in a VS Code or JetBrains terminal, terminal-browser (the GitHub page, lines highlighted) in Ghostty or kitty when it is installed, and the code pane everywhere else, including the desktop app. ide, browser and pane pick one always.",
       "options": [
         "auto",
+        "ide",
         "browser",
         "pane"
       ],
       "default": "auto"
+    },
+    "ideCommand": {
+      "type": "string",
+      "title": "Editor command",
+      "description": "The command that opens a file at a line, such as code, cursor, idea or goland. Leave empty to find VS Code or the JetBrains IDE you run Claude Code in.",
+      "default": ""
     },
     "ghPath": {
       "type": "string",
