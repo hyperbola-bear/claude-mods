@@ -1049,3 +1049,29 @@ test('the Ladder’s rows are counted as it wraps, so a narrow 12-row band folds
     await band.unmount()
   }
 })
+
+test('/hud-styles shows Rail, Ladder and Meter side by side, the same tree on every surface, and Use switches', async ($, on) => {
+  const w = world(on)
+  w.settings = { ...w.settings, effortLevel: 'xhigh' }
+  await start($)
+  expect((await $.command.run({ command: 'hud-styles', args: '', ...RUN })).text).toContain('In use: Rail')
+  expect(w.opens).toContain('styles')
+  const drawn: string[] = []
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'styles', props: { ...PANE_PROPS, title: 'Picker styles', bodyColumns: 60 } })
+    // Each style in full, even in a pane narrower than its columns.
+    expect(await pane.find({ type: 'Box', key: 'rail-rail-model-opus' })).toBeTruthy()
+    expect(await pane.find({ type: 'Box', key: 'step-ladder-effort-ultracode' })).toBeTruthy()
+    expect(await pane.find({ type: 'Box', key: 'meter-meter-effort-xhigh' })).toBeTruthy()
+    expect(await pane.find({ type: 'Text', text: '● in use' })).toBeTruthy()
+    drawn.push(JSON.stringify(await pane.drawn(), (k, v: unknown) => (k === 'press' ? undefined : v)))
+    if (surface === 'desktop') {
+      await pane.press({ key: 'use-meter' })
+      await pane.press({ key: 'ladder-effort-max' })
+    }
+    await pane.unmount()
+  }
+  expect(drawn[1]).toBe(drawn[0])
+  expect(w.configSets).toEqual([['user-hud.selectorStyle', 'meter']])
+  expect(w.commandLines).toEqual(['/effort max'])
+})

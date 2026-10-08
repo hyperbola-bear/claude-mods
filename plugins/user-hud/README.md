@@ -48,7 +48,7 @@ TOKENS  ████████████████ 1.2M · Files 38% · Sy
 
 The model colours run from blue, orange's complement, to orange as the models get more capable (Haiku, Sonnet, Opus, Fable). The effort colours run from one grey at Low to the full rainbow at Ultracode: each step up spans more of the spectrum, more saturated. Each step sits in its own segment with a gap between, the bar between the levels.
 
-Three styles; **Picker style** in the panel (or in `/config`) switches between them:
+Three styles; **Picker style** in the panel (or in `/config`) switches between them, and `/hud-styles` opens a pane that draws all three side by side with your model and effort, a **Use** button under each:
 
 - **Rail** (the default): the labels over a segmented bar, one segment per step. The chosen step's segment is solid; the others are a thin line in their own colour, so the whole ramp is always on show. Two rows a picker.
 - **Ladder**: one row. Before each label a strip that grows a cell per step up, in that step's colours; the chosen one is full blocks, the others half blocks. The most compact.
