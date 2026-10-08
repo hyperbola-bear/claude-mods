@@ -1,0 +1,34 @@
+{
+  "name": "ask",
+  "version": "0.1.0",
+  "author": {
+    "name": "Polar"
+  },
+  "description": "A side chat in a pane that reads the main chat, scrolls and draws: /ask a question, /draw a diagram. Nothing goes back to the main chat unless you send it. Answers are Mermaid drawn as box art in the terminal and as SVG in the desktop app.",
+  "types": "./types/index.d.ts",
+  "license": "MIT",
+  "keywords": [
+    "side-chat",
+    "pane",
+    "diagrams",
+    "mermaid",
+    "visual-explanations",
+    "mod"
+  ],
+  "userConfig": {
+    "liveModel": {
+      "type": "string",
+      "title": "Model before the first turn",
+      "description": "Before the session's first turn there is no main chat to fork, so a question is answered by a plain completion over the transcript with this model. Forks always use the session's model.",
+      "default": "haiku"
+    },
+    "keep": {
+      "type": "number",
+      "title": "Questions kept in the pane",
+      "description": "How many exchanges the pane keeps; older ones scroll away for good.",
+      "default": 30,
+      "min": 1,
+      "max": 200
+    }
+  }
+}

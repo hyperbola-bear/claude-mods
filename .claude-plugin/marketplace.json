@@ -14,6 +14,11 @@
       "name": "pr-review-ui",
       "source": "./plugins/pr-review-ui",
       "description": "PR reviews as numbered points in one standard format; the PR is checked out into a review worktree and each point's code opens beside the review with the changes highlighted: in your editor, in terminal-browser, or in a code pane."
+    },
+    {
+      "name": "ask",
+      "source": "./plugins/ask",
+      "description": "A side chat in a pane that reads the main chat, scrolls and draws: /ask a question, /draw a diagram. Nothing goes back to the main chat unless you send it. Answers are Mermaid drawn as box art in the terminal and as SVG in the desktop app."
     }
   ]
 }
