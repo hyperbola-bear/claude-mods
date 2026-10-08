@@ -75,8 +75,8 @@ import {
 import { HANDOFF_DIRS, age, handoffPrompt, handoffTarget, isHandoffName, joinPath, newest, resumePrompt } from './handoff.ts'
 import { MODELS, asEffort, footerRule, lifeBar, modelAlias, modelLabel, nextWarn, sectionRule } from './hud.ts'
 import { picker, pickerRows, styleAt, tinted } from './pickers.tsx'
-import type { PickerOption } from './pickers.tsx'
-import { EFFORT_COLORS, EFFORT_STEPS, MODEL_COLORS, asStyle, effortStep, nextStyle, parseEffortArgs, styleLabel, ultracodeTook } from './selector.ts'
+import type { PickerOption, Ui } from './pickers.tsx'
+import { EFFORT_COLORS, EFFORT_STEPS, MODEL_COLORS, SELECTOR_STYLES, asStyle, effortStep, nextStyle, parseEffortArgs, styleLabel, ultracodeTook } from './selector.ts'
 import type { EffortStep } from './selector.ts'
 import { stackedBar, tokenPane } from './tokenview.tsx'
 import {
@@ -105,6 +105,9 @@ import type { Attribution, Row, ToolUse } from './tokens.ts'
 const STORE_OPEN = 'panelOpen'
 const HANDOFF_PANE = 'handoff'
 const TOKENS_PANE = 'tokens'
+const STYLES_PANE = 'styles'
+/** The width the styles pane asks for: Rail's and Meter's columns, beside the field names. */
+const STYLES_PANE_COLUMNS = 76
 const PANEL_WIDTH = 72
 /** The column the field names (MODEL, EFFORT, TOKENS) sit in. */
 const FIELD_WIDTH = 8
@@ -347,6 +350,43 @@ async function cycleStyle($: EngineInterface) {
   await setOption($, 'selectorStyle', nextStyle(cfg.selectorStyle))
 }
 
+// ---------- pickers ----------
+
+/** The model and effort options as the pickers draw them; `prefix` keeps the keys of several drawings apart. */
+function pickerOptions($: EngineInterface, hud: HudState, prefix = ''): { model: PickerOption[]; effort: PickerOption[] } {
+  const alias = modelAlias(hud.model)
+  const step = effortStep(hud.effort, hud.ultracode)
+  return {
+    model: MODELS.map(m => ({
+      key: `${prefix}model-${m.alias}`,
+      label: m.label,
+      colors: [MODEL_COLORS[m.alias] ?? '#888888'],
+      isOn: alias === m.alias,
+      onPress: () => void pickModel($, m.alias),
+    })),
+    effort: EFFORT_STEPS.map(f => ({
+      key: `${prefix}effort-${f.step}`,
+      label: f.label,
+      colors: EFFORT_COLORS[f.step],
+      isOn: step === f.step,
+      onPress: () => void pickEffort($, f.step),
+    })),
+  }
+}
+
+/** A field's name in its column, then its body; beside the body's last row where the labels sit last (the Meter). */
+function fieldRow(ui: Ui, label: string, body: JSX.Element, isLabelLast = false) {
+  const { Box, Text } = ui
+  return (
+    <Box key={`field-${label}`} flexDirection="row" alignItems={isLabelLast ? 'flex-end' : 'flex-start'}>
+      <Box width={FIELD_WIDTH} flexShrink={0}>
+        <Text dimColor>{label}</Text>
+      </Box>
+      {body}
+    </Box>
+  )
+}
+
 // ---------- token usage ----------
 
 function remember(uses: readonly ToolUse[]) {
@@ -533,6 +573,7 @@ export const register: Register = (on, given) => {
     await $.command.register({ name: 'keepwarm', description: 'Refresh the prompt cache now with a one-line ping (adds nothing to the chat)' })
     await $.command.register({ name: 'read-handoff', description: 'Show the newest handoff note, with a button to continue from it' })
     await $.command.register({ name: 'hud', description: 'Open or close the user-hud panel in the corner above the prompt' })
+    await $.command.register({ name: 'hud-styles', description: 'The three picker styles side by side (Rail, Ladder, Meter), with a button to use each' })
     await $.command.register({ name: 'tokens', description: 'Where this session’s tokens went: files, chat, MCP, shell, skills and plugins, subagents and more' })
 
     const isOpen = (await $.store.get(STORE_OPEN).catch(() => undefined)) === true
@@ -715,6 +756,11 @@ export const register: Register = (on, given) => {
     return { text: isOpen ? 'user-hud panel closed.' : 'user-hud panel open.' }
   })
 
+  on('command.run', { command: 'hud-styles' }, async $ => {
+    await $.ui.open({ id: STYLES_PANE, title: 'Picker styles', columns: STYLES_PANE_COLUMNS }).catch(() => {})
+    return { text: `Picker styles: Rail, Ladder and Meter side by side. In use: ${styleLabel(cfg.selectorStyle)}.` }
+  })
+
   on('command.run', { command: 'tokens' }, async $ => {
     await openTokensPane($).catch(() => {})
     return { text: summary(await read($, tokensA)) }
@@ -819,31 +865,11 @@ export const register: Register = (on, given) => {
           <Button key={`set-${key}`} plain label={` ${label} `} onPress={onPress} />
         </Box>
       )
-    const field = (label: string, body: JSX.Element, isLabelLast = false) => (
-      <Box key={`field-${label}`} flexDirection="row" alignItems={isLabelLast ? 'flex-end' : 'flex-start'}>
-        <Box width={FIELD_WIDTH} flexShrink={0}>
-          <Text dimColor>{label}</Text>
-        </Box>
-        {body}
-      </Box>
-    )
+    const field = (label: string, body: JSX.Element, isLabelLast = false) => fieldRow(ui, label, body, isLabelLast)
 
     // The pickers: the same tree on every surface, in the style chosen.
     const pickerWidth = width - FIELD_WIDTH
-    const modelOptions: PickerOption[] = MODELS.map(m => ({
-      key: `model-${m.alias}`,
-      label: m.label,
-      colors: [MODEL_COLORS[m.alias] ?? '#888888'],
-      isOn: alias === m.alias,
-      onPress: () => void pickModel($, m.alias),
-    }))
-    const effortOptions: PickerOption[] = EFFORT_STEPS.map(f => ({
-      key: `effort-${f.step}`,
-      label: f.label,
-      colors: EFFORT_COLORS[f.step],
-      isOn: step === f.step,
-      onPress: () => void pickEffort($, f.step),
-    }))
+    const { model: modelOptions, effort: effortOptions } = pickerOptions($, hud)
     const style = styleAt(cfg.selectorStyle, pickerWidth, [modelOptions.map(o => o.label), effortOptions.map(o => o.label)])
     const pickerRowCount = pickerRows(style, pickerWidth, modelOptions) + pickerRows(style, pickerWidth, effortOptions)
     // The Meter's labels sit under its bars: the field name goes beside the labels.
@@ -1014,6 +1040,41 @@ export const register: Register = (on, given) => {
           {panel}
           {tab}
         </Box>
+      </Box>
+    )
+  })
+
+  // ---------- picker styles pane ----------
+
+  // The three styles drawn as the panel draws them, each in full whatever the pane's width.
+  on('ui.render', { component: 'Pane', requestId: STYLES_PANE }, async ($, e) => {
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Button } = ui
+    const hud = await read($, hudA)
+    const width = Math.max(e.props.bodyColumns, STYLES_PANE_COLUMNS) - FIELD_WIDTH
+    return (
+      <Box flexDirection="column" rowGap={1}>
+        <Text dimColor wrap="wrap">
+          Model: blue to orange as the models get more capable. Effort: one grey to the full rainbow at Ultracode. Each style is the same tree on every surface; pressing a step here picks it.
+        </Text>
+        {SELECTOR_STYLES.map(st => {
+          const options = pickerOptions($, hud, `${st.style}-`)
+          const isLabelLast = st.style === 'meter'
+          return (
+            <Box key={`style-${st.style}`} flexDirection="column">
+              <Box flexDirection="row" columnGap={2}>
+                <Text bold>{st.label}</Text>
+                {cfg.selectorStyle === st.style ? (
+                  <Text color="success">● in use</Text>
+                ) : (
+                  <Button key={`use-${st.style}`} label={`Use ${st.label}`} onPress={() => void setOption($, 'selectorStyle', st.style)} />
+                )}
+              </Box>
+              {fieldRow(ui, 'MODEL', picker(ui, st.style, options.model, width), isLabelLast)}
+              {fieldRow(ui, 'EFFORT', picker(ui, st.style, options.effort, width), isLabelLast)}
+            </Box>
+          )
+        })}
       </Box>
     )
   })
