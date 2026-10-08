@@ -84,7 +84,8 @@ import type { Band, Setting } from './panelgrid.ts'
 import { fittedStyle, layout, parsePick } from './selectorgrid.ts'
 import type { GridField } from './selectorgrid.ts'
 import type { Ui } from './ui.ts'
-import { tokenPane } from './tokenview.tsx'
+import { handoffPaneGrid } from './handoffview.ts'
+import { tokensPaneGrid } from './tokenview.ts'
 import {
   addShares,
   attributeAgent,
@@ -405,6 +406,22 @@ async function runAction($: EngineInterface, action: unknown) {
   if (action === 'tokens') return openTokensPane($)
   if (action === 'handoff') return runHandoff($)
   if (action === 'readhandoff') return openHandoffPane($)
+  if (action === 'tokens:refresh') return refreshStanding($, true)
+  if (action === 'tokens:reset') return restartTokens($)
+  if (action.startsWith('handoff:')) return pressHandoff($, action.slice('handoff:'.length))
+}
+
+/** The Handoff pane's actions: continue from the note shown, step to an older or newer one, look again. */
+async function pressHandoff($: EngineInterface, what: string) {
+  const ho = await read($, handoffA)
+  const file = ho.files[ho.index]
+  if (what === 'continue' && file) return void $.prompt.submit({ text: resumePrompt(file.path) })
+  if (what === 'older' && ho.index < ho.files.length - 1) return loadHandoff($, ho.index + 1)
+  if (what === 'newer' && ho.index > 0) return loadHandoff($, ho.index - 1)
+  if (what === 'rescan') {
+    await scanHandoffs($)
+    return loadHandoff($, 0)
+  }
 }
 
 /** Whether a surface paints grids as a `Client`: the terminal and the desktop, unless a grid failed there. */
@@ -425,6 +442,7 @@ function cellsElement(ui: Ui, surface: string, key: string, band: Band, onAction
     <Box key={key} flexDirection="column">
       {band.rows.map((row, y) => (
         <Text key={`${key}-row-${y}`} wrap="truncate">
+          {row.length === 0 ? ' ' : null}
           {row.map((run, i) => (
             <Text key={`${key}-run-${y}-${i}`} color={run.color || undefined} backgroundColor={run.bg || undefined} dimColor={run.isDim} bold={run.isBold}>
               {run.text}
@@ -961,51 +979,16 @@ export const register: Register = (on, given) => {
   // ---------- tokens pane ----------
 
   on('ui.render', { component: 'Pane', requestId: TOKENS_PANE }, async ($, e) => {
-    const ui = $.ui.resolve(e)
-    const tokens = await read($, tokensA)
-    return tokenPane(ui, tokens, Math.max(20, e.props.bodyColumns - 2), {
-      refresh: () => void refreshStanding($, true),
-      reset: () => void restartTokens($),
-    })
+    const ui: Ui = $.ui.resolve(e)
+    const grid = tokensPaneGrid(await read($, tokensA), Math.max(20, e.props.bodyColumns))
+    return cellsElement(ui, e.surface, 'tokens', grid, a => void runAction($, a))
   })
 
   // ---------- handoff pane ----------
 
   on('ui.render', { component: 'Pane', requestId: HANDOFF_PANE }, async ($, e) => {
-    const { Box, Text, Button, Markdown } = $.ui.resolve(e)
-    const ho = await read($, handoffA)
-    const now = await $.clock.now()
-    const file = ho.files[ho.index]
-    if (!file) {
-      return (
-        <Box flexDirection="column">
-          <Text dimColor wrap="wrap">
-            No handoff note found in this project. Press h on the band to write one{ho.hasCommand ? ' with your /handoff command' : ' (it goes to .claude/handoffs/)'}.
-          </Text>
-          <Button key="write" label="Write a handoff" hotkey="h" variant="primary" onPress={() => void runHandoff($)} />
-        </Box>
-      )
-    }
-    return (
-      <Box flexDirection="column">
-        <Box flexDirection="row" flexWrap="wrap" gap={1}>
-          <Button key="continue" label="Continue from this" hotkey="c" variant="primary" onPress={() => void $.prompt.submit({ text: resumePrompt(file.path) })} />
-          {ho.index < ho.files.length - 1 && <Button key="older" label="Older" hotkey="o" dimColor onPress={() => void loadHandoff($, ho.index + 1)} />}
-          {ho.index > 0 && <Button key="newer" label="Newer" hotkey="n" dimColor onPress={() => void loadHandoff($, ho.index - 1)} />}
-          <Button key="rescan" label="Rescan" hotkey="r" dimColor onPress={() => void scanHandoffs($).then(() => loadHandoff($, 0))} />
-        </Box>
-        <Text color="suggestion" wrap="truncate-start">
-          {file.path} · {age(file.mtimeMs, now)}
-          {ho.files.length > 1 ? ` · ${ho.index + 1} of ${ho.files.length}` : ''}
-        </Text>
-        {ho.error && (
-          <Text color="error" wrap="wrap">
-            {ho.error}
-          </Text>
-        )}
-        {ho.text !== null && <Markdown key="handoff" text={ho.text.length > 20_000 ? `${ho.text.slice(0, 20_000)}\n\n…` : ho.text} />}
-        {ho.text === null && !ho.error && <Text dimColor>Loading…</Text>}
-      </Box>
-    )
+    const ui: Ui = $.ui.resolve(e)
+    const grid = handoffPaneGrid(await read($, handoffA), await $.clock.now(), Math.max(20, e.props.bodyColumns))
+    return cellsElement(ui, e.surface, 'handoff', grid, a => void runAction($, a))
   })
 }

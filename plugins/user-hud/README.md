@@ -59,7 +59,7 @@ The pickers are part of the band's grid: click an option to pick it, or move to 
 
 ## Tokens
 
-The **TOKENS** row is one stacked bar of where this session's tokens went, with the total and the two largest groups. **Details** (`t`), or `/tokens`, opens the Tokens pane: the API's own totals (cache read, cache write, new input, output, and the cost where Claude Code keeps one), then each group with its share, what it used, what it holds in the context now, its calls, and what it was made of.
+The **TOKENS** row is one stacked bar of where this session's tokens went, with the total and the two largest groups. **Details** (`t`), or `/tokens`, opens the Tokens pane, a grid of cells like the band (**Refresh** `r`, **Reset** `x`): the API's own totals (cache read, cache write, new input, output, and the cost where Claude Code keeps one), then each group with its share, what it used, what it holds in the context now, its calls, and what it was made of.
 
 | Group | What lands there |
 | --- | --- |
@@ -95,7 +95,7 @@ How it counts:
 ## Handoff
 
 - **Write handoff** (`h`) runs your `/handoff` command. Without one, it asks Claude to write a note to `.claude/handoffs/<date>-<time>.md`.
-- **Read handoff** (`r`, or `/read-handoff`) opens the newest note with **Continue from this** (`c`), **Older** and **Newer**.
+- **Read handoff** (`r`, or `/read-handoff`) opens the newest note with **Continue from this** (`c`), **Older** (`o`), **Newer** (`n`) and **Rescan** (`r`). The note is drawn as text in the pane's grid of cells: headings bold, code dim, list items wrapped under their text.
 - Notes are found in `HANDOFF.md`, `.claude/`, `.claude/handoffs/`, `handoffs/` and `docs/`. If yours live elsewhere, set **Handoff note location** in `/config`.
 
 Band hotkeys (`w`, `h`, `r`, `t`) work once you have clicked into the band. `h`, `r` and `t` work while the panel is open; with it closed, `/handoff`, `/read-handoff` and `/tokens` still do.
