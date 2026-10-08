@@ -1,13 +1,14 @@
-// What the review needs on this machine: the GitHub CLI, and for GitHub pages
-// beside the review, Ghostty and terminal-browser. Nothing is installed
-// without asking: each missing one gets its own question first.
+// What code-reference can use on this machine: the GitHub CLI for pull
+// requests, and for a PR's GitHub page, Ghostty and terminal-browser. None is
+// required (reviews fall back to a GitHub MCP server or plain git), and
+// nothing is installed without asking: each missing one gets its own question.
 import { clean } from './gh.ts'
 
 export type DepId = 'gh' | 'ghostty' | 'terminal-browser'
 
 type Dep = {
   name: string
-  /** The review cannot read a PR without it. */
+  /** Asked about before every review while missing, not just once. */
   isRequired: boolean
   question: string
   steps: string[][]
@@ -18,8 +19,8 @@ type Dep = {
 export const DEPS: Record<DepId, Dep> = {
   gh: {
     name: 'the GitHub CLI',
-    isRequired: true,
-    question: 'pr-review-ui reads pull requests with the GitHub CLI (gh), which is not installed. Install it with Homebrew (brew install gh)?',
+    isRequired: false,
+    question: 'code-reference reads pull requests fastest with the GitHub CLI (gh), which is not installed; without it, reviews go through a GitHub MCP server or plain git. Install it with Homebrew (brew install gh)?',
     steps: [['brew', 'install', 'gh']],
     done: 'The GitHub CLI is installed. Sign in once with gh auth login in a terminal.',
     manual: 'brew install gh, then gh auth login',
@@ -27,7 +28,7 @@ export const DEPS: Record<DepId, Dep> = {
   ghostty: {
     name: 'Ghostty',
     isRequired: false,
-    question: 'Ghostty is a terminal where pr-review-ui can show the PR\'s GitHub page beside the review (with terminal-browser). Install it with Homebrew (brew install --cask ghostty)?',
+    question: 'Ghostty is a terminal where code-reference can show a PR\'s GitHub page when you ask for it (with terminal-browser). Install it with Homebrew (brew install --cask ghostty)?',
     steps: [['brew', 'install', '--cask', 'ghostty']],
     done: 'Ghostty is installed: open it from Applications and run claude there.',
     manual: 'brew install --cask ghostty',
@@ -35,7 +36,7 @@ export const DEPS: Record<DepId, Dep> = {
   'terminal-browser': {
     name: 'terminal-browser',
     isRequired: false,
-    question: 'terminal-browser draws the PR\'s GitHub page inside Ghostty or kitty, with each point\'s lines highlighted. Install it (brew install terminal-browser, then its Claude Code plugin)?',
+    question: 'terminal-browser draws a PR\'s GitHub page inside Ghostty or kitty, the lines you are looking at highlighted, when you press github in the code pane. Install it (brew install terminal-browser, then its Claude Code plugin)?',
     steps: [
       ['brew', 'install', 'terminal-browser'],
       ['claude', 'plugin', 'marketplace', 'add', 'zenbu-labs/terminal-browser'],
@@ -98,7 +99,7 @@ export function toOffer(missing: readonly DepId[], mode: SetupMode, stored: Stor
 
 async function install(io: SetupIo, id: DepId): Promise<boolean> {
   const dep = DEPS[id]
-  io.status(`pr-review-ui: installing ${dep.name}…`)
+  io.status(`code-reference: installing ${dep.name}…`)
   try {
     for (const argv of dep.steps) {
       const r = await io.run(argv, 600_000)
@@ -126,12 +127,12 @@ export async function offerSetup(io: SetupIo, facts: SetupFacts, mode: SetupMode
   const offer = toOffer(missing, mode, stored)
   const lines: string[] = []
   if (offer.length === 0) {
-    if (mode === 'command') lines.push(missing.length === 0 ? 'Everything pr-review-ui uses is installed.' : 'Nothing to install.')
+    if (mode === 'command') lines.push(missing.length === 0 ? 'Everything code-reference uses is installed.' : 'Nothing to install.')
     return lines
   }
   if (!(await runs(io, ['brew', '--version']))) {
     const names = offer.map(id => DEPS[id].name).join(', ')
-    const text = `pr-review-ui would install ${names} with Homebrew, which is not installed: see https://brew.sh, or install them yourself.`
+    const text = `code-reference would install ${names} with Homebrew, which is not installed: see https://brew.sh, or install them yourself.`
     io.toast(text, 15_000)
     await io.save({ ...stored, isAsked: true }).catch(() => undefined)
     return [text]
@@ -148,7 +149,7 @@ export async function offerSetup(io: SetupIo, facts: SetupFacts, mode: SetupMode
     }
     if (answer === ANSWER.never) {
       never.add(id)
-      lines.push(`${dep.name}: will not ask again (run /review-setup to install it later).`)
+      lines.push(`${dep.name}: will not ask again (run /code-reference-setup to install it later).`)
       continue
     }
     if (answer !== ANSWER.yes) {
