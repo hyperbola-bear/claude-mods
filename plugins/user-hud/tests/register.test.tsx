@@ -3,8 +3,30 @@ import type { Engine } from 'claude-code/testing'
 import type { On, Register, SessionContextBreakdown } from 'claude-code'
 
 import { EFFORT_COLORS, MODEL_COLORS } from '../hooks/selector.ts'
+import { layout, plain } from '../hooks/selectorgrid.ts'
+import type { GridProps } from '../hooks/selectorgrid.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
+/** The pickers' grid as the band handed it to its surface module. */
+async function gridOf(drawing: { find: (q: { type: string; key: string }) => Promise<{ props: Record<string, unknown> } | undefined> }, key = 'pickers') {
+  return (await drawing.find({ type: 'Client', key }))?.props.props as GridProps | undefined
+}
+
+/** Which option of a field the grid shows chosen. */
+async function chosen(drawing: Parameters<typeof gridOf>[0], kind: 'model' | 'effort', key = 'pickers') {
+  return (await gridOf(drawing, key))?.fields.find(f => f.kind === kind)?.options.find(o => o.isOn)?.id
+}
+
+/** Clicks an option where the grid draws it, as a pointer on either surface does. */
+async function click(drawing: Parameters<typeof gridOf>[0] & { pointer: (e: { type: 'down'; x: number; y: number; button: 'left'; in: string }) => Promise<void> }, kind: 'model' | 'effort', id: string, key = 'pickers') {
+  const grid = await gridOf(drawing, key)
+  const hit = grid && layout(grid).hits.find(h => h.kind === kind && h.id === id)
+  if (!hit) throw new Error(`no ${kind} ${id} in the grid`)
+  await drawing.pointer({ type: 'down', x: hit.x0 + 1, y: hit.y, button: 'left', in: key })
+}
+
+/** What a drawing looks like with the buttons' per-mount handles left out. */
+const shape = (v: unknown) => JSON.stringify(v, (k, x: unknown) => (k === 'press' ? undefined : x))
 
 const BAND = (isWorking = false) => ({
   hasSurvey: false,
@@ -560,11 +582,14 @@ test('the corner tab opens and closes the panel, and /hud does the same', async 
     const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
     expect((await band.find({ type: 'Button', key: 'panel' }))?.props.label).toBe('◆ user-hud ▴')
     expect(await band.find({ type: 'Button', key: 'handoff' })).toBe(undefined)
-    expect(await band.find({ type: 'Button', key: 'model-opus' })).toBe(undefined)
+    expect(await band.find({ type: 'Client', key: 'pickers' })).toBe(undefined)
     await band.press({ key: 'panel' })
     expect((await band.find({ type: 'Button', key: 'panel' }))?.props.label).toBe('◆ user-hud ▾')
-    for (const key of ['model-haiku', 'model-fable', 'effort-low', 'effort-max', 'set-autoKeepWarm', 'set-warnSeconds', 'handoff']) {
+    for (const key of ['set-autoKeepWarm', 'set-warnSeconds', 'set-selectorStyle', 'handoff', 'tokens']) {
       expect(await band.find({ type: 'Button', key }), key).toBeTruthy()
+    }
+    for (const label of ['Haiku 4.5', 'Fable 5.1', 'Low', 'Ultracode']) {
+      expect(await band.find({ type: 'Text', text: label, in: 'pickers' }), label).toBeTruthy()
     }
     // Open, the status moves into the panel rather than showing twice.
     expect(await band.find({ type: 'Text', text: '◆ 5:00' })).toBe(undefined)
@@ -621,7 +646,7 @@ test('the one-row Ladder keeps the settings rows at 12 rows, under the SETTINGS 
   expect(await band.find({ type: 'Box', key: 'row-selectorStyle' })).toBeTruthy()
 })
 
-test('the pickers are one tree on every surface; the settings use the desktop’s own buttons', { options: { sound: true, autoKeepWarm: false } }, async ($, on) => {
+test('the pickers are one grid of cells on the terminal and the desktop, with no native buttons; the settings use the desktop’s own', { options: { sound: true, autoKeepWarm: false } }, async ($, on) => {
   const w = world(on)
   w.settings = { ...w.settings, effortLevel: 'high' }
   await start($)
@@ -629,12 +654,9 @@ test('the pickers are one tree on every surface; the settings use the desktop’
   for (const surface of SURFACES) {
     const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
     await openPanel(band)
-    // Plain buttons whatever the surface: the colour and the bars are the plugin's own.
-    expect((await band.find({ type: 'Button', key: 'model-opus' }))?.props).toMatchObject({ label: 'Opus 5.5', plain: true })
-    expect((await band.find({ type: 'Button', key: 'model-opus' }))?.props.variant).toBe(undefined)
-    // Each mount hands its buttons fresh handles; everything drawn is compared.
-    const pickers = [await band.find({ type: 'Box', key: 'field-MODEL' }), await band.find({ type: 'Box', key: 'field-EFFORT' })]
-    drawn[surface] = JSON.stringify(pickers, (k, v: unknown) => (k === 'press' ? undefined : v))
+    expect(await band.findAll({ type: 'Button', in: 'pickers' })).toEqual([])
+    expect(await band.find({ type: 'Button', key: 'model-opus' })).toBe(undefined)
+    drawn[surface] = shape([await band.find({ type: 'Client', key: 'pickers' }), await band.drawn({ in: 'pickers' })])
     await band.press({ key: 'panel' })
     await band.unmount()
   }
@@ -650,12 +672,16 @@ test('the pickers are one tree on every surface; the settings use the desktop’
   expect((await terminal.find({ type: 'Button', key: 'set-sound' }))?.props.label).toBe(' ● On ')
 })
 
-/** The Rail segment under an option: filled Boxes when chosen, a thin line in its colour when not. */
-async function segment(band: { find: (q: { type: string; key: string }) => Promise<{ children: unknown[] } | undefined> }, key: string) {
-  const seg = await band.find({ type: 'Box', key: `rail-${key}` })
-  const text = JSON.stringify(seg?.children ?? [])
-  return { isFilled: !text.includes('▔'), colors: [...text.matchAll(/#[0-9a-f]{6}/g)].map(m => m[0]) }
-}
+test('a surface with no Client (VS Code) gets the button pickers', async ($, on) => {
+  const w = world(on)
+  await start($)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'vscode', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await openPanel(band)
+  expect(await band.find({ type: 'Client', key: 'pickers' })).toBe(undefined)
+  expect(await band.find({ type: 'Button', key: 'model-opus' })).toBeTruthy()
+  await band.press({ key: 'model-sonnet' })
+  expect(w.commandLines).toEqual(['/model sonnet'])
+})
 
 test('the model and effort pickers run /model and /effort and show what requests carry', async ($, on) => {
   const w = world(on)
@@ -665,18 +691,18 @@ test('the model and effort pickers run /model and /effort and show what requests
   expect(await band.find({ type: 'Text', text: 'Opus 5.5 · High' })).toBeTruthy()
 
   await openPanel(band)
-  expect(await segment(band, 'model-opus')).toEqual({ isFilled: true, colors: [MODEL_COLORS.opus] })
-  expect(await segment(band, 'model-sonnet')).toEqual({ isFilled: false, colors: [MODEL_COLORS.sonnet] })
-  expect((await segment(band, 'effort-high')).isFilled).toBe(true)
-  expect((await segment(band, 'effort-high')).colors).toEqual([...EFFORT_COLORS.high])
+  expect([await chosen(band, 'model'), await chosen(band, 'effort')]).toEqual(['opus', 'high'])
+  // Rail: the chosen segment is solid in its colours, the others a thin line in theirs.
+  const grid = (await gridOf(band))!
+  const rows = layout(grid).rows
+  expect(rows[1]!.some(r => r.bg === MODEL_COLORS.opus)).toBe(true)
+  expect(rows[1]!.some(r => r.color === MODEL_COLORS.sonnet && r.text.startsWith('▔'))).toBe(true)
 
-  await band.press({ key: 'model-opus' }) // already in use: nothing runs
-  await band.press({ key: 'model-sonnet' })
-  await band.press({ key: 'effort-max' })
+  await click(band, 'model', 'opus') // already in use: nothing runs
+  await click(band, 'model', 'sonnet')
+  await click(band, 'effort', 'max')
   expect(w.commandLines).toEqual(['/model sonnet', '/effort max'])
-  expect((await segment(band, 'model-sonnet')).isFilled).toBe(true)
-  expect((await segment(band, 'model-opus')).isFilled).toBe(false)
-  expect((await segment(band, 'effort-max')).isFilled).toBe(true)
+  expect([await chosen(band, 'model'), await chosen(band, 'effort')]).toEqual(['sonnet', 'max'])
 
   // The next request carries xhigh (the model's ceiling): the panel shows what is really used.
   await request($, w, 40_000, 'xhigh')
@@ -746,7 +772,7 @@ test('the settings toggles write their /config rows and take effect at once', { 
 const RUN = { origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 120 } }
 
 for (const selectorStyle of ['rail', 'ladder', 'meter'] as const) {
-  test(`the ${selectorStyle} pickers draw the same tree on the terminal and the desktop`, { options: { selectorStyle } }, async ($, on) => {
+  test(`the ${selectorStyle} pickers draw the same grid on the terminal and the desktop`, { options: { selectorStyle } }, async ($, on) => {
     const w = world(on)
     w.settings = { ...w.settings, effortLevel: 'xhigh' }
     await start($)
@@ -754,11 +780,12 @@ for (const selectorStyle of ['rail', 'ladder', 'meter'] as const) {
     for (const surface of SURFACES) {
       const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
       await openPanel(band)
-      for (const key of ['model-haiku', 'model-fable', 'effort-low', 'effort-ultracode']) expect(await band.find({ type: 'Button', key }), key).toBeTruthy()
-      const pickers = [await band.find({ type: 'Box', key: 'field-MODEL' }), await band.find({ type: 'Box', key: 'field-EFFORT' })]
-      drawn.push(JSON.stringify(pickers, (k, v: unknown) => (k === 'press' ? undefined : v)))
+      expect((await gridOf(band))?.style).toBe(selectorStyle)
+      for (const label of ['Haiku 4.5', 'Fable 5.1', 'Low', 'Ultracode']) expect(await band.find({ type: 'Text', text: label, in: 'pickers' }), label).toBeTruthy()
+      const tree = shape(await band.drawn({ in: 'pickers' }))
       // Every colour of both ramps is on show, chosen or not.
-      for (const c of [...Object.values(MODEL_COLORS), ...EFFORT_COLORS.ultracode]) expect(drawn.at(-1)).toContain(c)
+      for (const c of [...Object.values(MODEL_COLORS), ...EFFORT_COLORS.ultracode]) expect(tree).toContain(c)
+      drawn.push(tree)
       await band.press({ key: 'panel' })
       await band.unmount()
     }
@@ -771,15 +798,14 @@ test('the Picker style row cycles Rail, Ladder, Meter and writes its /config row
   await start($)
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
   await openPanel(band)
-  expect(await band.find({ type: 'Box', key: 'rail-model-opus' })).toBeTruthy()
+  expect((await gridOf(band))?.style).toBe('rail')
   await band.press({ key: 'set-selectorStyle' })
   await band.redraw()
   expect((await band.find({ type: 'Button', key: 'set-selectorStyle' }))?.props.label).toBe(' Ladder ')
-  expect(await band.find({ type: 'Box', key: 'rail-model-opus' })).toBe(undefined)
-  expect(await band.find({ type: 'Box', key: 'step-model-opus' })).toBeTruthy()
+  expect((await gridOf(band))?.style).toBe('ladder')
   await band.press({ key: 'set-selectorStyle' })
   await band.redraw()
-  expect(await band.find({ type: 'Box', key: 'meter-model-opus' })).toBeTruthy()
+  expect((await gridOf(band))?.style).toBe('meter')
   expect(w.configSets).toEqual([
     ['user-hud.selectorStyle', 'ladder'],
     ['user-hud.selectorStyle', 'meter'],
@@ -792,9 +818,22 @@ test('the Meter lights every step up to the chosen one and dims the rest', { opt
   await start($)
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
   await openPanel(band)
-  const isDim = async (key: string) => JSON.stringify((await band.find({ type: 'Box', key: `meter-${key}` }))?.children).includes('"dimColor":true')
-  expect([await isDim('effort-low'), await isDim('effort-high'), await isDim('effort-xhigh'), await isDim('effort-ultracode')]).toEqual([false, false, true, true])
-  expect([await isDim('model-haiku'), await isDim('model-opus'), await isDim('model-fable')]).toEqual([false, false, true])
+  const grid = (await gridOf(band))!
+  const g = layout(grid)
+  // The bar row of each field: its cells under each option, lit or dim.
+  const isDim = (kind: 'model' | 'effort', id: string) => {
+    const hit = g.hits.find(h => h.kind === kind && h.id === id)!
+    let x = 0
+    for (const run of g.rows[hit.y]!) {
+      if (x >= hit.x0 && x < hit.x1) return run.isDim
+      if (x + run.text.length > hit.x0) return run.isDim
+      x += run.text.length
+    }
+    return undefined
+  }
+  expect(['low', 'high', 'xhigh', 'ultracode'].map(id => isDim('effort', id))).toEqual([false, false, true, true])
+  expect(['haiku', 'opus', 'fable'].map(id => isDim('model', id))).toEqual([false, false, true])
+  expect(plain(g)[0]).toMatch(/▃+ ▅+ ▆+ █+/)
 })
 
 test('Ultracode runs /effort ultracode on; a level turns it off again', async ($, on) => {
@@ -804,10 +843,9 @@ test('Ultracode runs /effort ultracode on; a level turns it off again', async ($
   await start($)
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
   await openPanel(band)
-  await band.press({ key: 'effort-ultracode' })
+  await click(band, 'effort', 'ultracode')
   expect(w.commandLines).toEqual(['/effort ultracode on'])
-  expect((await segment(band, 'effort-ultracode')).isFilled).toBe(true)
-  expect((await segment(band, 'effort-high')).isFilled).toBe(false)
+  expect(await chosen(band, 'effort')).toBe('ultracode')
   await band.press({ key: 'panel' })
   // Collapsed, the effort reads in its own colours, letter by letter: the rainbow for Ultracode.
   const chip = await band.find({ type: 'Text', text: 'Opus 5.5 · Ultracode' })
@@ -817,10 +855,9 @@ test('Ultracode runs /effort ultracode on; a level turns it off again', async ($
 
   w.effortReply = ''
   await band.press({ key: 'panel' })
-  await band.press({ key: 'effort-medium' })
+  await click(band, 'effort', 'medium')
   expect(w.commandLines).toEqual(['/effort ultracode on', '/effort medium'])
-  expect((await segment(band, 'effort-medium')).isFilled).toBe(true)
-  expect((await segment(band, 'effort-ultracode')).isFilled).toBe(false)
+  expect(await chosen(band, 'effort')).toBe('medium')
 })
 
 test('where ultracode is refused, the picker stays on the level and the toast says why', async ($, on) => {
@@ -830,11 +867,10 @@ test('where ultracode is refused, the picker stays on the level and the toast sa
   await start($)
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
   await openPanel(band)
-  await band.press({ key: 'effort-ultracode' })
+  await click(band, 'effort', 'ultracode')
   expect(w.toasts.at(-1)).toBe('Ultracode needs dynamic workflows enabled (see /config).')
   await band.redraw()
-  expect((await segment(band, 'effort-ultracode')).isFilled).toBe(false)
-  expect((await segment(band, 'effort-high')).isFilled).toBe(true)
+  expect(await chosen(band, 'effort')).toBe('high')
 })
 
 test('/effort typed at the prompt moves the picker too', async ($, on) => {
@@ -979,11 +1015,10 @@ test('a compaction empties what the groups hold in the context and keeps what th
 test('where a two-row style’s columns do not fit, both pickers fall back to the Ladder together', async ($, on) => {
   const w = world(on)
   await start($)
-  for (const [columns, isLadder] of [[110, false], [62, true]] as const) {
+  for (const [columns, style] of [[110, 'rail'], [62, 'ladder']] as const) {
     const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: columns } })
     await openPanel(band)
-    expect(!!(await band.find({ type: 'Box', key: 'step-model-opus' })), `model at ${columns}`).toBe(isLadder)
-    expect(!!(await band.find({ type: 'Box', key: 'step-effort-max' })), `effort at ${columns}`).toBe(isLadder)
+    expect((await gridOf(band))?.style, `at ${columns}`).toBe(style)
     // The style row still names the one chosen.
     expect((await band.find({ type: 'Button', key: 'set-selectorStyle' }))?.props.label).toBe(' Rail ')
     await band.press({ key: 'panel' })
@@ -1050,7 +1085,7 @@ test('the Ladder’s rows are counted as it wraps, so a narrow 12-row band folds
   }
 })
 
-test('/hud-styles shows Rail, Ladder and Meter side by side, the same tree on every surface, and Use switches', async ($, on) => {
+test('/hud-styles shows Rail, Ladder and Meter side by side, the same grid on every surface, and Use switches', async ($, on) => {
   const w = world(on)
   w.settings = { ...w.settings, effortLevel: 'xhigh' }
   await start($)
@@ -1060,14 +1095,12 @@ test('/hud-styles shows Rail, Ladder and Meter side by side, the same tree on ev
   for (const surface of SURFACES) {
     const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'styles', props: { ...PANE_PROPS, title: 'Picker styles', bodyColumns: 60 } })
     // Each style in full, even in a pane narrower than its columns.
-    expect(await pane.find({ type: 'Box', key: 'rail-rail-model-opus' })).toBeTruthy()
-    expect(await pane.find({ type: 'Box', key: 'step-ladder-effort-ultracode' })).toBeTruthy()
-    expect(await pane.find({ type: 'Box', key: 'meter-meter-effort-xhigh' })).toBeTruthy()
+    for (const style of ['rail', 'ladder', 'meter'] as const) expect((await gridOf(pane, `pickers-${style}`))?.style).toBe(style)
     expect(await pane.find({ type: 'Text', text: '● in use' })).toBeTruthy()
-    drawn.push(JSON.stringify(await pane.drawn(), (k, v: unknown) => (k === 'press' ? undefined : v)))
+    drawn.push(shape(await pane.drawn()))
     if (surface === 'desktop') {
       await pane.press({ key: 'use-meter' })
-      await pane.press({ key: 'ladder-effort-max' })
+      await click(pane, 'effort', 'max', 'pickers-ladder')
     }
     await pane.unmount()
   }
@@ -1075,3 +1108,4 @@ test('/hud-styles shows Rail, Ladder and Meter side by side, the same tree on ev
   expect(w.configSets).toEqual([['user-hud.selectorStyle', 'meter']])
   expect(w.commandLines).toEqual(['/effort max'])
 })
+

@@ -78,6 +78,8 @@ import { picker, pickerRows, styleAt, tinted } from './pickers.tsx'
 import type { PickerOption, Ui } from './pickers.tsx'
 import { EFFORT_COLORS, EFFORT_STEPS, MODEL_COLORS, SELECTOR_STYLES, asStyle, effortStep, nextStyle, parseEffortArgs, styleLabel, ultracodeTook } from './selector.ts'
 import type { EffortStep } from './selector.ts'
+import { fittedStyle, layout } from './selectorgrid.ts'
+import type { GridField, GridKind, GridProps } from './selectorgrid.ts'
 import { stackedBar, tokenPane } from './tokenview.tsx'
 import {
   addShares,
@@ -169,6 +171,8 @@ let lastSkill: string | null = null
 const agentTypes = new Map<string, string>()
 let agentsListedAt = 0
 let standingAt = 0
+/** Surfaces where the pickers' grid failed to draw: there the band draws the plain pickers instead. */
+const gridFaults = new Set<string>()
 /** Set when the rows seen going in no longer say what the context holds: after a compaction or a resume. */
 let needsMeasure = false
 let requestsSinceMeasure = 0
@@ -374,6 +378,28 @@ function pickerOptions($: EngineInterface, hud: HudState, prefix = ''): { model:
   }
 }
 
+/** The pickers as the grid draws them: plain data, the ids the hooks module picks by. */
+function gridFields(hud: HudState): GridField[] {
+  const alias = modelAlias(hud.model)
+  const step = effortStep(hud.effort, hud.ultracode)
+  return [
+    { kind: 'model', name: 'MODEL', options: MODELS.map(m => ({ id: m.alias, label: m.label, colors: [MODEL_COLORS[m.alias] ?? '#888888'], isOn: alias === m.alias })) },
+    { kind: 'effort', name: 'EFFORT', options: EFFORT_STEPS.map(f => ({ id: f.step, label: f.label, colors: [...EFFORT_COLORS[f.step]], isOn: step === f.step })) },
+  ]
+}
+
+/** A pick the grid posted: runs /model or /effort for an id the pickers offer, ignores anything else. */
+async function pickFromGrid($: EngineInterface, data: unknown) {
+  if (typeof data !== 'object' || data === null) return
+  const { kind, id } = data as { kind?: GridKind; id?: unknown }
+  if (kind === 'model' && MODELS.some(m => m.alias === id)) await pickModel($, String(id))
+  const step = EFFORT_STEPS.find(f => f.step === id)?.step
+  if (kind === 'effort' && step) await pickEffort($, step)
+}
+
+/** Whether a surface draws the pickers as the grid: the terminal and the desktop, unless it faulted there. */
+const drawsGrid = (surface: string) => (surface === 'terminal' || surface === 'desktop') && !gridFaults.has(surface)
+
 /** A field's name in its column, then its body; beside the body's last row where the labels sit last (the Meter). */
 function fieldRow(ui: Ui, label: string, body: JSX.Element, isLabelLast = false) {
   const { Box, Text } = ui
@@ -560,6 +586,7 @@ export const register: Register = (on, given) => {
   toolUses.clear()
   lastSkill = null
   agentTypes.clear()
+  gridFaults.clear()
   agentsListedAt = 0
   standingAt = 0
   needsMeasure = false
@@ -870,8 +897,12 @@ export const register: Register = (on, given) => {
     // The pickers: the same tree on every surface, in the style chosen.
     const pickerWidth = width - FIELD_WIDTH
     const { model: modelOptions, effort: effortOptions } = pickerOptions($, hud)
-    const style = styleAt(cfg.selectorStyle, pickerWidth, [modelOptions.map(o => o.label), effortOptions.map(o => o.label)])
-    const pickerRowCount = pickerRows(style, pickerWidth, modelOptions) + pickerRows(style, pickerWidth, effortOptions)
+    const fields = gridFields(hud)
+    const isGrid = drawsGrid(e.surface) && 'Client' in ui
+    const style = isGrid ? fittedStyle(cfg.selectorStyle, width, fields) : styleAt(cfg.selectorStyle, pickerWidth, [modelOptions.map(o => o.label), effortOptions.map(o => o.label)])
+    const gridProps: GridProps = { style, width, fields }
+    const gridRows = layout(gridProps).rows.length
+    const pickerRowCount = isGrid ? gridRows : pickerRows(style, pickerWidth, modelOptions) + pickerRows(style, pickerWidth, effortOptions)
     // The Meter's labels sit under its bars: the field name goes beside the labels.
     const isLabelLast = style === 'meter'
 
@@ -1005,13 +1036,16 @@ export const register: Register = (on, given) => {
 
     // Rows to spare decide the layout: every divider; then only SETTINGS's; then none, the settings on one line.
     const core = pickerRowCount + 1 + 1 + (hud.overage ? 1 : 0) + 1 + 1
-    const layout = e.props.maxRows >= core + settingRows.length + 4 ? 'full' : e.props.maxRows >= core + settingRows.length + 1 ? 'tight' : 'compact'
-    const isFull = layout === 'full'
+    const fit = e.props.maxRows >= core + settingRows.length + 4 ? 'full' : e.props.maxRows >= core + settingRows.length + 1 ? 'tight' : 'compact'
+    const isFull = fit === 'full'
 
     const panel = (
       <Box key="panel" flexDirection="column" width={width}>
-        {field('MODEL', picker(ui, style, modelOptions, pickerWidth), isLabelLast)}
-        {field('EFFORT', picker(ui, style, effortOptions, pickerWidth), isLabelLast)}
+        {isGrid && 'Client' in ui ? (
+          <ui.Client key="pickers" module="./selectorclient.tsx" props={gridProps} width={width} height={gridRows} />
+        ) : (
+          [field('MODEL', picker(ui, style, modelOptions, pickerWidth), isLabelLast), field('EFFORT', picker(ui, style, effortOptions, pickerWidth), isLabelLast)]
+        )}
         {field('TOKENS', tokensRow)}
         {isFull && rule('rule-cache', sectionRule('CACHE', width))}
         {cacheLine}
@@ -1025,8 +1059,8 @@ export const register: Register = (on, given) => {
             {newChat}
           </Box>
         )}
-        {layout !== 'compact' && rule('rule-settings', sectionRule('SETTINGS', width))}
-        {layout === 'compact' ? settingsLine : settingRows}
+        {fit !== 'compact' && rule('rule-settings', sectionRule('SETTINGS', width))}
+        {fit === 'compact' ? settingsLine : settingRows}
         {isFull && rule('rule-handoff', sectionRule('HANDOFF', width))}
         {handoffRow}
         {isFull && rule('rule-footer', footerRule('user-hud', width))}
@@ -1044,6 +1078,21 @@ export const register: Register = (on, given) => {
     )
   })
 
+  // A pick from the pickers' grid, on any surface that draws it.
+  on('ui.message', async ($, e, next) => {
+    if (e.module.endsWith('selectorclient.tsx')) await pickFromGrid($, e.data).catch(() => {})
+    return next(e)
+  })
+
+  // Where the grid fails to draw, that surface gets the plain pickers from then on.
+  on('ui.fault', async ($, e, next) => {
+    if (e.module.endsWith('selectorclient.tsx') && !gridFaults.has(e.surface)) {
+      gridFaults.add(e.surface)
+      $.ui.invalidate('ui.render')
+    }
+    return next(e)
+  })
+
   // ---------- picker styles pane ----------
 
   // The three styles drawn as the panel draws them, each in full whatever the pane's width.
@@ -1052,6 +1101,7 @@ export const register: Register = (on, given) => {
     const { Box, Text, Button } = ui
     const hud = await read($, hudA)
     const width = Math.max(e.props.bodyColumns, STYLES_PANE_COLUMNS) - FIELD_WIDTH
+    const fields = gridFields(hud)
     return (
       <Box flexDirection="column" rowGap={1}>
         <Text dimColor wrap="wrap">
@@ -1070,8 +1120,17 @@ export const register: Register = (on, given) => {
                   <Button key={`use-${st.style}`} label={`Use ${st.label}`} onPress={() => void setOption($, 'selectorStyle', st.style)} />
                 )}
               </Box>
-              {fieldRow(ui, 'MODEL', picker(ui, st.style, options.model, width), isLabelLast)}
-              {fieldRow(ui, 'EFFORT', picker(ui, st.style, options.effort, width), isLabelLast)}
+              {drawsGrid(e.surface) && 'Client' in ui ? (
+                <ui.Client
+                  key={`pickers-${st.style}`}
+                  module="./selectorclient.tsx"
+                  props={{ style: st.style, width: width + FIELD_WIDTH, fields }}
+                  width={width + FIELD_WIDTH}
+                  height={layout({ style: st.style, width: width + FIELD_WIDTH, fields }).rows.length}
+                />
+              ) : (
+                [fieldRow(ui, 'MODEL', picker(ui, st.style, options.model, width), isLabelLast), fieldRow(ui, 'EFFORT', picker(ui, st.style, options.effort, width), isLabelLast)]
+              )}
             </Box>
           )
         })}
