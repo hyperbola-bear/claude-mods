@@ -45,6 +45,9 @@ export type HandoffState = {
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
+/** How the model and effort pickers are drawn: the three designs the Style row cycles through. */
+export type SelectorStyle = 'rail' | 'ladder' | 'meter'
+
 export type HudState = {
   /** True while the corner panel is open; only the tab shows otherwise. */
   isOpen: boolean
@@ -52,8 +55,60 @@ export type HudState = {
   model: string | null
   /** The effort the last main-thread request carried, or the one picked in the panel; null when unknown. */
   effort: Effort | null
+  /** True while ultracode is on (`/effort ultracode`): the effort stays, and Claude may run multi-agent workflows. */
+  ultracode: boolean
   /** The plan window past its limit while the subscription is on overage; null otherwise. */
   overage: PlanLimit | null
+}
+
+/** Where tokens go, one bucket per kind of work. */
+export type GroupId = 'chat' | 'thinking' | 'files' | 'shell' | 'web' | 'mcp' | 'skills' | 'agents' | 'system' | 'other'
+
+export type GroupTally = {
+  /**
+   * Real API tokens this group accounts for this session: its share of each main-thread request's
+   * input (by what it holds in the context), the output written for it, and the requests it made itself.
+   */
+  used: number
+  /** Estimated tokens it holds in the main conversation now, since the last compaction. */
+  inContext: number
+  /** Estimated tokens it put into the conversation this session, by kind (Read, Write, a server, a hook). */
+  kinds: Record<string, number>
+  /** The same, by subject (a file, a command, a skill, a site), the largest kept. */
+  items: Record<string, number>
+  /** Real tokens of the requests the group made itself, by who made them: a subagent's type, a plugin's name. */
+  spent: Record<string, number>
+  /** Tool calls, prompts, skills or requests that landed here. */
+  calls: number
+}
+
+/** Token counts as the API reported them, summed over requests. */
+export type ApiTally = {
+  requests: number
+  input: number
+  cacheRead: number
+  cacheWrite: number
+  output: number
+}
+
+export type TokenState = {
+  groups: Record<GroupId, GroupTally>
+  /** The main conversation's requests. */
+  main: ApiTally
+  /** Subagents' requests. */
+  agents: ApiTally
+  /** Model calls plugins made (side chats, keep-warm pings). */
+  plugins: ApiTally
+  /** What each request carries before any conversation (system prompt, tool schemas, skill listings), per group. */
+  standing: Partial<Record<GroupId, number>>
+  /** The MCP tool schemas each request carries, by server. */
+  schemas: Record<string, number>
+  /** The session's cost in US dollars, as /cost totals it; null where the host keeps no ledger. */
+  costUsd: number | null
+  /** What the session had cost when counting began (a Reset, a /clear): the tally's cost is what came after. */
+  costBase: number
+  /** When counting began: the session's start, its last /clear, or a Reset. */
+  since: number | null
 }
 
 declare module 'claude-code' {
@@ -63,6 +118,7 @@ declare module 'claude-code' {
       ttl: TtlInfo
       handoff: HandoffState
       hud: HudState
+      tokens: TokenState
     }
   }
 }

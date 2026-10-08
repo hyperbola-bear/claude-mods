@@ -36,8 +36,6 @@ export function asEffort(v: unknown): Effort | null {
   return EFFORTS.find(x => x.level === v)?.level ?? null
 }
 
-export const effortLabel = (e: Effort | null) => EFFORTS.find(x => x.level === e)?.label ?? null
-
 export function nextWarn(seconds: number): number {
   const i = WARN_STEPS.findIndex(s => s === seconds)
   return (i === -1 ? undefined : WARN_STEPS[(i + 1) % WARN_STEPS.length]) ?? 120

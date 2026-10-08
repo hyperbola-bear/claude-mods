@@ -8,7 +8,7 @@
     {
       "name": "user-hud",
       "source": "./plugins/user-hud",
-      "description": "A control panel tucked into the corner above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert (a macOS alert with a Keep warm button), model and effort pickers, quick settings, and handoff buttons (write one, read the newest)."
+      "description": "A control panel tucked into the corner above the Claude Code prompt: where your tokens go (files, chat, MCP, shell, skills and plugins, subagents and more), model and effort pickers in three styles, prompt-cache countdown with a 2-minute keep-warm alert, quick settings, and handoff buttons."
     },
     {
       "name": "code-reference",

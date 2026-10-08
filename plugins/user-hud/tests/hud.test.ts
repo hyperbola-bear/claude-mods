@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { asEffort, effortLabel, footerRule, lifeBar, modelAlias, modelLabel, nextWarn, sectionRule } from '../hooks/hud.ts'
+import { asEffort, footerRule, lifeBar, modelAlias, modelLabel, nextWarn, sectionRule } from '../hooks/hud.ts'
 
 test('models are recognised however /model or a request spells them', () => {
   expect(modelAlias('claude-sonnet-5-5')).toBe('sonnet')
@@ -18,8 +18,6 @@ test('effort levels', () => {
   expect(asEffort('xhigh')).toBe('xhigh')
   expect(asEffort('auto')).toBe(null)
   expect(asEffort(32_000)).toBe(null)
-  expect(effortLabel('xhigh')).toBe('XHigh')
-  expect(effortLabel(null)).toBe(null)
 })
 
 test('the cycling pills step through their values and wrap', () => {

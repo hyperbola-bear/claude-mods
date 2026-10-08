@@ -1,15 +1,17 @@
 {
   "name": "user-hud",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "author": {
     "name": "Polar"
   },
-  "description": "A control panel tucked into the corner above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert (a macOS alert with a Keep warm button), model and effort pickers, quick settings, and handoff buttons (write one, read the newest).",
+  "description": "A control panel tucked into the corner above the Claude Code prompt: where your tokens go (files, chat, MCP, shell, skills and plugins, subagents and more), model and effort pickers in three styles, prompt-cache countdown with a 2-minute keep-warm alert, quick settings, and handoff buttons.",
   "types": "./types/index.d.ts",
   "license": "MIT",
   "keywords": [
     "prompt-cache",
     "keep-warm",
+    "tokens",
+    "usage",
     "handoff",
     "mod"
   ],
@@ -67,6 +69,17 @@
       "title": "Handoff note location",
       "description": "A file or folder (relative to the project) where your /handoff writes. Empty searches HANDOFF.md, .claude/, .claude/handoffs/, handoffs/ and docs/ for markdown files named like a handoff.",
       "default": ""
+    },
+    "selectorStyle": {
+      "type": "string",
+      "title": "Picker style",
+      "description": "How the model and effort pickers are drawn: Rail (labels over a segmented bar, the chosen segment solid), Ladder (one row, a strip before each label that grows with the step) or Meter (bars that rise step by step, lit up to the chosen one).",
+      "default": "rail",
+      "options": [
+        "rail",
+        "ladder",
+        "meter"
+      ]
     }
   }
 }
