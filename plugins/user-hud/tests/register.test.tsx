@@ -579,12 +579,16 @@ test('Read handoff shows the newest note and continues from it', async ($, on) =
     await act(band, 'readhandoff')
     await band.unmount()
     const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'handoff', props: { ...PANE_PROPS, title: 'Handoff' } })
-    expect((await pane.find({ type: 'Markdown' }))?.text).toContain('Newest handoff')
-    expect(await pane.find({ type: 'Text', text: /2026-10-07-1200\.md/ })).toBeTruthy()
-    await pane.press({ key: 'older' })
-    expect((await pane.find({ type: 'Markdown' }))?.text).toContain('# Old')
-    await pane.press({ key: 'newer' })
-    await pane.press({ key: 'continue' })
+    // The note as cells: its heading bold, its list kept, no Markdown or Button the surface draws its own way.
+    expect(await pane.findAll({ type: 'Markdown' })).toEqual([])
+    expect(await pane.findAll({ type: 'Button' })).toEqual([])
+    expect(await shows(pane, /^Newest handoff\s*$/, 'handoff')).toBe(true)
+    expect(await shows(pane, '- [ ] widen PassRole', 'handoff')).toBe(true)
+    expect(await shows(pane, /2026-10-07-1200\.md · \d+[mhd] ago · 1 of 2/, 'handoff')).toBe(true)
+    await act(pane, 'handoff:older', 'handoff')
+    expect(await shows(pane, /^Old\s*$/, 'handoff')).toBe(true)
+    await act(pane, 'handoff:newer', 'handoff')
+    await act(pane, 'handoff:continue', 'handoff')
     expect(w.submits.at(-1)).toContain('Read the handoff note `.claude/handoffs/2026-10-07-1200.md`')
     await pane.unmount()
   }
@@ -1023,21 +1027,22 @@ test('the TOKENS row shows the split and opens the Tokens pane; /clear starts th
     await band.unmount()
 
     const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'tokens', props: { ...PANE_PROPS, title: 'Tokens' } })
-    expect(await pane.find({ type: 'Text', text: /^77k tokens over 1 requests/ })).toBeTruthy()
+    expect(await shows(pane, /^77k tokens over 1 requests/, 'tokens')).toBe(true)
+    expect(await pane.findAll({ type: 'Button' })).toEqual([])
     for (const label of ['Files', 'MCP', 'Skills & plugins', 'Thinking', 'System & memory', 'Chat', 'Shell']) {
-      expect(await pane.find({ type: 'Text', text: label }), label).toBeTruthy()
+      expect(await shows(pane, label, 'tokens'), label).toBe(true)
     }
-    expect(await pane.find({ type: 'Text', text: /register\.tsx 20k/ })).toBeTruthy()
-    expect(await pane.find({ type: 'Text', text: /pstack:tdd 3k/ })).toBeTruthy()
+    expect(await shows(pane, /register\.tsx 20k/, 'tokens')).toBe(true)
+    expect(await shows(pane, /pstack:tdd 3k/, 'tokens')).toBe(true)
     await pane.unmount()
   }
   expect(w.opens.filter(id => id === 'tokens')).toHaveLength(2)
 
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: { sessionId: 's1' } as never })
   const pane = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'Pane', requestId: 'tokens', props: { ...PANE_PROPS, title: 'Tokens' } })
-  expect(await pane.find({ type: 'Text', text: /No tokens counted yet/ })).toBeTruthy()
+  expect(await shows(pane, /No tokens counted yet/, 'tokens')).toBe(true)
   // What every request carries before the chat stays known.
-  expect(await pane.find({ type: 'Text', text: /Every request carries 23k/ })).toBeTruthy()
+  expect(await shows(pane, /Every request carries 23k/, 'tokens')).toBe(true)
 })
 
 test('a compaction empties what the groups hold in the context and keeps what they used', async ($, on) => {
@@ -1090,8 +1095,8 @@ test('Reset in the pane starts the counts over and keeps what the context holds'
   await start($)
   await session($, w)
   const pane = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'Pane', requestId: 'tokens', props: { ...PANE_PROPS, title: 'Tokens' } })
-  await pane.press({ key: 'reset' })
-  expect(await pane.find({ type: 'Text', text: /No tokens counted yet/ })).toBeTruthy()
+  await act(pane, 'tokens:reset', 'tokens')
+  expect(await shows(pane, /No tokens counted yet/, 'tokens')).toBe(true)
   w.step = { answer: '', toolUses: [], usage: { model: 'claude-opus-5-5', input_tokens: 0, cache_read_input_tokens: 75_000, cache_creation_input_tokens: 0, output_tokens: 0 } }
   await request($, w, 75_000)
   // The 20k file is still in the context: it keeps its share of the next request.

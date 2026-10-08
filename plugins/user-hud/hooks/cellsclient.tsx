@@ -35,6 +35,8 @@ const Cells: ClientModule<CellsProps, State> = (props, surface) => {
     <Box flexDirection="column">
       {underlined(props, pointed).map((row, y) => (
         <Text key={`row-${y}`} wrap="truncate">
+          {/* An empty row still takes its row: an empty Text has no height. */}
+          {row.length === 0 ? ' ' : null}
           {row.map((run, i) => (
             <Text
               key={`run-${y}-${i}`}
