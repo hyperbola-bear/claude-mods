@@ -54,7 +54,7 @@ Three styles; **Picker style** in the panel (or in `/config`) switches between t
 - **Ladder**: one row. Before each label a strip that grows a cell per step up, in that step's colours; the chosen one is full blocks, the others half blocks. The most compact.
 - **Meter**: bars that rise step by step over the labels, like a signal meter. Every step up to the chosen one is lit in its colours; the ones past it are dim. Two rows a picker.
 
-All three are drawn from coloured bars and text the plugin paints itself, with plain buttons for the labels, so the terminal and Claude Desktop draw the same tree: the tests compare the two and require them identical. What the surfaces still draw their own way: a button is a native button on the desktop and a plain label in the terminal, and the desktop sets text in its own font (Anthropic Sans). Where the panel is too narrow for a two-row style's columns, it falls back to the Ladder, which wraps.
+The pickers are one grid of cells the plugin lays out itself and paints in a `Client` region: no native buttons, the same cells on the terminal and in Claude Desktop (the tests require the two drawings identical). Click an option to pick it; or click into the grid, move with the arrow keys and press Return. Where the panel is too narrow for a two-row style's columns, it falls back to the Ladder, which wraps. VS Code and mobile, which draw no `Client`, get the same pickers as buttons.
 
 ## Tokens
 
