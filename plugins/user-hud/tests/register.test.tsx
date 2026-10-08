@@ -32,11 +32,16 @@ type World = {
   commandLines: string[]
   /** The main loop's model as `$.session.model()` answers it; `/model <alias>` sets it. */
   model: string
+  /** Claude Code's settings; the band's timing tests run on a 5-minute cache. */
   settings: Record<string, unknown>
+  /** The plan windows `$.session.usage()` reports. */
+  limits: { kind: string; percentUsed: number }[]
   /** `/config` rows the plugin set, `[key, value]`. */
   configSets: [string, unknown][]
   /** Rows a trusted source holds: setting one is denied. */
   lockedRows: string[]
+  /** The button the macOS alert answers with: `Keep warm`, `Dismiss` or `timeout`. */
+  alertChoice: string
   files: Record<string, { text: string; mtimeMs: number }>
   commands: string[]
   toasts: string[]
@@ -74,9 +79,11 @@ function world(on: On): World {
     commandRuns: [],
     commandLines: [],
     model: 'claude-opus-5-5',
-    settings: {},
+    settings: { promptCacheTtl: '5m' },
+    limits: [],
     configSets: [],
     lockedRows: [],
+    alertChoice: 'timeout',
     files: {},
     commands: [],
     toasts: [],
@@ -88,6 +95,8 @@ function world(on: On): World {
   mock.store(on)
   on('session.model', () => ({ value: w.model }))
   on('settings.read', () => ({ value: w.settings }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: w.limits } }))
+  on('session.measure', ($, e) => ({ changed: e.changed }))
   on('config.set', ($, e) => {
     if (w.lockedRows.includes(e.key)) return { deny: 'set by your organization' }
     w.configSets.push([e.key, e.value])
@@ -140,6 +149,7 @@ function world(on: On): World {
     return { value: names.map(f => ({ name: f.slice(dir.length), kind: 'file' as const, size: 1, mtimeMs: w.files[f]?.mtimeMs ?? 0, isLink: false })) }
   })
   on('fs.stat', ($, e) => {
+    if (e.path.endsWith('/assets/logo.icns')) return { value: { kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false } }
     const f = w.files[e.path.replace(/^\/work\//, '')]
     if (!f) return { deny: 'missing' }
     return { value: { kind: 'file' as const, size: 1, mtimeMs: f.mtimeMs, isLink: false } }
@@ -163,6 +173,7 @@ function world(on: On): World {
     w.argv.push([...e.argv])
     const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
     const args = e.argv.join(' ')
+    if (e.argv[0] === 'osascript') return out(`${w.alertChoice}\n`)
     if (args.startsWith('gh pr diff')) return out(DIFF)
     if (args.includes('pr view') && args.includes('headRefOid')) return out(JSON.stringify({ headRefOid: 'abc123' }))
     if (args.includes('contents/infra/firehose.tf')) return out(Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n'))
@@ -250,7 +261,7 @@ test('the band counts down, alerts once at two minutes, and Keep warm resets the
   await request($, w, 120_000)
 
   for (const surface of SURFACES) {
-    const band = await $.ui.mount({ plugin: 'user-hd', surface, component: 'AbovePrompt', props: BAND() })
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: BAND() })
     // Collapsed: the countdown rides beside the tab; Keep warm waits for the cooling window.
     expect(await band.find({ type: 'Text', text: '◆ 5:00' })).toBeTruthy()
     expect(await band.find({ type: 'Button', key: 'keepwarm' })).toBe(undefined)
@@ -274,7 +285,7 @@ test('the band counts down, alerts once at two minutes, and Keep warm resets the
   expect(w.toasts.filter(t => t.includes('Prompt cache expires'))).toHaveLength(1)
 
   // Cooling: Keep warm comes out of the closed panel, beside the tab.
-  const band = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
   expect(await band.find({ type: 'Text', text: /left/ })).toBeTruthy()
   expect(await band.find({ type: 'Button', key: 'handoff' })).toBe(undefined)
   await band.press({ key: 'keepwarm' })
@@ -285,11 +296,39 @@ test('the band counts down, alerts once at two minutes, and Keep warm resets the
   expect(await band.find({ type: 'Button', key: 'keepwarm' })).toBe(undefined)
 })
 
+test('the macOS alert carries the logo and a Keep warm button that keeps the cache warm', { options: { sound: false, alertSeconds: 12 } }, async ($, on) => {
+  const w = world(on)
+  w.alertChoice = 'Keep warm'
+  await start($)
+  await request($, w, 120_000)
+  await w.clock.advance(185_000)
+  const alerts = w.argv.filter(a => a[0] === 'osascript')
+  expect(alerts).toHaveLength(1)
+  expect(alerts[0]?.join(' ')).toContain('buttons {"Dismiss", "Keep warm"} default button "Keep warm" giving up after theSeconds')
+  const [title, body, icon, seconds] = alerts[0]?.slice(-4) ?? []
+  expect([title, body, seconds]).toEqual(['Claude Code: cache cooling', '2:00 left on 122k cached tokens. Keep it warm?', '12'])
+  expect(icon).toMatch(/\/assets\/logo\.icns$/)
+  expect(w.forks).toHaveLength(1)
+  expect(w.toasts.at(-1)).toContain('Cache refreshed')
+})
+
+for (const choice of ['Dismiss', 'timeout']) {
+  test(`the alert answered ${choice} (it closes by itself after 7 seconds) leaves the cache alone`, { options: { sound: false } }, async ($, on) => {
+    const w = world(on)
+    w.alertChoice = choice
+    await start($)
+    await request($, w, 120_000)
+    await w.clock.advance(185_000)
+    expect(w.argv.find(a => a[0] === 'osascript')?.at(-1)).toBe('7')
+    expect(w.forks).toHaveLength(0)
+  })
+}
+
 test('the band shows cold after expiry and stays quiet while Claude works', { options: { notifyMac: false, sound: false } }, async ($, on) => {
   const w = world(on)
   await start($)
   await request($, w, 50_000)
-  const live = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND(true) })
+  const live = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND(true) })
   expect(await live.find({ type: 'Text', text: /cache live/ })).toBeTruthy()
   expect(await live.find({ type: 'Button', key: 'keepwarm' })).toBe(undefined)
   await w.clock.advance(301_000)
@@ -307,23 +346,68 @@ test('auto keep-warm pings at 30 seconds and stops at the cap', { options: { aut
   expect(w.forks).toHaveLength(2)
 })
 
-test('a one-hour cache is learned from a hit after six idle minutes', { options: { notifyMac: false, sound: false } }, async ($, on) => {
+test('the countdown runs an hour, as promptCacheTtl: "1h" or a subscription keeps it', { options: { notifyMac: false, sound: false } }, async ($, on) => {
   const w = world(on)
+  w.settings = {}
   await start($)
   await request($, w, 100_000)
-  await w.clock.advance(6 * 60_000)
-  await request($, w, 101_000)
-  expect(w.toasts.some(t => t.includes('lives 1 hour'))).toBe(true)
-  const band = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect(await band.find({ type: 'Text', text: '◆ 60:00' })).toBeTruthy()
   await openPanel(band)
-  expect(await band.find({ type: 'Text', text: /cache 60:00/ })).toBeTruthy()
-  expect(await band.find({ type: 'Text', text: /· 1h/ })).toBeTruthy()
+  expect(await band.find({ type: 'Text', text: /· 1h$/ })).toBeTruthy()
+  // No Cache lifetime row: the lifetime is Claude Code's, not a plugin setting.
+  expect(await band.find({ type: 'Button', key: 'set-cacheTtl' })).toBe(undefined)
+  expect((await $.command.run({ command: 'cache', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })).text).toContain('left of 1h (subscription default)')
+})
+
+const PAST_LIMIT = { context: { window: 200_000 }, rateLimits: [{ kind: 'five_hour', percentUsed: 103.4 }, { kind: 'seven_day', percentUsed: 61 }], changed: ['rateLimits' as const] }
+
+test('on overage the band says so beside the cache and offers a new chat', { options: { notifyMac: false, sound: false } }, async ($, on) => {
+  const w = world(on)
+  w.settings = { promptCacheTtl: '1h' }
+  await start($)
+  await request($, w, 100_000)
+  for (const surface of SURFACES) {
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: BAND() })
+    expect(await band.find({ type: 'Text', text: '⚠ overage' })).toBe(undefined)
+    await band.unmount()
+  }
+  await $.session.measure(PAST_LIMIT)
+  for (const surface of SURFACES) {
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+    // Closed: beside the countdown, which stays an hour because promptCacheTtl says so.
+    expect(await band.find({ type: 'Text', text: '⚠ overage' })).toBeTruthy()
+    expect(await band.find({ type: 'Text', text: /^◆ 60:00$/ })).toBeTruthy()
+    expect(await band.find({ type: 'Button', key: 'newchat' })).toBeTruthy()
+    await openPanel(band)
+    expect(await band.find({ type: 'Text', text: '5-hour limit 103% · a new chat costs less per turn' })).toBeTruthy()
+    await band.press({ key: 'newchat' })
+    await band.press({ key: 'panel' })
+    await band.unmount()
+  }
+  expect(w.commandLines.filter(l => l === '/clear')).toHaveLength(2)
+
+  // Back under the limits: the indicator goes.
+  await $.session.measure({ ...PAST_LIMIT, rateLimits: [{ kind: 'five_hour', percentUsed: 2 }] })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect(await band.find({ type: 'Text', text: '⚠ overage' })).toBe(undefined)
+})
+
+test('with promptCacheTtl unset, overage drops the countdown to 5 minutes, as Claude Code does', { options: { notifyMac: false, sound: false } }, async ($, on) => {
+  const w = world(on)
+  w.settings = {}
+  w.limits = [{ kind: 'seven_day', percentUsed: 100 }]
+  await start($)
+  await request($, w, 100_000)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect(await band.find({ type: 'Text', text: '◆ 5:00' })).toBeTruthy()
+  expect(await band.find({ type: 'Text', text: '⚠ overage' })).toBeTruthy()
 })
 
 test('the panel always offers Write handoff; with no /handoff command it asks Claude to write one', async ($, on) => {
   const w = world(on)
   await start($)
-  const band = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
   await openPanel(band)
   expect(await band.find({ type: 'Button', key: 'handoff' })).toBeTruthy()
   expect(await band.find({ type: 'Text', text: 'no notes yet' })).toBeTruthy()
@@ -337,7 +421,7 @@ test('Handoff runs your own /handoff command when there is one, then Read handof
   const w = world(on)
   w.commands = ['handoff']
   await start($)
-  const band = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
   await openPanel(band)
   await band.press({ key: 'handoff' })
   expect(w.commandRuns).toEqual(['handoff'])
@@ -356,12 +440,12 @@ test('Read handoff shows the newest note and continues from it', async ($, on) =
   w.files['README.md'] = { text: '# not a handoff', mtimeMs: 99 }
   await start($)
   for (const surface of SURFACES) {
-    const band = await $.ui.mount({ plugin: 'user-hd', surface, component: 'AbovePrompt', props: BAND() })
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: BAND() })
     await openPanel(band)
     expect(await band.find({ type: 'Text', text: /^newest · / })).toBeTruthy()
     await band.press({ key: 'readhandoff' })
     await band.unmount()
-    const pane = await $.ui.mount({ plugin: 'user-hd', surface, component: 'Pane', requestId: 'handoff', props: { ...PANE_PROPS, title: 'Handoff' } })
+    const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'handoff', props: { ...PANE_PROPS, title: 'Handoff' } })
     expect((await pane.find({ type: 'Markdown' }))?.text).toContain('Newest handoff')
     expect(await pane.find({ type: 'Text', text: /2026-10-07-1200\.md/ })).toBeTruthy()
     await pane.press({ key: 'older' })
@@ -380,7 +464,7 @@ test('the band keeps what other plugins draw above the prompt', { plugins: [othe
   await start($)
   await request($, w, 50_000)
   for (const surface of SURFACES) {
-    const band = await $.ui.mount({ plugin: 'user-hd', surface, component: 'AbovePrompt', props: BAND() })
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: BAND() })
     expect(await band.find({ type: 'Text', text: 'OTHER BAND' })).toBeTruthy()
     expect(await band.find({ type: 'Button', key: 'panel' })).toBeTruthy()
     expect(await band.find({ type: 'Text', text: '◆ 5:00' })).toBeTruthy()
@@ -398,30 +482,30 @@ test('the corner tab opens and closes the panel, and /hud does the same', async 
   await start($)
   await request($, w, 50_000)
   for (const surface of SURFACES) {
-    const band = await $.ui.mount({ plugin: 'user-hd', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
-    expect((await band.find({ type: 'Button', key: 'panel' }))?.props.label).toBe('◆ user-hd ▴')
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+    expect((await band.find({ type: 'Button', key: 'panel' }))?.props.label).toBe('◆ user-hud ▴')
     expect(await band.find({ type: 'Button', key: 'handoff' })).toBe(undefined)
     expect(await band.find({ type: 'Button', key: 'model-opus' })).toBe(undefined)
     await band.press({ key: 'panel' })
-    expect((await band.find({ type: 'Button', key: 'panel' }))?.props.label).toBe('◆ user-hd ▾')
+    expect((await band.find({ type: 'Button', key: 'panel' }))?.props.label).toBe('◆ user-hud ▾')
     for (const key of ['model-haiku', 'model-fable', 'effort-low', 'effort-max', 'set-autoKeepWarm', 'set-warnSeconds', 'handoff']) {
       expect(await band.find({ type: 'Button', key }), key).toBeTruthy()
     }
     // Open, the status moves into the panel rather than showing twice.
     expect(await band.find({ type: 'Text', text: '◆ 5:00' })).toBe(undefined)
     expect(await band.find({ type: 'Text', text: /^── S E T T I N G S ─+$/ })).toBeTruthy()
-    expect(await band.find({ type: 'Text', text: /─ user-hd ─$/ })).toBeTruthy()
+    expect(await band.find({ type: 'Text', text: /─ user-hud ─$/ })).toBeTruthy()
     await band.press({ key: 'panel' })
     expect(await band.find({ type: 'Button', key: 'handoff' })).toBe(undefined)
     await band.unmount()
   }
 
-  const band = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
   const hud = { command: 'hud', args: '', origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 120 } }
-  expect((await $.command.run(hud)).text).toBe('user-hd panel open.')
+  expect((await $.command.run(hud)).text).toBe('user-hud panel open.')
   await band.redraw()
   expect(await band.find({ type: 'Button', key: 'handoff' })).toBeTruthy()
-  expect((await $.command.run(hud)).text).toBe('user-hd panel closed.')
+  expect((await $.command.run(hud)).text).toBe('user-hud panel closed.')
   await band.redraw()
   expect(await band.find({ type: 'Button', key: 'handoff' })).toBe(undefined)
 })
@@ -431,13 +515,13 @@ test('the tree grows to the band width, and a short band drops the dividers', as
   await start($)
   await request($, w, 50_000)
   for (const surface of SURFACES) {
-    const band = await $.ui.mount({ plugin: 'user-hd', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 12 } })
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 12 } })
     // The desktop sets the tree beside its own collapse control; ungrown, the tab would sit on the left.
     expect((await band.find({ type: 'Box' }))?.props.flexGrow).toBe(1)
     await band.press({ key: 'panel' })
     expect((await band.find({ type: 'Box' }))?.props.flexGrow).toBe(1)
     expect(await band.find({ type: 'Text', text: /S E T T I N G S/ })).toBeTruthy()
-    expect(await band.find({ type: 'Text', text: /C A C H E|H A N D O F F|─ user-hd ─/ })).toBe(undefined)
+    expect(await band.find({ type: 'Text', text: /C A C H E|H A N D O F F|─ user-hud ─/ })).toBe(undefined)
     expect(await band.find({ type: 'Button', key: 'handoff' })).toBeTruthy()
     await band.press({ key: 'panel' })
     await band.unmount()
@@ -446,9 +530,9 @@ test('the tree grows to the band width, and a short band drops the dividers', as
 
 test('the desktop gets its own buttons: the choice in use is the primary one', { options: { sound: true, autoKeepWarm: false } }, async ($, on) => {
   const w = world(on)
-  w.settings = { effortLevel: 'high' }
+  w.settings = { ...w.settings, effortLevel: 'high' }
   await start($)
-  const desktop = await $.ui.mount({ plugin: 'user-hd', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  const desktop = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
   await openPanel(desktop)
   const button = async (key: string) => (await desktop.find({ type: 'Button', key }))?.props
   expect(await button('model-opus')).toMatchObject({ label: 'Opus 5.5', variant: 'primary' })
@@ -461,16 +545,16 @@ test('the desktop gets its own buttons: the choice in use is the primary one', {
   await desktop.unmount()
 
   // The terminal keeps its filled-cell pills.
-  const terminal = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const terminal = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
   expect((await terminal.find({ type: 'Box', key: 'seg-model-opus' }))?.props.backgroundColor).toBe('claude')
   expect((await terminal.find({ type: 'Button', key: 'set-sound' }))?.props.label).toBe(' ● On ')
 })
 
 test('the model and effort pickers run /model and /effort and show what requests carry', async ($, on) => {
   const w = world(on)
-  w.settings = { effortLevel: 'high' }
+  w.settings = { ...w.settings, effortLevel: 'high' }
   await start($)
-  const band = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
   expect(await band.find({ type: 'Text', text: 'Opus 5.5 · High' })).toBeTruthy()
 
   await openPanel(band)
@@ -507,7 +591,7 @@ test('a model switch resets the cache and the panel reads the new model', async 
     estimated_cache_write_usd: 0.4,
     pricing: 'catalog',
   })
-  const band = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
   expect(await band.find({ type: 'Text', text: 'Fable 5.1' })).toBeTruthy()
   await openPanel(band)
   expect(await band.find({ type: 'Text', text: /cache reset \(model switched\)/ })).toBeTruthy()
@@ -515,10 +599,10 @@ test('a model switch resets the cache and the panel reads the new model', async 
 
 test('the settings toggles write their /config rows and take effect at once', { options: { notifyMac: true, sound: false } }, async ($, on) => {
   const w = world(on)
-  w.lockedRows = ['user-hd.sound']
+  w.lockedRows = ['user-hud.sound']
   await start($)
   await request($, w, 80_000)
-  const band = await $.ui.mount({ plugin: 'user-hd', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
   await openPanel(band)
   // The world beneath swallows ui.invalidate, so redraw as the engine would before reading.
   const label = async (key: string) => {
@@ -531,15 +615,12 @@ test('the settings toggles write their /config rows and take effect at once', { 
   expect(await label('set-autoKeepWarm')).toBe(' ● On ')
   await band.press({ key: 'set-notifyMac' })
   expect(await label('set-notifyMac')).toBe(' ○ Off ')
-  await band.press({ key: 'set-cacheTtl' })
-  expect(await label('set-cacheTtl')).toBe(' 5m ')
   await band.press({ key: 'set-warnSeconds' })
   expect(await label('set-warnSeconds')).toBe(' 5:00 ')
   expect(w.configSets).toEqual([
-    ['user-hd.autoKeepWarm', true],
-    ['user-hd.notifyMac', false],
-    ['user-hd.cacheTtl', '5m'],
-    ['user-hd.warnSeconds', 300],
+    ['user-hud.autoKeepWarm', true],
+    ['user-hud.notifyMac', false],
+    ['user-hud.warnSeconds', 300],
   ])
 
   // A row a trusted source holds stays as it was, and says why.

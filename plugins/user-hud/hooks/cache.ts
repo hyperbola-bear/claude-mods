@@ -1,5 +1,5 @@
 // Pure prompt-cache logic: no `$`, so tests call it directly.
-import type { CacheState, CacheTtl } from '../types'
+import type { CacheState, CacheTtl, PlanLimit, TtlInfo } from '../types'
 
 export const TTL_MS: Record<CacheTtl, number> = { '5m': 5 * 60_000, '1h': 60 * 60_000 }
 
@@ -95,13 +95,24 @@ export function shouldAutoPing(
 }
 
 /**
- * Evidence that the cache lives an hour: a request more than five minutes
- * (plus slack) after the previous one that still read most of that prefix.
- * Only positive evidence counts; a miss can come from compaction, a tool list
- * change or a model switch just as well as from expiry.
+ * The lifetime Claude Code gives the main conversation's cache. An explicit
+ * `promptCacheTtl` (or CLAUDE_CODE_PROMPT_CACHE_TTL) wins, overage included;
+ * unset, a subscription gets 1h, and 5m while it is on overage.
  */
-export function learnsOneHour(gapMs: number, prevPromptTokens: number, readTokens: number): boolean {
-  return gapMs > TTL_MS['5m'] + 20_000 && gapMs < TTL_MS['1h'] && prevPromptTokens >= 1024 && readTokens >= prevPromptTokens * 0.5
+export function cacheTtlFor(setting: unknown, isOverage: boolean): TtlInfo {
+  if (setting === '5m' || setting === '1h') return { ttl: setting, source: 'setting' }
+  return isOverage ? { ttl: '5m', source: 'overage' } : { ttl: '1h', source: 'default' }
+}
+
+/** The plan window past its limit, the furthest over first: from there the subscription runs on overage. */
+export function overageOf(limits: readonly PlanLimit[]): PlanLimit | null {
+  const over = limits.filter(l => (l.kind === 'five_hour' || l.kind === 'seven_day') && l.percentUsed >= 100)
+  return [...over].sort((a, b) => b.percentUsed - a.percentUsed)[0] ?? null
+}
+
+export function limitLabel(l: PlanLimit): string {
+  const name = l.kind === 'five_hour' ? '5-hour' : l.kind === 'seven_day' ? 'weekly' : l.kind
+  return `${name} limit ${Math.round(l.percentUsed)}%`
 }
 
 /** The state after a main-thread request (or a ping) that the API answered. */
@@ -119,7 +130,7 @@ export function afterRequest(c: CacheState, at: number, usage: Usage, model: str
 }
 
 export const KEEP_WARM_PROMPT =
-  'Keep-alive ping sent by the user-hd plugin to refresh the prompt cache. Reply with only the word: ok'
+  'Keep-alive ping sent by the user-hud plugin to refresh the prompt cache. Reply with only the word: ok'
 
 export function pingSummary(usage: Usage): { line: string; isWarm: boolean } {
   const read = usage.cache_read_input_tokens

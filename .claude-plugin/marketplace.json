@@ -6,9 +6,9 @@
   "description": "Polar's Claude Code mods",
   "plugins": [
     {
-      "name": "user-hd",
-      "source": "./plugins/user-hd",
-      "description": "A control panel tucked into the corner above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert, model and effort pickers, quick settings, and handoff buttons (write one, read the newest)."
+      "name": "user-hud",
+      "source": "./plugins/user-hud",
+      "description": "A control panel tucked into the corner above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert (a macOS alert with a Keep warm button), model and effort pickers, quick settings, and handoff buttons (write one, read the newest)."
     },
     {
       "name": "pr-review-ui",

@@ -25,7 +25,7 @@
  * Ghostty, terminal-browser).
  *
  * The band draws whatever other plugins put above the prompt under its own row
- * (it calls `next`), so it sits beside user-hd's band rather than replacing it.
+ * (it calls `next`), so it sits beside user-hud's band rather than replacing it.
  *
  * Reaches: process.run (gh, git, brew, claude, uname, open, the editor's
  * command line), the `browser` noun terminal-browser adds (when installed),

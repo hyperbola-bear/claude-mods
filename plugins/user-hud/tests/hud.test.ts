@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { asEffort, effortLabel, footerRule, lifeBar, modelAlias, modelLabel, nextTtl, nextWarn, sectionRule } from '../hooks/hud.ts'
+import { asEffort, effortLabel, footerRule, lifeBar, modelAlias, modelLabel, nextWarn, sectionRule } from '../hooks/hud.ts'
 
 test('models are recognised however /model or a request spells them', () => {
   expect(modelAlias('claude-sonnet-5-5')).toBe('sonnet')
@@ -23,7 +23,6 @@ test('effort levels', () => {
 })
 
 test('the cycling pills step through their values and wrap', () => {
-  expect([nextTtl('auto'), nextTtl('5m'), nextTtl('1h')]).toEqual(['5m', '1h', 'auto'])
   expect([nextWarn(60), nextWarn(120), nextWarn(300)]).toEqual([120, 300, 60])
   expect(nextWarn(45)).toBe(120)
 })
@@ -31,8 +30,8 @@ test('the cycling pills step through their values and wrap', () => {
 test('rules fill the panel width exactly', () => {
   expect(sectionRule('CACHE', 20)).toBe('── C A C H E ───────')
   expect(sectionRule('CACHE', 20)).toHaveLength(20)
-  expect(footerRule('user-hd', 20)).toBe('──────────── user-hd ─'.slice(-20))
-  expect(footerRule('user-hd', 20)).toHaveLength(20)
+  expect(footerRule('user-hud', 20)).toBe('──────────── user-hud ─'.slice(-20))
+  expect(footerRule('user-hud', 20)).toHaveLength(20)
 })
 
 test('the life bar fills with the time left', () => {
