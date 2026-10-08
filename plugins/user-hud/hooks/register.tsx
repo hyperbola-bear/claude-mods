@@ -24,20 +24,35 @@
  *    [ Read handoff ] (r) or /read-handoff shows the newest note in a pane with
  *    a button to continue from it.
  *
+ * 3. Token usage. Every row the conversation keeps (`session.append`) is read
+ *    for what it added and filed under a group (files, chat, MCP, shell, skills
+ *    and plugins, web, subagents, thinking, system, other tools). Each main
+ *    request's real token counts (`turn.step`) are split across the groups by
+ *    what they held in the context when it went out; subagents' requests and
+ *    other plugins' model calls are counted whole. The panel's TOKENS row
+ *    shows the split; Details (t) or /tokens opens the Tokens pane.
+ *
+ * 4. Pickers. MODEL runs blue to orange as the models get more capable, and
+ *    EFFORT from one grey to the full rainbow at Ultracode. Three styles (Rail,
+ *    Ladder, Meter), drawn from coloured Box and Text and plain Buttons, so the
+ *    terminal and the desktop draw the same picture.
+ *
  * The band draws whatever other plugins put above the prompt first (it calls
  * `next`), so it sits beside pr-review-ui's band rather than replacing it.
  *
  * Reaches: model.fork (keep-warm pings), process.run (osascript, afplay),
  * fs reads (handoff notes, the alert's logo), store (the panel's open state),
  * settings read (the effort level, promptCacheTtl), env read
- * (CLAUDE_CODE_PROMPT_CACHE_TTL), session usage (the plan windows), config set
- * (the panel's toggles), command run (/model, /effort, /handoff, /clear) and
- * prompt submit on button presses. Writes no files.
+ * (CLAUDE_CODE_PROMPT_CACHE_TTL), session usage (the plan windows, the context
+ * breakdown, the cost), agent list (a subagent's type), config set (the panel's
+ * toggles), command run (/model, /effort, /handoff, /clear) and prompt submit
+ * on button presses. It reads the conversation's rows and every model call to
+ * count tokens, and changes none of them. Writes no files.
  */
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, ModelForkResult, Register } from 'claude-code'
 
-import type { CacheTtl, Effort, HandoffFile, HandoffState, HudState, PlanLimit, TtlInfo } from '../types'
+import type { CacheTtl, HandoffFile, HandoffState, HudState, PlanLimit, SelectorStyle, TtlInfo } from '../types'
 import {
   EMPTY_CACHE,
   KEEP_WARM_PROMPT,
@@ -58,20 +73,61 @@ import {
   shouldAutoPing,
 } from './cache.ts'
 import { HANDOFF_DIRS, age, handoffPrompt, handoffTarget, isHandoffName, joinPath, newest, resumePrompt } from './handoff.ts'
-import { EFFORTS, MODELS, asEffort, effortLabel, footerRule, lifeBar, modelAlias, modelLabel, nextWarn, sectionRule } from './hud.ts'
+import { MODELS, asEffort, footerRule, lifeBar, modelAlias, modelLabel, nextWarn, sectionRule } from './hud.ts'
+import { picker, pickerRows, styleAt, tinted } from './pickers.tsx'
+import type { PickerOption } from './pickers.tsx'
+import { EFFORT_COLORS, EFFORT_STEPS, MODEL_COLORS, asStyle, effortStep, nextStyle, parseEffortArgs, styleLabel, ultracodeTook } from './selector.ts'
+import type { EffortStep } from './selector.ts'
+import { stackedBar, tokenPane } from './tokenview.tsx'
+import {
+  addShares,
+  attributeAgent,
+  attributePlugin,
+  attributeRequest,
+  classifyRow,
+  compacted,
+  contextOf,
+  contextWeights,
+  emptyTokens,
+  groupOf,
+  mcpSchemas,
+  pct,
+  ranked,
+  restarted,
+  standingFrom,
+  summary,
+  totalUsed,
+  trimmedTo,
+  withContext,
+} from './tokens.ts'
+import type { Attribution, Row, ToolUse } from './tokens.ts'
 
 const STORE_OPEN = 'panelOpen'
 const HANDOFF_PANE = 'handoff'
+const TOKENS_PANE = 'tokens'
 const PANEL_WIDTH = 72
-/** Rows the open panel takes with its dividers, the tab row included (one more on overage). */
-const FULL_PANEL_ROWS = 13
+/** The column the field names (MODEL, EFFORT, TOKENS) sit in. */
+const FIELD_WIDTH = 8
+/** Cells of the TOKENS row's stacked bar. */
+const TOKEN_BAR_CELLS = 16
+/** The context breakdown is asked for at most this often, after a turn. */
+const STANDING_EVERY_MS = 20_000
+/** Tool calls remembered by id, so their results land in the same group. */
+const MAX_TOOL_USES = 4_000
+/** Requests between two measurements of the context, which catch the tool results the engine trims. */
+const MEASURE_EVERY = 25
+/** `$.agent.list()` is asked at most this often for an agent it does not name. */
+const AGENT_LIST_EVERY_MS = 5_000
+/** An agent no list names: a workflow's, or the engine's own fork (compaction, memory). */
+const UNLISTED_AGENT = 'unlisted (workflows, compaction)'
 
 const EMPTY_HANDOFF: HandoffState = { files: [], index: 0, text: null, error: null, hasCommand: false }
 
 const cacheA = atom({ plugin: 'user-hud', key: 'cache' } as const, EMPTY_CACHE)
 const ttlA = atom({ plugin: 'user-hud', key: 'ttl' } as const, { ttl: '1h', source: 'default' } as TtlInfo)
 const handoffA = atom({ plugin: 'user-hud', key: 'handoff' } as const, EMPTY_HANDOFF)
-const hudA = atom({ plugin: 'user-hud', key: 'hud' } as const, { isOpen: false, model: null, effort: null, overage: null } as HudState)
+const hudA = atom({ plugin: 'user-hud', key: 'hud' } as const, { isOpen: false, model: null, effort: null, ultracode: false, overage: null } as HudState)
+const tokensA = atom({ plugin: 'user-hud', key: 'tokens' } as const, emptyTokens(null))
 
 type Cfg = {
   warnMs: number
@@ -82,6 +138,7 @@ type Cfg = {
   maxAutoPings: number
   showBand: boolean
   handoffPath: string
+  selectorStyle: SelectorStyle
 }
 
 export function readCfg(o: Record<string, unknown>): Cfg {
@@ -96,6 +153,7 @@ export function readCfg(o: Record<string, unknown>): Cfg {
     maxAutoPings: Math.max(1, n(o.maxAutoPings, 3)),
     showBand: b(o.showBand, true),
     handoffPath: typeof o.handoffPath === 'string' ? o.handoffPath.trim() : '',
+    selectorStyle: asStyle(o.selectorStyle),
   }
 }
 
@@ -103,6 +161,14 @@ export function readCfg(o: Record<string, unknown>): Cfg {
 let options: Record<string, unknown> = {}
 let cfg: Cfg = readCfg({})
 let isHandoffPending = false
+const toolUses = new Map<string, Attribution>()
+let lastSkill: string | null = null
+const agentTypes = new Map<string, string>()
+let agentsListedAt = 0
+let standingAt = 0
+/** Set when the rows seen going in no longer say what the context holds: after a compaction or a resume. */
+let needsMeasure = false
+let requestsSinceMeasure = 0
 
 // ---------- prompt cache ----------
 
@@ -161,6 +227,8 @@ async function ping($: EngineInterface, origin: 'manual' | 'auto'): Promise<stri
   try {
     const r = await $.model.fork({ prompt: KEEP_WARM_PROMPT })
     if (r.isAnswered) {
+      const usage = r.usage
+      await update($, tokensA, s => attributePlugin(s, usage, 'user-hud')).catch(() => {})
       const summary = pingSummary(r.usage)
       line = summary.line
       await update($, cacheA, s => {
@@ -255,10 +323,112 @@ async function pickModel($: EngineInterface, alias: string) {
   if (now) await update($, hudA, s => ({ ...s, model: now }))
 }
 
-async function pickEffort($: EngineInterface, effort: Effort) {
-  if ((await read($, hudA)).effort === effort) return
-  await update($, hudA, s => ({ ...s, effort }))
-  await $.command.run({ command: 'effort', args: effort }).catch(err => $.ui.toast(`/effort ${effort} failed: ${String(err).slice(0, 120)}`))
+/**
+ * Runs `/effort <level>`, which also turns ultracode off, or `/effort ultracode on`, which keeps the
+ * level and lets Claude run multi-agent workflows; that one is refused where dynamic workflows are off,
+ * and the toast says why.
+ */
+async function pickEffort($: EngineInterface, step: EffortStep) {
+  const hud = await read($, hudA)
+  if (effortStep(hud.effort, hud.ultracode) === step) return
+  const args = step === 'ultracode' ? 'ultracode on' : step
+  await update($, hudA, s => (step === 'ultracode' ? { ...s, ultracode: true } : { ...s, effort: step, ultracode: false }))
+  const r = await $.command.run({ command: 'effort', args }).catch(err => {
+    $.ui.toast(`/effort ${args} failed: ${String(err).slice(0, 120)}`)
+    return null
+  })
+  if (step === 'ultracode' && (r === null || !ultracodeTook(r.text))) {
+    await update($, hudA, s => ({ ...s, ultracode: false }))
+    if (r?.text) $.ui.toast(r.text, { timeoutMs: 8000 })
+  }
+}
+
+async function cycleStyle($: EngineInterface) {
+  await setOption($, 'selectorStyle', nextStyle(cfg.selectorStyle))
+}
+
+// ---------- token usage ----------
+
+function remember(uses: readonly ToolUse[]) {
+  for (const u of uses) {
+    toolUses.set(u.id, { group: u.group, kind: u.kind, item: u.item })
+    if (u.group === 'skills' && u.kind === 'skill' && u.item) lastSkill = u.item
+  }
+  for (const id of toolUses.keys()) {
+    if (toolUses.size <= MAX_TOOL_USES) break
+    toolUses.delete(id)
+  }
+}
+
+/** Files one main-conversation row under its groups; a compaction's boundary first empties the context. */
+async function countRow($: EngineInterface, row: Row) {
+  if (row.door === 'compaction' && !row.message.role) {
+    await update($, tokensA, compacted)
+    return
+  }
+  const { shares, uses } = classifyRow(row, id => toolUses.get(id), lastSkill)
+  remember(uses)
+  if (shares.length > 0) await update($, tokensA, s => addShares(s, shares))
+}
+
+/** What each request carries before the conversation, from the context breakdown; at most every 20 seconds unless forced. */
+async function refreshStanding($: EngineInterface, isForced = false) {
+  const now = await $.clock.now()
+  if (!isForced && now - standingAt < STANDING_EVERY_MS) return
+  standingAt = now
+  const usage = await $.session.usage({ breakdown: 'summary' }).catch(() => null)
+  const b = usage?.context.breakdown
+  if (!b) return
+  await update($, tokensA, s => ({ ...s, standing: standingFrom(b), schemas: mcpSchemas(b) }))
+}
+
+async function agentType($: EngineInterface, agentId: string): Promise<string> {
+  const known = agentTypes.get(agentId)
+  if (known) return known
+  const now = await $.clock.now()
+  if (now - agentsListedAt < AGENT_LIST_EVERY_MS) return UNLISTED_AGENT
+  agentsListedAt = now
+  for (const a of await $.agent.list().catch(() => [])) agentTypes.set(a.id, a.type)
+  return agentTypes.get(agentId) ?? UNLISTED_AGENT
+}
+
+/**
+ * Measures what each group holds from the messages the next request is built from. `replace` where the
+ * rows seen going in cannot say (a load, a resume, a compaction); `trim` every so many requests, which
+ * lowers only the groups the messages measure exactly, for the tool results the engine has trimmed since.
+ */
+async function measureContext($: EngineInterface, how: 'replace' | 'trim') {
+  needsMeasure = false
+  requestsSinceMeasure = 0
+  const held = contextOf(await $.session.messages({ as: 'api' }))
+  await update($, tokensA, s => (how === 'replace' ? withContext(s, held) : trimmedTo(s, held)))
+}
+
+/** A model call made beside the conversation: credited to the plugin that made it (this one's pings are counted where they are sent). */
+async function countModelCall($: EngineInterface, plugin: string, r: { value?: ModelForkResult }) {
+  const usage = r.value && 'usage' in r.value ? r.value.usage : undefined
+  if (plugin === 'user-hud' || !usage || usage.input_tokens + usage.output_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens === 0) return
+  await update($, tokensA, s => attributePlugin(s, usage, plugin))
+}
+
+/** A new conversation (/clear, /resume): the tally starts over, and the context is measured before the next request. */
+async function resetTokens($: EngineInterface) {
+  toolUses.clear()
+  lastSkill = null
+  needsMeasure = true
+  const now = await $.clock.now()
+  await update($, tokensA, s => ({ ...emptyTokens(now), standing: s.standing, schemas: s.schemas, costUsd: s.costUsd, costBase: s.costUsd ?? s.costBase }))
+}
+
+/** The pane's Reset: the counts start over, mid-chat, and what the context still holds stays. */
+async function restartTokens($: EngineInterface) {
+  const now = await $.clock.now()
+  await update($, tokensA, s => restarted(s, now))
+}
+
+async function openTokensPane($: EngineInterface) {
+  await refreshStanding($, true)
+  await $.ui.open({ id: TOKENS_PANE, title: 'Tokens' })
 }
 
 /**
@@ -347,6 +517,13 @@ export const register: Register = (on, given) => {
   options = { ...((given ?? {}) as Record<string, unknown>) }
   cfg = readCfg(options)
   isHandoffPending = false
+  toolUses.clear()
+  lastSkill = null
+  agentTypes.clear()
+  agentsListedAt = 0
+  standingAt = 0
+  needsMeasure = false
+  requestsSinceMeasure = 0
 
   // ---------- lifecycle ----------
 
@@ -356,15 +533,30 @@ export const register: Register = (on, given) => {
     await $.command.register({ name: 'keepwarm', description: 'Refresh the prompt cache now with a one-line ping (adds nothing to the chat)' })
     await $.command.register({ name: 'read-handoff', description: 'Show the newest handoff note, with a button to continue from it' })
     await $.command.register({ name: 'hud', description: 'Open or close the user-hud panel in the corner above the prompt' })
+    await $.command.register({ name: 'tokens', description: 'Where this session’s tokens went: files, chat, MCP, shell, skills and plugins, subagents and more' })
 
     const isOpen = (await $.store.get(STORE_OPEN).catch(() => undefined)) === true
     const model = await $.session.model().catch(() => null)
     const settings = await $.settings.read().catch(() => ({}) as Record<string, unknown>)
-    await update($, hudA, s => ({ ...s, isOpen, model: model ?? s.model, effort: s.effort ?? asEffort(settings.effortLevel) }))
+    // `effortLevel: "ultracode"` starts a session at xhigh with ultracode on.
+    const isUltracode = settings.effortLevel === 'ultracode'
+    await update($, hudA, s => ({
+      ...s,
+      isOpen,
+      model: model ?? s.model,
+      effort: s.effort ?? (isUltracode ? 'xhigh' : asEffort(settings.effortLevel)),
+      ultracode: s.ultracode || isUltracode,
+    }))
     const usage = await $.session.usage().catch(() => null)
     await trackOverage($, usage?.rateLimits ?? [])
     await resolveTtl($)
     await scanHandoffs($).catch(() => [])
+    // A reload keeps the tally (it is the session's); a fresh session starts it.
+    const now = await $.clock.now()
+    await update($, tokensA, s => (s.since === null ? { ...s, since: now } : s))
+    // A resumed conversation, or a reload mid-chat: what is already in the context.
+    await measureContext($, 'replace').catch(() => {})
+    await refreshStanding($, true).catch(() => {})
 
     $.clock.every(1000, () => void tick($))
     return started
@@ -382,22 +574,41 @@ export const register: Register = (on, given) => {
         isHandoffPending = false
         void scanHandoffs($)
       }
+      void refreshStanding($).catch(() => {})
     }
     return next(e)
   })
 
-  // Every main-thread request reads or writes the cache: that is the clock's reset.
+  // Every main-thread request reads or writes the cache: that is the clock's reset. Its real token
+  // counts are split across the groups by what they held when it went out.
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId !== undefined) return yield* next(e)
+    if (e.agentId !== undefined) {
+      const result = yield* next(e)
+      try {
+        const usage = result.usage
+        if (usage) {
+          const type = await agentType($, e.agentId)
+          await update($, tokensA, s => attributeAgent(s, usage, type))
+        }
+      } catch {
+        // Never disturb the turn over a display.
+      }
+      return result
+    }
     const at = await $.clock.now()
     // The effort the request really carries, after any downgrade for the model.
     const effort = asEffort(e.effort)
     if (effort) await update($, hudA, s => (s.effort === effort ? s : { ...s, effort })).catch(() => {})
+    requestsSinceMeasure += 1
+    if (needsMeasure) await measureContext($, 'replace').catch(() => {})
+    else if (requestsSinceMeasure >= MEASURE_EVERY) await measureContext($, 'trim').catch(() => {})
+    const weights = await read($, tokensA).then(contextWeights, () => null)
     const result = yield* next(e)
     try {
       const usage = result.usage
       if (usage) {
         await update($, cacheA, s => afterRequest(s, at, usage, usage.model))
+        if (weights) await update($, tokensA, s => attributeRequest(s, weights, usage, { answer: result.answer, toolUses: result.toolUses }))
       }
     } catch {
       // Never disturb the turn over a display.
@@ -405,22 +616,57 @@ export const register: Register = (on, given) => {
     return result
   })
 
+  // Every row the main conversation keeps, as stored: what it added, group by group.
+  on('session.append', async ($, e, next) => {
+    const stored = await next(e)
+    if (e.agentId === undefined && stored.message) {
+      await countRow($, { door: e.door, origin: e.origin, message: stored.message }).catch(() => {})
+    }
+    return stored
+  }).catch(($, e, next) => next(e))
+
+  // Model calls other plugins make beside the conversation (a side chat's fork, a summary).
+  on('model.fork', async ($, e, next) => {
+    const r = await next(e)
+    await countModelCall($, next.origin.plugin, r).catch(() => {})
+    return r
+  }).catch(($, e, next) => next(e))
+  on('model.complete', async ($, e, next) => {
+    const r = await next(e)
+    await countModelCall($, next.origin.plugin, r).catch(() => {})
+    return r
+  }).catch(($, e, next) => next(e))
+
   on('session.compact', async ($, e, next) => {
     const result = await next(e)
     await reset($, 'compacted')
+    // The summary and the messages kept: measured before the next request.
+    needsMeasure = true
     return result
   }).catch(($, e, next) => next(e))
 
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') await reset($, 'cleared')
+    if (e.reason === 'clear' || e.reason === 'resume') await resetTokens($)
     return next(e)
   })
 
-  // Claude Code reports the plan windows after each response; past a limit is overage.
+  // Claude Code reports the plan windows and the cost after each response; past a limit is overage.
   on('session.measure', async ($, e, next) => {
     if (e.changed.includes('rateLimits')) await trackOverage($, e.rateLimits).catch(() => {})
+    const cost = e.cost
+    if (e.changed.includes('cost') && cost) await update($, tokensA, s => ({ ...s, costUsd: cost.usd })).catch(() => {})
     return next(e)
   })
+
+  // /effort typed at the prompt moves the picker too; `/effort <level>` also turns ultracode off.
+  on('command.run', { command: 'effort' }, async ($, e, next) => {
+    const r = await next(e)
+    const change = parseEffortArgs(e.args)
+    if (change.ultracode === true && !ultracodeTook(r.text)) return r
+    if (change.effort !== undefined || change.ultracode !== undefined) await update($, hudA, s => ({ ...s, ...change })).catch(() => {})
+    return r
+  }).catch(($, e, next) => next(e))
 
   on('classic.PostModelSwitch', async ($, e, next) => {
     await reset($, 'model switched')
@@ -469,6 +715,11 @@ export const register: Register = (on, given) => {
     return { text: isOpen ? 'user-hud panel closed.' : 'user-hud panel open.' }
   })
 
+  on('command.run', { command: 'tokens' }, async $ => {
+    await openTokensPane($).catch(() => {})
+    return { text: summary(await read($, tokensA)) }
+  })
+
   // ---------- corner panel above the prompt ----------
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -479,7 +730,9 @@ export const register: Register = (on, given) => {
     const t = await read($, ttlA)
     const hud = await read($, hudA)
     const handoff = await read($, handoffA)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const tokens = await read($, tokensA)
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Button } = ui
     const now = await $.clock.now()
     const rem = remainingMs(c.lastHitAt, t.ttl, now)
     const lv = level(rem, cfg.warnMs, e.props.isWorking || c.isWorking)
@@ -488,10 +741,10 @@ export const register: Register = (on, given) => {
     // The terminal draws pills as filled cells; the other surfaces draw native buttons, which only look
     // right as themselves (a coloured Box behind a plain Button paints a square block there).
     const isNative = e.surface !== 'terminal'
-    // The desktop caps the band at 12 rows; drop the dividers rather than make the panel scroll.
-    const isCompact = e.props.maxRows < FULL_PANEL_ROWS + (hud.overage ? 1 : 0)
-    const setup = [modelLabel(hud.model), effortLabel(hud.effort)].filter(Boolean).join(' · ')
     const canWarm = !c.isPinging && (lv === 'warm' || lv === 'cooling')
+    const alias = modelAlias(hud.model)
+    const step = effortStep(hud.effort, hud.ultracode)
+    const used = totalUsed(tokens)
 
     const keepWarm = (
       <Button
@@ -517,12 +770,28 @@ export const register: Register = (on, given) => {
       : lv === 'cold' ? <Text color="error">◇ cache cold</Text>
       : null
 
+    // The model in its colour on the blue-to-orange ramp, the effort in its own, letter by letter.
+    const modelName = modelLabel(hud.model)
+    const stepLabel = EFFORT_STEPS.find(f => f.step === step)?.label
+    const setup = !modelName && !stepLabel ? null : (
+      <Text key="setup">
+        {modelName && (
+          <Text color={alias ? MODEL_COLORS[alias] : undefined} dimColor={!alias}>
+            {modelName}
+          </Text>
+        )}
+        {modelName && stepLabel && <Text dimColor> · </Text>}
+        {step && stepLabel && tinted(ui, 'setup-effort', stepLabel, EFFORT_COLORS[step])}
+      </Text>
+    )
+
     const tab = (
       <Box key="tabrow" flexDirection="row" flexWrap="wrap" justifyContent="flex-end" columnGap={2}>
         {!hud.isOpen && chip}
         {!hud.isOpen && overageMark}
         {!hud.isOpen && hud.overage && newChat}
-        {!hud.isOpen && setup !== '' && <Text dimColor>{setup}</Text>}
+        {!hud.isOpen && used > 0 && <Text dimColor>{fmtTokens(Math.round(used))} tokens</Text>}
+        {!hud.isOpen && setup}
         {!hud.isOpen && lv === 'cooling' && canWarm && keepWarm}
         <Box key="tab" backgroundColor="claude" paddingX={1}>
           <Button key="panel" plain label={`◆ user-hud ${hud.isOpen ? '▾' : '▴'}`} onPress={() => void setPanelOpen($, !hud.isOpen)} />
@@ -542,14 +811,6 @@ export const register: Register = (on, given) => {
 
     // ----- the panel: grows up from the tab -----
 
-    const segment = (key: string, label: string, isOn: boolean, onPress: () => void) =>
-      isNative ? (
-        <Button key={key} label={label} plain={isOn ? undefined : true} variant={isOn ? 'primary' : undefined} onPress={onPress} />
-      ) : (
-        <Box key={`seg-${key}`} backgroundColor={isOn ? 'claude' : undefined}>
-          <Button key={key} plain label={` ${label} `} onPress={onPress} />
-        </Box>
-      )
     const pill = (key: string, label: string, isOn: boolean, onPress: () => void) =>
       isNative ? (
         <Button key={`set-${key}`} label={label} variant={isOn ? 'primary' : undefined} onPress={onPress} />
@@ -558,24 +819,50 @@ export const register: Register = (on, given) => {
           <Button key={`set-${key}`} plain label={` ${label} `} onPress={onPress} />
         </Box>
       )
-    const field = (label: string, body: JSX.Element) => (
-      <Box key={`field-${label}`} flexDirection="row">
-        <Box width={8} flexShrink={0}>
+    const field = (label: string, body: JSX.Element, isLabelLast = false) => (
+      <Box key={`field-${label}`} flexDirection="row" alignItems={isLabelLast ? 'flex-end' : 'flex-start'}>
+        <Box width={FIELD_WIDTH} flexShrink={0}>
           <Text dimColor>{label}</Text>
         </Box>
         {body}
       </Box>
     )
 
-    const alias = modelAlias(hud.model)
-    const models = (
-      <Box flexDirection="row">
-        {MODELS.map(m => segment(`model-${m.alias}`, m.label, alias === m.alias, () => void pickModel($, m.alias)))}
-      </Box>
-    )
-    const efforts = (
-      <Box flexDirection="row" backgroundColor={isNative ? undefined : 'subtle'}>
-        {EFFORTS.map(f => segment(`effort-${f.level}`, f.label, hud.effort === f.level, () => void pickEffort($, f.level)))}
+    // The pickers: the same tree on every surface, in the style chosen.
+    const pickerWidth = width - FIELD_WIDTH
+    const modelOptions: PickerOption[] = MODELS.map(m => ({
+      key: `model-${m.alias}`,
+      label: m.label,
+      colors: [MODEL_COLORS[m.alias] ?? '#888888'],
+      isOn: alias === m.alias,
+      onPress: () => void pickModel($, m.alias),
+    }))
+    const effortOptions: PickerOption[] = EFFORT_STEPS.map(f => ({
+      key: `effort-${f.step}`,
+      label: f.label,
+      colors: EFFORT_COLORS[f.step],
+      isOn: step === f.step,
+      onPress: () => void pickEffort($, f.step),
+    }))
+    const style = styleAt(cfg.selectorStyle, pickerWidth, [modelOptions.map(o => o.label), effortOptions.map(o => o.label)])
+    const pickerRowCount = pickerRows(style, pickerWidth, modelOptions) + pickerRows(style, pickerWidth, effortOptions)
+    // The Meter's labels sit under its bars: the field name goes beside the labels.
+    const isLabelLast = style === 'meter'
+
+    // ----- the tokens row: a stacked bar of where they went, the two largest named -----
+
+    const leaders = ranked(tokens).filter(g => g.used > 0).slice(0, 2)
+    const tokensRow = (
+      <Box key="tokensrow" flexDirection="row" columnGap={1}>
+        {used > 0 ? stackedBar(ui, 'panel-bar', tokens, TOKEN_BAR_CELLS) : <Text dimColor>counting from the next request</Text>}
+        {used > 0 && <Text>{fmtTokens(Math.round(used))}</Text>}
+        {leaders.map(l => (
+          <Text key={`lead-${l.id}`} dimColor wrap="truncate">
+            · {groupOf(l.id).label} {pct(l.share)}
+          </Text>
+        ))}
+        <Box flexGrow={1} />
+        <Button key="tokens" plain hotkey="t" label="Details" onPress={() => void openTokensPane($)} />
       </Box>
     )
 
@@ -645,6 +932,25 @@ export const register: Register = (on, given) => {
       </Box>
     )
     const warnSeconds = Math.round(cfg.warnMs / 1000)
+    const onWarn = () => void setOption($, 'warnSeconds', nextWarn(warnSeconds))
+    const onStyle = () => void cycleStyle($)
+    const settingRows = [
+      toggle('autoKeepWarm', 'Auto keep-warm', `ping 30s before expiry, up to ${cfg.maxAutoPings}`, cfg.autoKeepWarm),
+      toggle('sound', 'Alert sound', 'Glass at the warning', cfg.sound),
+      toggle('notifyMac', 'Mac alert', `Keep warm button, closes in ${cfg.alertSeconds}s`, cfg.notifyMac),
+      choice('warnSeconds', 'Alert at', 'time left when the alert fires', fmtClock(warnSeconds * 1000), onWarn),
+      choice('selectorStyle', 'Picker style', 'Rail, Ladder or Meter', styleLabel(cfg.selectorStyle), onStyle),
+    ]
+    // Short of rows, the settings fold onto one line of pills, the same buttons under the same keys.
+    const settingsLine = (
+      <Box key="settingsline" flexDirection="row" flexWrap="wrap" columnGap={1}>
+        {pill('autoKeepWarm', `${cfg.autoKeepWarm ? '●' : '○'} Auto keep-warm`, cfg.autoKeepWarm, () => void setOption($, 'autoKeepWarm', !cfg.autoKeepWarm))}
+        {pill('sound', `${cfg.sound ? '●' : '○'} Sound`, cfg.sound, () => void setOption($, 'sound', !cfg.sound))}
+        {pill('notifyMac', `${cfg.notifyMac ? '●' : '○'} Mac alert`, cfg.notifyMac, () => void setOption($, 'notifyMac', !cfg.notifyMac))}
+        {pill('warnSeconds', `Alert ${fmtClock(warnSeconds * 1000)}`, false, onWarn)}
+        {pill('selectorStyle', styleLabel(cfg.selectorStyle), false, onStyle)}
+      </Box>
+    )
 
     const newestNote = handoff.files[0]
     const handoffRow = (
@@ -665,17 +971,23 @@ export const register: Register = (on, given) => {
       </Box>
     )
 
-    const rule = (text: string) => (
-      <Text dimColor wrap="truncate">
+    const rule = (key: string, text: string) => (
+      <Text key={key} dimColor wrap="truncate">
         {text}
       </Text>
     )
 
+    // Rows to spare decide the layout: every divider; then only SETTINGS's; then none, the settings on one line.
+    const core = pickerRowCount + 1 + 1 + (hud.overage ? 1 : 0) + 1 + 1
+    const layout = e.props.maxRows >= core + settingRows.length + 4 ? 'full' : e.props.maxRows >= core + settingRows.length + 1 ? 'tight' : 'compact'
+    const isFull = layout === 'full'
+
     const panel = (
       <Box key="panel" flexDirection="column" width={width}>
-        {field('MODEL', models)}
-        {field('EFFORT', efforts)}
-        {!isCompact && rule(sectionRule('CACHE', width))}
+        {field('MODEL', picker(ui, style, modelOptions, pickerWidth), isLabelLast)}
+        {field('EFFORT', picker(ui, style, effortOptions, pickerWidth), isLabelLast)}
+        {field('TOKENS', tokensRow)}
+        {isFull && rule('rule-cache', sectionRule('CACHE', width))}
         {cacheLine}
         {hud.overage && (
           <Box key="overage" flexDirection="row" columnGap={1}>
@@ -687,14 +999,11 @@ export const register: Register = (on, given) => {
             {newChat}
           </Box>
         )}
-        {rule(sectionRule('SETTINGS', width))}
-        {toggle('autoKeepWarm', 'Auto keep-warm', `ping 30s before expiry, up to ${cfg.maxAutoPings}`, cfg.autoKeepWarm)}
-        {toggle('sound', 'Alert sound', 'Glass at the warning', cfg.sound)}
-        {toggle('notifyMac', 'Mac alert', `Keep warm button, closes in ${cfg.alertSeconds}s`, cfg.notifyMac)}
-        {choice('warnSeconds', 'Alert at', 'time left when the alert fires', fmtClock(warnSeconds * 1000), () => void setOption($, 'warnSeconds', nextWarn(warnSeconds)))}
-        {!isCompact && rule(sectionRule('HANDOFF', width))}
+        {layout !== 'compact' && rule('rule-settings', sectionRule('SETTINGS', width))}
+        {layout === 'compact' ? settingsLine : settingRows}
+        {isFull && rule('rule-handoff', sectionRule('HANDOFF', width))}
         {handoffRow}
-        {!isCompact && rule(footerRule('user-hud', width))}
+        {isFull && rule('rule-footer', footerRule('user-hud', width))}
       </Box>
     )
 
@@ -707,6 +1016,17 @@ export const register: Register = (on, given) => {
         </Box>
       </Box>
     )
+  })
+
+  // ---------- tokens pane ----------
+
+  on('ui.render', { component: 'Pane', requestId: TOKENS_PANE }, async ($, e) => {
+    const ui = $.ui.resolve(e)
+    const tokens = await read($, tokensA)
+    return tokenPane(ui, tokens, Math.max(20, e.props.bodyColumns - 2), {
+      refresh: () => void refreshStanding($, true),
+      reset: () => void restartTokens($),
+    })
   })
 
   // ---------- handoff pane ----------
