@@ -4,7 +4,7 @@
 // The person's own checkout is never touched.
 import type { CodeLine, PrMeta } from '../types'
 import { clean } from './gh.ts'
-import { parseDiff, rowsFromHunks, rowsFromText } from './review.ts'
+import { parseDiff, rowsFromHunks, rowsFromText } from './code.ts'
 import { cacheDirs, remoteFor } from './view.ts'
 
 export type RunResult = { isOk: true; out: string } | { isOk: false; err: string }
@@ -57,12 +57,13 @@ export type Prepared = { isOk: true; path: string; repo: string } | { isOk: fals
  * the session's checkout when that is the PR's repository, else a clone under
  * the cache folder made once (no checkout; a full clone, because Claude Code
  * runs git with lazy fetching off, which a blobless clone needs). The PR's refs are
- * fetched under refs/pr-review-ui/, so no branch of the person's is touched.
+ * fetched under refs/code-reference/, so no branch of the person's is touched.
+ * Without gh the clone is made with plain git.
  */
 export async function prepareWorktree(
   run: Run,
   exists: (path: string) => Promise<boolean>,
-  opts: { gh: string; home: string; root: string; info: PrInfo },
+  opts: { gh: string | null; home: string; root: string; info: PrInfo },
 ): Promise<Prepared> {
   const { info } = opts
   let repo = ''
@@ -79,11 +80,12 @@ export async function prepareWorktree(
   if (!repo) {
     repo = cacheDirs(opts.home, info.host, info.repo, info.number, info.headSha).clone
     if (!(await exists(`${repo}/.git`))) {
-      const cloned = await run([opts.gh, 'repo', 'clone', `https://${info.host}/${info.repo}`, repo, '--', '--no-checkout'], 600_000)
+      const url = `https://${info.host}/${info.repo}`
+      const cloned = await run(opts.gh ? [opts.gh, 'repo', 'clone', url, repo, '--', '--no-checkout'] : ['git', 'clone', '--no-checkout', '--quiet', url, repo], 600_000)
       if (!cloned.isOk) return { isOk: false, note: `could not clone ${info.repo}: ${cloned.err}` }
     }
   }
-  const ns = `refs/pr-review-ui/${info.number}`
+  const ns = `refs/code-reference/${info.number}`
   const fetched = await run(['git', '-C', repo, 'fetch', '--no-tags', '--quiet', remote, `+refs/pull/${info.number}/head:${ns}/head`, `+refs/heads/${info.base}:${ns}/base`], 600_000)
   if (!fetched.isOk) return { isOk: false, note: `could not fetch the PR: ${fetched.err}` }
   const head = await run(['git', '-C', repo, 'rev-parse', `${ns}/head`])
@@ -123,15 +125,18 @@ export async function removeWorktree(run: Run, repo: string, path: string): Prom
 
 /**
  * A file's lines as rows, against HEAD of `root`: in a review worktree, the
- * PR's whole change to it; for a local review, the uncommitted one. A file
- * the diff does not touch reads as every line unchanged.
+ * PR's whole change to it; in the session's checkout, the uncommitted one. A
+ * file the diff does not touch, or one outside a git repository, reads as
+ * every line unchanged. An absolute `path` is read where it is.
  */
 export async function fileRows(run: Run, read: (path: string) => Promise<string | null>, root: string, path: string): Promise<CodeLine[] | null> {
-  const diff = await run(['git', '-C', root, 'diff', '--no-color', '--no-ext-diff', '-U100000', 'HEAD', '--', path])
-  if (diff.isOk && diff.out.trim()) {
-    const hunks = parseDiff(diff.out).get(path)
-    if (hunks && hunks.length > 0) return rowsFromHunks(hunks)
+  if (root && !path.startsWith('/')) {
+    const diff = await run(['git', '-C', root, 'diff', '--no-color', '--no-ext-diff', '-U100000', 'HEAD', '--', path])
+    if (diff.isOk && diff.out.trim()) {
+      const hunks = parseDiff(diff.out).get(path)
+      if (hunks && hunks.length > 0) return rowsFromHunks(hunks)
+    }
   }
-  const text = await read(`${root.replace(/\/$/, '')}/${path}`)
+  const text = await read(path.startsWith('/') ? path : `${root.replace(/\/$/, '')}/${path}`)
   return text === null ? null : rowsFromText(text)
 }

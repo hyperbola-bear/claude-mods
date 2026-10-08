@@ -1,0 +1,45 @@
+{
+  "name": "code-reference",
+  "version": "2.0.0",
+  "author": {
+    "name": "Polar"
+  },
+  "description": "Replies that point at code: ask with /code-reference (or review a PR) and each place the reply names opens in a code pane beside it, the prose linked to it and boxed under each section. Drawn the same in the terminal and the desktop app. PRs are read with gh, a GitHub MCP server or git, and checked out into a review worktree.",
+  "types": "./types/index.d.ts",
+  "license": "MIT",
+  "keywords": [
+    "code-reference",
+    "code-review",
+    "explain",
+    "github",
+    "pull-requests",
+    "git-worktree",
+    "mod"
+  ],
+  "userConfig": {
+    "autoReview": {
+      "type": "boolean",
+      "title": "Review when you ask for one",
+      "description": "Treat a prompt that says review with a GitHub PR link, a PR link alone, or \"review pr\", \"review pr 418\", \"pr review\" as a review request in the code-reference format, without the slash command.",
+      "default": true
+    },
+    "ideCommand": {
+      "type": "string",
+      "title": "Editor command",
+      "description": "The command the pane's editor link uses to open a file at a line, such as code, cursor, zed, idea or goland. Leave empty to find the editor you run Claude Code in.",
+      "default": ""
+    },
+    "ghPath": {
+      "type": "string",
+      "title": "gh executable",
+      "description": "The GitHub CLI used to read pull requests. Use a full path if gh is not on the PATH Claude Code sees. Without it, a GitHub MCP server or plain git is used.",
+      "default": "gh"
+    },
+    "offerSetup": {
+      "type": "boolean",
+      "title": "Offer to install what it can use",
+      "description": "Once after install, ask whether to install what code-reference can use and this machine lacks: the GitHub CLI, Ghostty and terminal-browser. Nothing is installed without a yes.",
+      "default": true
+    }
+  }
+}

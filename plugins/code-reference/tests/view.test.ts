@@ -1,33 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { parseDiff } from '../hooks/review.ts'
-import { cacheDirs, canDrawImages, headCopyPath, ideCommands, ideOf, nvimOpenExpr, pickView, prFiles, remoteFor, sameRepo, shortRef, vscodeCliFrom } from '../hooks/view.ts'
-
-const PR = { isTerminal: true, hasBrowser: true, isPr: true, hasIdeCommand: false }
-
-test('auto follows the terminal: the editor in an IDE terminal, terminal-browser in Ghostty or kitty, else the pane', () => {
-  expect(pickView('auto', { termProgram: 'vscode' }, PR)).toBe('ide')
-  expect(pickView('auto', { terminalEmulator: 'JetBrains-JediTerm' }, PR)).toBe('ide')
-  expect(pickView('auto', { termProgram: 'ghostty' }, PR)).toBe('browser')
-  expect(pickView('auto', { term: 'xterm-kitty' }, PR)).toBe('browser')
-  expect(pickView('auto', { termProgram: 'ghostty', tmux: '/tmp/tmux-1/default,1,0' }, PR)).toBe('pane')
-  expect(pickView('auto', { termProgram: 'ghostty' }, { ...PR, hasBrowser: false })).toBe('pane')
-  expect(pickView('auto', { termProgram: 'ghostty' }, { ...PR, isPr: false })).toBe('pane')
-  expect(pickView('auto', { termProgram: 'Apple_Terminal' }, PR)).toBe('pane')
-  expect(pickView('auto', { termProgram: 'Apple_Terminal' }, { ...PR, hasIdeCommand: true })).toBe('ide')
-  expect(pickView('auto', { termProgram: 'vscode' }, { ...PR, isTerminal: false })).toBe('pane')
-  expect(pickView('auto', { termProgram: 'zed' }, PR)).toBe('ide')
-  expect(pickView('auto', { termProgram: 'ghostty', nvim: '/tmp/nvim.1/0' }, PR)).toBe('ide')
-  expect(pickView('auto', { termProgram: 'iTerm.app' }, PR)).toBe('pane')
-  expect(pickView('auto', { termProgram: 'WarpTerminal' }, PR)).toBe('pane')
-})
-
-test('a fixed setting wins, browser only for PRs', () => {
-  expect(pickView('pane', { termProgram: 'vscode' }, PR)).toBe('pane')
-  expect(pickView('ide', { termProgram: 'ghostty' }, PR)).toBe('ide')
-  expect(pickView('browser', {}, PR)).toBe('browser')
-  expect(pickView('browser', {}, { ...PR, isPr: false })).toBe('pane')
-})
+import { cacheDirs, canDrawImages, headCopyPath, ideCommands, ideOf, nvimOpenExpr, remoteFor, sameRepo, vscodeCliFrom } from '../hooks/view.ts'
 
 test('IDE and image support detection', () => {
   expect(ideOf({ termProgram: 'vscode' })).toBe('vscode')
@@ -70,9 +43,9 @@ test('the PR repository among the remotes, and the cache folders', () => {
   expect(remoteFor(remotes, 'polar/billing')).toBe('origin')
   expect(remoteFor(remotes, 'acme/other')).toBe(null)
   expect(cacheDirs('/Users/p/', 'github.com', 'acme/billing', 12, 'abcdef1234')).toEqual({
-    clone: '/Users/p/.cache/pr-review-ui/repos/github.com/acme/billing',
-    worktree: '/Users/p/.cache/pr-review-ui/review/acme-billing-12-abcdef1',
-    prefix: '/Users/p/.cache/pr-review-ui/review/acme-billing-12-',
+    clone: '/Users/p/.cache/code-reference/repos/github.com/acme/billing',
+    worktree: '/Users/p/.cache/code-reference/review/acme-billing-12-abcdef1',
+    prefix: '/Users/p/.cache/code-reference/review/acme-billing-12-',
   })
 })
 
@@ -80,11 +53,5 @@ test('the PR checkout check and the PR-head copy path', () => {
   expect(sameRepo('git@github.com:Acme/Billing.git', 'acme/billing')).toBe(true)
   expect(sameRepo('https://github.com/acme/billing', 'acme/billing')).toBe(true)
   expect(sameRepo('https://github.com/acme/billing-ui.git', 'acme/billing')).toBe(false)
-  expect(headCopyPath('/var/folders/x/T/', 'acme/billing', 12, 'abcdef1234', 'src/a.ts')).toBe('/var/folders/x/T/pr-review-ui/acme-billing-12-abcdef1/src/a.ts')
-})
-
-test('the PR files and short refs', () => {
-  const files = parseDiff(['diff --git a/f.ts b/f.ts', '--- a/f.ts', '+++ b/f.ts', '@@ -10,3 +10,4 @@', ' a', '-b', '+B', '+C', ' d'].join('\n'))
-  expect(prFiles(files)).toEqual([{ path: 'f.ts', adds: 2, dels: 1 }])
-  expect(shortRef({ path: 'a/b/c/d.go', line: 3, endLine: 9 })).toBe('c/d.go:3-9')
+  expect(headCopyPath('/var/folders/x/T/', 'acme/billing', 12, 'abcdef1234', 'src/a.ts')).toBe('/var/folders/x/T/code-reference/acme-billing-12-abcdef1/src/a.ts')
 })

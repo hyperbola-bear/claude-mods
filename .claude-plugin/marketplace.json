@@ -11,9 +11,9 @@
       "description": "A control panel tucked into the corner above the Claude Code prompt: where your tokens go (files, chat, MCP, shell, skills and plugins, subagents and more), model and effort pickers in three styles, prompt-cache countdown with a 2-minute keep-warm alert, quick settings, and handoff buttons."
     },
     {
-      "name": "pr-review-ui",
-      "source": "./plugins/pr-review-ui",
-      "description": "PR reviews as numbered points in one standard format; the PR is checked out into a review worktree and each point's code opens beside the review with the changes highlighted: in your editor, in terminal-browser, or in a code pane."
+      "name": "code-reference",
+      "source": "./plugins/code-reference",
+      "description": "Replies that point at code: ask with /code-reference (or review a PR) and each place the reply names opens in a code pane beside it, the prose linked to it and boxed under each section. Drawn the same in the terminal and the desktop app. Was pr-review-ui."
     },
     {
       "name": "ask",

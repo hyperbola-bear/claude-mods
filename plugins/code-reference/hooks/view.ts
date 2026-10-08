@@ -1,9 +1,5 @@
-// Pure view logic: where the code shows (browser, IDE or pane), how to open
+// Where Claude Code runs (an editor's terminal, Ghostty or kitty), how to open
 // an editor at a line, and where the review worktree lives. No `$` here.
-import type { CodeRef, PrFileStat } from '../types'
-import type { Hunk } from './review.ts'
-
-export type View = 'browser' | 'ide' | 'pane'
 export type Ide = 'vscode' | 'jetbrains' | 'zed' | 'nvim'
 
 /** What the terminal Claude Code runs in says about itself. */
@@ -35,26 +31,6 @@ export function canDrawImages(env: TermEnv): boolean {
   const isGhostty = env.termProgram === 'ghostty' || env.term === 'xterm-ghostty'
   const isKitty = env.term === 'xterm-kitty' || Boolean(env.kittyWindow)
   return isGhostty || isKitty
-}
-
-/**
- * Where a code location shows. `auto` follows the terminal: the editor when
- * Claude Code runs in an editor's terminal, terminal-browser in Ghostty or
- * kitty (when installed and the review is a PR), the code pane everywhere
- * else, including the desktop app.
- */
-export function pickView(
-  setting: 'auto' | View,
-  env: TermEnv,
-  facts: { isTerminal: boolean; hasBrowser: boolean; isPr: boolean; hasIdeCommand: boolean },
-): View {
-  if (setting === 'pane') return 'pane'
-  if (setting === 'browser') return facts.isPr ? 'browser' : 'pane'
-  if (setting === 'ide') return 'ide'
-  if (!facts.isTerminal) return 'pane'
-  if (ideOf(env) || facts.hasIdeCommand) return 'ide'
-  if (facts.isPr && facts.hasBrowser && canDrawImages(env)) return 'browser'
-  return 'pane'
 }
 
 /**
@@ -111,7 +87,7 @@ export function ideCommands(
 
 /** Where a read-only copy of a file at the PR head goes, under the temp folder: the fallback when no worktree can be made. */
 export function headCopyPath(tmp: string, repo: string, number: number, sha: string, path: string): string {
-  return `${tmp.replace(/\/$/, '')}/pr-review-ui/${repo.replace(/[^\w.-]+/g, '-')}-${number}-${sha.slice(0, 7)}/${path}`
+  return `${tmp.replace(/\/$/, '')}/code-reference/${repo.replace(/[^\w.-]+/g, '-')}-${number}-${sha.slice(0, 7)}/${path}`
 }
 
 /** Whether a git remote URL is the PR's repository (https or ssh, with or without .git). */
@@ -134,31 +110,7 @@ export function remoteFor(remotes: string, repo: string): string | null {
  * folder is some other repository, and the review worktree of one PR head.
  */
 export function cacheDirs(home: string, host: string, repo: string, number: number, sha: string): { clone: string; worktree: string; prefix: string } {
-  const base = `${home.replace(/\/$/, '')}/.cache/pr-review-ui`
+  const base = `${home.replace(/\/$/, '')}/.cache/code-reference`
   const name = `${repo.replace(/[^\w.-]+/g, '-')}-${number}`
   return { clone: `${base}/repos/${host}/${repo}`, worktree: `${base}/review/${name}-${sha.slice(0, 7)}`, prefix: `${base}/review/${name}-` }
 }
-
-/** The PR's files with their added and removed line counts, from its diff. */
-export function prFiles(files: Map<string, Hunk[]>): PrFileStat[] {
-  return [...files.entries()].map(([path, hunks]) => {
-    let adds = 0
-    let dels = 0
-    for (const h of hunks) {
-      for (const l of h.lines) {
-        if (l.startsWith('+')) adds += 1
-        else if (l.startsWith('-')) dels += 1
-      }
-    }
-    return { path, adds, dels }
-  })
-}
-
-/** `repository/mixed_order_fetcher.go:51-72`: the last two path segments and the lines, short enough to sit in a row. */
-export function shortRef(r: CodeRef): string {
-  const tail = r.path.split('/').slice(-2).join('/')
-  return `${tail}:${r.line}${r.endLine > r.line ? `-${r.endLine}` : ''}`
-}
-
-/** The width from which a pane opened unasked docks beside the transcript. */
-export const PANE_FLOOR = 144
