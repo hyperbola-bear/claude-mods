@@ -24,8 +24,12 @@ export type CacheState = {
 
 export type TtlInfo = {
   ttl: CacheTtl
-  source: 'setting' | 'learned' | 'assumed'
+  /** `setting`: promptCacheTtl or its env var; `overage`: unset, and the plan is past a limit; `default`: unset, a subscription's 1h. */
+  source: 'setting' | 'overage' | 'default'
 }
+
+/** One plan window (`five_hour`, `seven_day`) and how much of it is used, 0 to 100 and past. */
+export type PlanLimit = { kind: string; percentUsed: number }
 
 export type HandoffFile = { path: string; mtimeMs: number }
 
@@ -48,11 +52,13 @@ export type HudState = {
   model: string | null
   /** The effort the last main-thread request carried, or the one picked in the panel; null when unknown. */
   effort: Effort | null
+  /** The plan window past its limit while the subscription is on overage; null otherwise. */
+  overage: PlanLimit | null
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    'user-hd': {
+    'user-hud': {
       cache: CacheState
       ttl: TtlInfo
       handoff: HandoffState

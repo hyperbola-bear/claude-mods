@@ -1,17 +1,21 @@
 /**
- * user-hd: a corner panel above the Claude Code prompt.
+ * user-hud: a corner panel above the Claude Code prompt.
  *
  * Collapsed, it is one row at the band's right edge: the cache countdown,
- * model · effort, Keep warm once the cache is cooling, and the ◆ user-hd tab.
+ * model · effort, Keep warm once the cache is cooling, and the ◆ user-hud tab.
  * The tab (or /hud) opens the panel above it: model and effort pickers (they
  * run /model and /effort), the cache, the settings toggled most (written
  * through /config), and the handoff buttons. Open or closed is remembered.
  *
  * 1. Prompt cache countdown. Every main-thread model request refreshes the
  *    prompt cache, so the time since the last request says how long the cache
- *    has left (5 minutes, or an hour on a 1h cache). The band counts it down;
- *    with `warnSeconds` left while you are idle it alerts once (toast, macOS
- *    banner, sound). [ Keep warm ] (w) or /keepwarm sends a one-line
+ *    has left: an hour, as Claude Code keeps it with `promptCacheTtl: "1h"` or
+ *    on a subscription, or 5 minutes where it says so (the setting, or overage
+ *    with the setting unset). On overage (a plan window past its limit) the
+ *    band shows ⚠ overage and a New chat button (/clear). The band counts it down;
+ *    with `warnSeconds` left while you are idle it alerts once (toast, sound,
+ *    and a macOS alert with the plugin's logo and its own Keep warm button that
+ *    closes after `alertSeconds`). [ Keep warm ] (w) or /keepwarm sends a one-line
  *    `$.model.fork` over the session's own transcript, which reads the cached
  *    prefix, resets its timer and adds nothing to the conversation.
  *
@@ -24,26 +28,29 @@
  * `next`), so it sits beside pr-review-ui's band rather than replacing it.
  *
  * Reaches: model.fork (keep-warm pings), process.run (osascript, afplay),
- * fs reads (handoff notes), store (the learned cache lifetime, the panel's
- * open state), settings read (the effort level), config set (the panel's
- * toggles), command run (/model, /effort, /handoff) and prompt submit on
- * button presses. Writes no files.
+ * fs reads (handoff notes, the alert's logo), store (the panel's open state),
+ * settings read (the effort level, promptCacheTtl), env read
+ * (CLAUDE_CODE_PROMPT_CACHE_TTL), session usage (the plan windows), config set
+ * (the panel's toggles), command run (/model, /effort, /handoff, /clear) and
+ * prompt submit on button presses. Writes no files.
  */
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { CacheTtl, Effort, HandoffFile, HandoffState, HudState, TtlInfo } from '../types'
+import type { CacheTtl, Effort, HandoffFile, HandoffState, HudState, PlanLimit, TtlInfo } from '../types'
 import {
   EMPTY_CACHE,
   KEEP_WARM_PROMPT,
   TTL_MS,
   afterRequest,
+  cacheTtlFor,
   cachedTokens,
   fmtClock,
   fmtTokens,
   hitRate,
-  learnsOneHour,
   level,
+  limitLabel,
+  overageOf,
   pingSummary,
   promptTokens,
   remainingMs,
@@ -51,26 +58,25 @@ import {
   shouldAutoPing,
 } from './cache.ts'
 import { HANDOFF_DIRS, age, handoffPrompt, handoffTarget, isHandoffName, joinPath, newest, resumePrompt } from './handoff.ts'
-import { EFFORTS, MODELS, asEffort, effortLabel, footerRule, lifeBar, modelAlias, modelLabel, nextTtl, nextWarn, sectionRule } from './hud.ts'
+import { EFFORTS, MODELS, asEffort, effortLabel, footerRule, lifeBar, modelAlias, modelLabel, nextWarn, sectionRule } from './hud.ts'
 
-const STORE_TTL = 'learnedTtl'
 const STORE_OPEN = 'panelOpen'
 const HANDOFF_PANE = 'handoff'
 const PANEL_WIDTH = 72
-/** Rows the open panel takes with its dividers, the tab row included. */
-const FULL_PANEL_ROWS = 14
+/** Rows the open panel takes with its dividers, the tab row included (one more on overage). */
+const FULL_PANEL_ROWS = 13
 
 const EMPTY_HANDOFF: HandoffState = { files: [], index: 0, text: null, error: null, hasCommand: false }
 
-const cacheA = atom({ plugin: 'user-hd', key: 'cache' } as const, EMPTY_CACHE)
-const ttlA = atom({ plugin: 'user-hd', key: 'ttl' } as const, { ttl: '5m', source: 'assumed' } as TtlInfo)
-const handoffA = atom({ plugin: 'user-hd', key: 'handoff' } as const, EMPTY_HANDOFF)
-const hudA = atom({ plugin: 'user-hd', key: 'hud' } as const, { isOpen: false, model: null, effort: null } as HudState)
+const cacheA = atom({ plugin: 'user-hud', key: 'cache' } as const, EMPTY_CACHE)
+const ttlA = atom({ plugin: 'user-hud', key: 'ttl' } as const, { ttl: '1h', source: 'default' } as TtlInfo)
+const handoffA = atom({ plugin: 'user-hud', key: 'handoff' } as const, EMPTY_HANDOFF)
+const hudA = atom({ plugin: 'user-hud', key: 'hud' } as const, { isOpen: false, model: null, effort: null, overage: null } as HudState)
 
 type Cfg = {
-  cacheTtl: 'auto' | CacheTtl
   warnMs: number
   notifyMac: boolean
+  alertSeconds: number
   sound: boolean
   autoKeepWarm: boolean
   maxAutoPings: number
@@ -81,11 +87,10 @@ type Cfg = {
 export function readCfg(o: Record<string, unknown>): Cfg {
   const n = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
   const b = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d)
-  const ttl = o.cacheTtl === '5m' || o.cacheTtl === '1h' ? o.cacheTtl : 'auto'
   return {
-    cacheTtl: ttl,
     warnMs: Math.max(15, n(o.warnSeconds, 120)) * 1000,
     notifyMac: b(o.notifyMac, true),
+    alertSeconds: Math.min(60, Math.max(3, Math.round(n(o.alertSeconds, 7)))),
     sound: b(o.sound, true),
     autoKeepWarm: b(o.autoKeepWarm, false),
     maxAutoPings: Math.max(1, n(o.maxAutoPings, 3)),
@@ -105,15 +110,45 @@ async function ttlNow($: EngineInterface): Promise<CacheTtl> {
   return (await read($, ttlA)).ttl
 }
 
+/**
+ * A macOS dialog rather than a notification banner: banners take no buttons and leave when macOS
+ * says. Arguments: title, body, icon path ('' for the system note icon), seconds before it closes.
+ * Prints the button pressed, or `timeout`.
+ */
+const ALERT_SCRIPT = [
+  'on run argv',
+  'set theTitle to item 1 of argv',
+  'set theBody to item 2 of argv',
+  'set theIcon to item 3 of argv',
+  'set theSeconds to (item 4 of argv) as integer',
+  'try',
+  'if theIcon is "" then',
+  'set r to display dialog theBody with title theTitle buttons {"Dismiss", "Keep warm"} default button "Keep warm" giving up after theSeconds with icon note',
+  'else',
+  'set r to display dialog theBody with title theTitle buttons {"Dismiss", "Keep warm"} default button "Keep warm" giving up after theSeconds with icon (POSIX file theIcon as alias)',
+  'end if',
+  'on error number -128',
+  'return "Dismiss"',
+  'end try',
+  'if gave up of r then return "timeout"',
+  'return button returned of r',
+  'end run',
+]
+
+/** Shows the macOS alert and resolves with the button pressed: `Keep warm`, `Dismiss`, or `timeout`. */
+async function macAlert($: EngineInterface, title: string, body: string): Promise<string | null> {
+  const icon = `${$.plugin.root}/assets/logo.icns`
+  const hasIcon = (await $.fs.stat(icon).catch(() => null))?.kind === 'file'
+  const argv = ['osascript', ...ALERT_SCRIPT.flatMap(line => ['-e', line]), title, body, hasIcon ? icon : '', String(cfg.alertSeconds)]
+  const r = await $.process.run(argv, { timeoutMs: (cfg.alertSeconds + 5) * 1000 }).catch(() => null)
+  return r !== null && r.exitCode === 0 ? r.stdout.trim() : null
+}
+
 async function notify($: EngineInterface, title: string, body: string) {
-  if (cfg.notifyMac) {
-    $.process
-      .run(['osascript', '-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run', title, body], { timeoutMs: 5000 })
-      .catch(() => {})
-  }
   if (cfg.sound) {
     $.process.run(['afplay', '/System/Library/Sounds/Glass.aiff'], { timeoutMs: 5000 }).catch(() => {})
   }
+  if (cfg.notifyMac && (await macAlert($, title, body)) === 'Keep warm') await ping($, 'manual')
 }
 
 async function ping($: EngineInterface, origin: 'manual' | 'auto'): Promise<string> {
@@ -165,7 +200,7 @@ async function tick($: EngineInterface) {
     const left = fmtClock(rem ?? 0)
     const size = fmtTokens(cachedTokens(c))
     $.ui.toast(`Prompt cache expires in ${left} (${size} tokens). Press w on the cache band or run /keepwarm to keep it warm.`, { timeoutMs: 20_000 })
-    void notify($, 'Claude Code: cache cooling', `${left} left on ${size} cached tokens. Run /keepwarm to keep it warm.`)
+    void notify($, 'Claude Code: cache cooling', `${left} left on ${size} cached tokens. Keep it warm?`)
   }
   if (shouldAutoPing(c, rem, { autoKeepWarm: cfg.autoKeepWarm, maxAutoPings: cfg.maxAutoPings, warnMs: cfg.warnMs })) {
     void ping($, 'auto')
@@ -178,12 +213,26 @@ async function reset($: EngineInterface, reason: string) {
   await update($, cacheA, s => ({ ...EMPTY_CACHE, isWorking: s.isWorking, resetReason: reason }))
 }
 
-/** The lifetime the countdown uses: the setting, else a learned 1h, else 5m. */
+/** The lifetime the countdown uses, as Claude Code picks it: promptCacheTtl, else 1h, else 5m on overage. */
 async function resolveTtl($: EngineInterface) {
-  let ttl: TtlInfo = { ttl: '5m', source: 'assumed' }
-  if (cfg.cacheTtl !== 'auto') ttl = { ttl: cfg.cacheTtl, source: 'setting' }
-  else if ((await $.store.get(STORE_TTL).catch(() => undefined)) === '1h') ttl = { ttl: '1h', source: 'learned' }
-  await update($, ttlA, () => ttl)
+  const env = await $.env.get('CLAUDE_CODE_PROMPT_CACHE_TTL').catch(() => undefined)
+  const settings = await $.settings.read().catch(() => ({}) as Record<string, unknown>)
+  const { overage } = await read($, hudA)
+  await update($, ttlA, () => cacheTtlFor(env ?? settings.promptCacheTtl, overage !== null))
+}
+
+/** Follows the plan windows: past a limit the subscription is on overage, and the indicator shows. */
+async function trackOverage($: EngineInterface, limits: readonly PlanLimit[]) {
+  const overage = overageOf(limits)
+  const before = (await read($, hudA)).overage
+  if (before?.kind === overage?.kind && Math.round(before?.percentUsed ?? 0) === Math.round(overage?.percentUsed ?? 0)) return
+  await update($, hudA, s => ({ ...s, overage }))
+  await resolveTtl($)
+}
+
+/** A fresh conversation: /clear, so the next turns stop re-sending this long one (it stays in /resume). */
+async function startNewChat($: EngineInterface) {
+  await $.command.run({ command: 'clear', args: '' }).catch(err => $.ui.toast(`/clear failed: ${String(err).slice(0, 120)}`))
 }
 
 // ---------- corner panel ----------
@@ -217,14 +266,13 @@ async function pickEffort($: EngineInterface, effort: Effort) {
  * the new options; applying them here too redraws the panel without waiting.
  */
 async function setOption($: EngineInterface, field: string, value: boolean | string | number) {
-  const r = await $.config.set({ key: `user-hd.${field}`, value }).catch(err => ({ deny: String(err).slice(0, 120) }))
+  const r = await $.config.set({ key: `user-hud.${field}`, value }).catch(err => ({ deny: String(err).slice(0, 120) }))
   if (r.deny !== undefined) {
     $.ui.toast(`Could not change ${field}: ${r.deny}`)
     return
   }
   options = { ...options, [field]: value }
   cfg = readCfg(options)
-  if (field === 'cacheTtl') await resolveTtl($)
   $.ui.invalidate('ui.render')
 }
 
@@ -307,13 +355,15 @@ export const register: Register = (on, given) => {
     await $.command.register({ name: 'cache', description: 'Prompt cache status: time left, size, hit rate and lifetime' })
     await $.command.register({ name: 'keepwarm', description: 'Refresh the prompt cache now with a one-line ping (adds nothing to the chat)' })
     await $.command.register({ name: 'read-handoff', description: 'Show the newest handoff note, with a button to continue from it' })
-    await $.command.register({ name: 'hud', description: 'Open or close the user-hd panel in the corner above the prompt' })
+    await $.command.register({ name: 'hud', description: 'Open or close the user-hud panel in the corner above the prompt' })
 
-    await resolveTtl($)
     const isOpen = (await $.store.get(STORE_OPEN).catch(() => undefined)) === true
     const model = await $.session.model().catch(() => null)
     const settings = await $.settings.read().catch(() => ({}) as Record<string, unknown>)
-    await update($, hudA, s => ({ isOpen, model: model ?? s.model, effort: s.effort ?? asEffort(settings.effortLevel) }))
+    await update($, hudA, s => ({ ...s, isOpen, model: model ?? s.model, effort: s.effort ?? asEffort(settings.effortLevel) }))
+    const usage = await $.session.usage().catch(() => null)
+    await trackOverage($, usage?.rateLimits ?? [])
+    await resolveTtl($)
     await scanHandoffs($).catch(() => [])
 
     $.clock.every(1000, () => void tick($))
@@ -347,18 +397,6 @@ export const register: Register = (on, given) => {
     try {
       const usage = result.usage
       if (usage) {
-        const before = await read($, cacheA)
-        if (cfg.cacheTtl === 'auto' && before.lastHitAt !== null) {
-          const gap = at - before.lastHitAt
-          if (learnsOneHour(gap, promptTokens(before), usage.cache_read_input_tokens)) {
-            const current = await read($, ttlA)
-            if (current.ttl !== '1h') {
-              await update($, ttlA, () => ({ ttl: '1h', source: 'learned' }))
-              await $.store.set(STORE_TTL, '1h').catch(() => {})
-              $.ui.toast('Your prompt cache lives 1 hour: the countdown now uses 1h.')
-            }
-          }
-        }
         await update($, cacheA, s => afterRequest(s, at, usage, usage.model))
       }
     } catch {
@@ -378,6 +416,12 @@ export const register: Register = (on, given) => {
     return next(e)
   })
 
+  // Claude Code reports the plan windows after each response; past a limit is overage.
+  on('session.measure', async ($, e, next) => {
+    if (e.changed.includes('rateLimits')) await trackOverage($, e.rateLimits).catch(() => {})
+    return next(e)
+  })
+
   on('classic.PostModelSwitch', async ($, e, next) => {
     await reset($, 'model switched')
     await update($, hudA, s => ({ ...s, model: e.to_model }))
@@ -393,8 +437,11 @@ export const register: Register = (on, given) => {
       return { text: c.resetReason ? `Cache reset (${c.resetReason}); the next prompt writes a new one.` : 'No cached prompt yet: send a first prompt.' }
     }
     const rem = remainingMs(c.lastHitAt, t.ttl, await $.clock.now()) ?? 0
+    const hud = await read($, hudA)
+    const why = { setting: 'set by promptCacheTtl', overage: 'overage: unset promptCacheTtl drops to 5m', default: 'subscription default' }[t.source]
     const lines = [
-      rem > 0 ? `Cache warm: ${fmtClock(rem)} left of ${t.ttl} (${t.source}).` : `Cache expired ${fmtClock(-rem)} ago (${t.ttl}, ${t.source}).`,
+      rem > 0 ? `Cache warm: ${fmtClock(rem)} left of ${t.ttl} (${why}).` : `Cache expired ${fmtClock(-rem)} ago (${t.ttl}, ${why}).`,
+      hud.overage ? `On overage (${limitLabel(hud.overage)}): a new chat costs less per turn.` : '',
       `Last request: ${fmtTokens(c.readTokens)} read from cache, ${fmtTokens(c.writeTokens)} written, ${fmtTokens(c.inputTokens)} uncached` +
         (hitRate(c) !== null ? ` (hit ${hitRate(c)}%).` : '.'),
       c.model ? `Model: ${c.model}.` : '',
@@ -419,7 +466,7 @@ export const register: Register = (on, given) => {
   on('command.run', { command: 'hud' }, async $ => {
     const { isOpen } = await read($, hudA)
     await setPanelOpen($, !isOpen)
-    return { text: isOpen ? 'user-hd panel closed.' : 'user-hd panel open.' }
+    return { text: isOpen ? 'user-hud panel closed.' : 'user-hud panel open.' }
   })
 
   // ---------- corner panel above the prompt ----------
@@ -442,7 +489,7 @@ export const register: Register = (on, given) => {
     // right as themselves (a coloured Box behind a plain Button paints a square block there).
     const isNative = e.surface !== 'terminal'
     // The desktop caps the band at 12 rows; drop the dividers rather than make the panel scroll.
-    const isCompact = e.props.maxRows < FULL_PANEL_ROWS
+    const isCompact = e.props.maxRows < FULL_PANEL_ROWS + (hud.overage ? 1 : 0)
     const setup = [modelLabel(hud.model), effortLabel(hud.effort)].filter(Boolean).join(' · ')
     const canWarm = !c.isPinging && (lv === 'warm' || lv === 'cooling')
 
@@ -457,6 +504,9 @@ export const register: Register = (on, given) => {
       />
     )
 
+    const newChat = <Button key="newchat" label="New chat" onPress={() => void startNewChat($)} />
+    const overageMark = hud.overage && <Text color="warning">⚠ overage</Text>
+
     // ----- the tab row: always there, at the band's right edge -----
 
     const chip =
@@ -470,10 +520,12 @@ export const register: Register = (on, given) => {
     const tab = (
       <Box key="tabrow" flexDirection="row" flexWrap="wrap" justifyContent="flex-end" columnGap={2}>
         {!hud.isOpen && chip}
+        {!hud.isOpen && overageMark}
+        {!hud.isOpen && hud.overage && newChat}
         {!hud.isOpen && setup !== '' && <Text dimColor>{setup}</Text>}
         {!hud.isOpen && lv === 'cooling' && canWarm && keepWarm}
         <Box key="tab" backgroundColor="claude" paddingX={1}>
-          <Button key="panel" plain label={`◆ user-hd ${hud.isOpen ? '▾' : '▴'}`} onPress={() => void setPanelOpen($, !hud.isOpen)} />
+          <Button key="panel" plain label={`◆ user-hud ${hud.isOpen ? '▾' : '▴'}`} onPress={() => void setPanelOpen($, !hud.isOpen)} />
         </Box>
       </Box>
     )
@@ -625,21 +677,24 @@ export const register: Register = (on, given) => {
         {field('EFFORT', efforts)}
         {!isCompact && rule(sectionRule('CACHE', width))}
         {cacheLine}
+        {hud.overage && (
+          <Box key="overage" flexDirection="row" columnGap={1}>
+            {overageMark}
+            <Text dimColor wrap="truncate">
+              {limitLabel(hud.overage)} · a new chat costs less per turn
+            </Text>
+            <Box flexGrow={1} />
+            {newChat}
+          </Box>
+        )}
         {rule(sectionRule('SETTINGS', width))}
         {toggle('autoKeepWarm', 'Auto keep-warm', `ping 30s before expiry, up to ${cfg.maxAutoPings}`, cfg.autoKeepWarm)}
         {toggle('sound', 'Alert sound', 'Glass at the warning', cfg.sound)}
-        {toggle('notifyMac', 'Mac banner', 'see the alert from other apps', cfg.notifyMac)}
-        {choice(
-          'cacheTtl',
-          'Cache lifetime',
-          cfg.cacheTtl === 'auto' ? 'auto learns 1h when it sees one' : 'fixed',
-          cfg.cacheTtl === 'auto' ? `auto · ${t.ttl}` : cfg.cacheTtl,
-          () => void setOption($, 'cacheTtl', nextTtl(cfg.cacheTtl)),
-        )}
+        {toggle('notifyMac', 'Mac alert', `Keep warm button, closes in ${cfg.alertSeconds}s`, cfg.notifyMac)}
         {choice('warnSeconds', 'Alert at', 'time left when the alert fires', fmtClock(warnSeconds * 1000), () => void setOption($, 'warnSeconds', nextWarn(warnSeconds)))}
         {!isCompact && rule(sectionRule('HANDOFF', width))}
         {handoffRow}
-        {!isCompact && rule(footerRule('user-hd', width))}
+        {!isCompact && rule(footerRule('user-hud', width))}
       </Box>
     )
 

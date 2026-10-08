@@ -1,10 +1,10 @@
 {
-  "name": "user-hd",
-  "version": "1.1.1",
+  "name": "user-hud",
+  "version": "1.2.0",
   "author": {
     "name": "Polar"
   },
-  "description": "A control panel tucked into the corner above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert, model and effort pickers, quick settings, and handoff buttons (write one, read the newest).",
+  "description": "A control panel tucked into the corner above the Claude Code prompt: prompt-cache countdown with a 2-minute keep-warm alert (a macOS alert with a Keep warm button), model and effort pickers, quick settings, and handoff buttons (write one, read the newest).",
   "types": "./types/index.d.ts",
   "license": "MIT",
   "keywords": [
@@ -14,17 +14,6 @@
     "mod"
   ],
   "userConfig": {
-    "cacheTtl": {
-      "type": "string",
-      "title": "Prompt cache lifetime",
-      "description": "How long the cache lives after each request. auto assumes 5m (the safe guess) and switches to 1h once it sees a cache hit after more than 5 idle minutes.",
-      "options": [
-        "auto",
-        "5m",
-        "1h"
-      ],
-      "default": "auto"
-    },
     "warnSeconds": {
       "type": "number",
       "title": "Alert when this many seconds are left",
@@ -35,9 +24,17 @@
     },
     "notifyMac": {
       "type": "boolean",
-      "title": "macOS notification banner",
-      "description": "Also post a macOS notification (via osascript) when the alert fires, so you see it from another app.",
+      "title": "macOS alert",
+      "description": "Also show a macOS alert when the cache is about to expire, with a Keep warm button, so you see it from another app. It closes by itself after the seconds below.",
       "default": true
+    },
+    "alertSeconds": {
+      "type": "number",
+      "title": "macOS alert stays (seconds)",
+      "description": "How long the macOS alert stays on screen before it closes by itself.",
+      "default": 7,
+      "min": 3,
+      "max": 60
     },
     "sound": {
       "type": "boolean",
@@ -62,7 +59,7 @@
     "showBand": {
       "type": "boolean",
       "title": "Show the corner panel above the prompt",
-      "description": "The ◆ user-hd tab and its panel (cache, model, effort, settings, handoff) above the prompt.",
+      "description": "The ◆ user-hud tab and its panel (cache, model, effort, settings, handoff) above the prompt.",
       "default": true
     },
     "handoffPath": {

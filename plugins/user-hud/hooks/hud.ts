@@ -38,10 +38,6 @@ export function asEffort(v: unknown): Effort | null {
 
 export const effortLabel = (e: Effort | null) => EFFORTS.find(x => x.level === e)?.label ?? null
 
-export function nextTtl(ttl: 'auto' | '5m' | '1h'): 'auto' | '5m' | '1h' {
-  return ttl === 'auto' ? '5m' : ttl === '5m' ? '1h' : 'auto'
-}
-
 export function nextWarn(seconds: number): number {
   const i = WARN_STEPS.findIndex(s => s === seconds)
   return (i === -1 ? undefined : WARN_STEPS[(i + 1) % WARN_STEPS.length]) ?? 120
@@ -53,7 +49,7 @@ export function sectionRule(title: string, width: number): string {
   return head + '─'.repeat(Math.max(2, width - head.length))
 }
 
-/** `──────… user-hd ─`, `width` cells across: the panel's bottom edge. */
+/** `──────… user-hud ─`, `width` cells across: the panel's bottom edge. */
 export function footerRule(title: string, width: number): string {
   const tail = ` ${title} ─`
   return '─'.repeat(Math.max(2, width - tail.length)) + tail

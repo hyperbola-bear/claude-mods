@@ -6,7 +6,9 @@ import {
   fmtClock,
   fmtTokens,
   hitRate,
-  learnsOneHour,
+  cacheTtlFor,
+  limitLabel,
+  overageOf,
   level,
   pingSummary,
   remainingMs,
@@ -66,11 +68,21 @@ test('auto keep-warm is off by default, capped, and waits for the last 30 second
   expect(shouldAutoPing({ ...c, isPinging: true }, 20_000, on)).toBe(false)
 })
 
-test('a cache hit after more than five idle minutes means a one-hour cache', () => {
-  expect(learnsOneHour(6 * 60_000, 100_000, 90_000)).toBe(true)
-  expect(learnsOneHour(4 * 60_000, 100_000, 90_000)).toBe(false)
-  expect(learnsOneHour(6 * 60_000, 100_000, 0)).toBe(false)
-  expect(learnsOneHour(70 * 60_000, 100_000, 90_000)).toBe(false)
+test('the lifetime is Claude Code\'s: promptCacheTtl wins, else 1h, else 5m on overage', () => {
+  expect(cacheTtlFor('1h', true)).toEqual({ ttl: '1h', source: 'setting' })
+  expect(cacheTtlFor('5m', false)).toEqual({ ttl: '5m', source: 'setting' })
+  expect(cacheTtlFor(undefined, false)).toEqual({ ttl: '1h', source: 'default' })
+  expect(cacheTtlFor(undefined, true)).toEqual({ ttl: '5m', source: 'overage' })
+  expect(cacheTtlFor('2h', false)).toEqual({ ttl: '1h', source: 'default' })
+})
+
+test('overage is a plan window past its limit', () => {
+  expect(overageOf([])).toBe(null)
+  expect(overageOf([{ kind: 'five_hour', percentUsed: 99.9 }, { kind: 'seven_day', percentUsed: 40 }])).toBe(null)
+  expect(overageOf([{ kind: 'spend_limit', percentUsed: 120 }])).toBe(null)
+  expect(overageOf([{ kind: 'five_hour', percentUsed: 100 }, { kind: 'seven_day', percentUsed: 104.5 }])).toEqual({ kind: 'seven_day', percentUsed: 104.5 })
+  expect(limitLabel({ kind: 'five_hour', percentUsed: 103.4 })).toBe('5-hour limit 103%')
+  expect(limitLabel({ kind: 'seven_day', percentUsed: 100 })).toBe('weekly limit 100%')
 })
 
 test('a request that touched the cache resets the clock; one that did not leaves it', () => {
