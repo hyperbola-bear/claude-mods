@@ -41,6 +41,7 @@ TOKENS  ████████████████ 1.2M · Files 38% · Sy
 - **Ultracode** runs `/effort ultracode on`: the effort level stays and Claude may run multi-agent workflows. Picking a level turns it off again, as `/effort <level>` does. It needs dynamic workflows on (see `/config`); where they are off the picker stays on the level and a toast says why. `/effort` typed at the prompt moves the picker too.
 - **Settings** write the same rows as `/config`, so the two never disagree. A row your organization's policy owns stays put, with a toast saying why. The other settings (show the band, automatic pings per idle stretch, handoff note location) stay in `/config`.
 - When 2 minutes or less are left, **Keep warm** comes out next to the tab, so it is one press away with the panel closed.
+- The whole band, the closed row and the open panel, is one grid of cells the plugin lays out itself and paints in a `Client` region: no native buttons and no text in the app's own font, so the terminal and Claude Desktop draw the same cells (the tests require the two drawings identical). Click any button in it; or click into it, then use its hotkeys, or the arrow keys and Return. VS Code and mobile, which draw no `Client`, get the same rows as text with plain buttons beneath.
 - When the band is short (the desktop shows 12 rows), the panel drops the dividers first, then folds the settings onto one line of pills, so it fits without scrolling. In a short terminal it can still scroll.
 - To put the panel away, use the tab. The `[-]` (× on the desktop) at the band's right end is Claude Code's own control for collapsing the whole band; a plugin cannot remove it.
 
@@ -54,7 +55,7 @@ Three styles; **Picker style** in the panel (or in `/config`) switches between t
 - **Ladder**: one row. Before each label a strip that grows a cell per step up, in that step's colours; the chosen one is full blocks, the others half blocks. The most compact.
 - **Meter**: bars that rise step by step over the labels, like a signal meter. Every step up to the chosen one is lit in its colours; the ones past it are dim. Two rows a picker.
 
-The pickers are one grid of cells the plugin lays out itself and paints in a `Client` region: no native buttons, the same cells on the terminal and in Claude Desktop (the tests require the two drawings identical). Click an option to pick it; or click into the grid, move with the arrow keys and press Return. Where the panel is too narrow for a two-row style's columns, it falls back to the Ladder, which wraps. VS Code and mobile, which draw no `Client`, get the same pickers as buttons.
+The pickers are part of the band's grid: click an option to pick it, or move to it with the arrow keys and press Return. Where the panel is too narrow for a two-row style's columns, it falls back to the Ladder, which wraps.
 
 ## Tokens
 
@@ -97,7 +98,7 @@ How it counts:
 - **Read handoff** (`r`, or `/read-handoff`) opens the newest note with **Continue from this** (`c`), **Older** and **Newer**.
 - Notes are found in `HANDOFF.md`, `.claude/`, `.claude/handoffs/`, `handoffs/` and `docs/`. If yours live elsewhere, set **Handoff note location** in `/config`.
 
-Band hotkeys need the band focused: click it, or press ctrl+x then tab. `h` and `r` work while the panel is open; with it closed, `/handoff` and `/read-handoff` still do.
+Band hotkeys (`w`, `h`, `r`, `t`) work once you have clicked into the band. `h`, `r` and `t` work while the panel is open; with it closed, `/handoff`, `/read-handoff` and `/tokens` still do.
 
 ## What it can reach
 

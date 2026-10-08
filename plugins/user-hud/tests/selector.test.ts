@@ -1,6 +1,5 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ladderRows } from '../hooks/pickers.tsx'
 import {
   EFFORT_COLORS,
   EFFORT_STEPS,
@@ -98,12 +97,4 @@ test('/effort arguments: a level turns ultracode off, ultracode on and off toggl
   expect(ultracodeTook("Ultracode isn't available on Haiku 4.5")).toBe(false)
   expect(ultracodeTook("Can't turn ultracode on: needs dynamic workflows")).toBe(false)
   expect(ultracodeTook(undefined)).toBe(true)
-})
-
-test('the Ladder wraps where its steps do not fit, and says how many rows it takes', () => {
-  const effort = EFFORT_STEPS.map(f => ({ key: f.step, label: f.label, colors: EFFORT_COLORS[f.step], isOn: false, onPress: () => {} }))
-  // Strips 1+2+3+4+5+7, labels 30, a space in each step and one between: 63 cells.
-  expect(ladderRows(64, effort)).toBe(1)
-  expect(ladderRows(62, effort)).toBe(2)
-  expect(ladderRows(30, effort)).toBe(3)
 })
