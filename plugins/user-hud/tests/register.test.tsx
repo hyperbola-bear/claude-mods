@@ -1,6 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import type { On, Register } from 'claude-code'
+import type { On, Register, SessionContextBreakdown } from 'claude-code'
+
+import { EFFORT_COLORS, MODEL_COLORS } from '../hooks/selector.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -48,7 +50,42 @@ type World = {
   argv: string[][]
   forks: string[]
   opens: string[]
+  /** What `/effort` answers, as Claude Code words it. */
+  effortReply: string
+  /** The next main-thread response, in place of the default one. */
+  step: { answer: string; toolUses: { name: string; input: unknown }[]; usage: StepUsage } | null
+  /** Subagents `$.agent.list()` answers, and how often it was asked. */
+  agents: { id: string; type: string }[]
+  agentLists: number
+  /** What `$.session.usage({ breakdown })` breaks the window into. */
+  breakdown: SessionContextBreakdown
+  /** The main conversation as the next request carries it: the rows appended, a role's run merged into one message. */
+  messages: { role: 'user' | 'assistant'; content: Record<string, unknown>[] }[]
   clock: ReturnType<typeof mock.clock>
+}
+
+type StepUsage = { model: string; input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
+
+const BREAKDOWN: SessionContextBreakdown = {
+  categories: [
+    { name: 'System prompt', tokens: 8_000, color: 'promptBorder', isDeferred: false, kind: 'used' },
+    { name: 'System tools', tokens: 12_000, color: 'inactive', isDeferred: false, kind: 'used' },
+    { name: 'MCP tools', tokens: 3_000, color: 'permission', isDeferred: false, kind: 'used' },
+    { name: 'Messages', tokens: 30_000, color: 'claude', isDeferred: false, kind: 'used' },
+    { name: 'Free space', tokens: 147_000, color: 'inactive', isDeferred: false, kind: 'free' },
+  ],
+  totalTokens: 53_000,
+  maxTokens: 200_000,
+  rawMaxTokens: 200_000,
+  autocompactSource: 'auto',
+  percentage: 26,
+  gridRows: [],
+  model: 'claude-opus-5-5',
+  memoryFiles: [],
+  mcpTools: [{ name: 'mcp__linear__create_issue', serverName: 'linear', tokens: 3_000, isLoaded: true }],
+  agents: [],
+  isAutoCompactEnabled: true,
+  apiUsage: null,
 }
 
 /** A stand-in for terminal-browser: adds the `browser` noun and records what it opens. */
@@ -90,12 +127,36 @@ function world(on: On): World {
     argv: [],
     forks: [],
     opens: [],
+    effortReply: '',
+    step: null,
+    agents: [],
+    agentLists: 0,
+    breakdown: BREAKDOWN,
+    messages: [],
     clock: mock.clock(on, { now: Date.parse('2026-10-07T06:00:00Z') }),
   }
   mock.store(on)
   on('session.model', () => ({ value: w.model }))
   on('settings.read', () => ({ value: w.settings }))
-  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: w.limits } }))
+  on('session.usage', ($, e) => ({
+    value: { startedAt: 0, context: { window: 200_000, ...(e?.breakdown ? { breakdown: w.breakdown } : {}) }, rateLimits: w.limits },
+  }))
+  on('agent.list', () => {
+    w.agentLists += 1
+    return { value: w.agents.map(a => ({ ...a, description: '', status: 'running' as const })) }
+  })
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
+  on('session.messages', () => ({ value: w.messages as never }))
+  on('session.append', async ($, e, next) => {
+    const stored = await next(e)
+    const role = e.message.role
+    if (e.agentId === undefined && role) {
+      const last = w.messages.at(-1)
+      if (last?.role === role) last.content.push(...e.message.content)
+      else w.messages.push({ role, content: [...e.message.content] })
+    }
+    return stored
+  })
   on('session.measure', ($, e) => ({ changed: e.changed }))
   on('config.set', ($, e) => {
     if (w.lockedRows.includes(e.key)) return { deny: 'set by your organization' }
@@ -103,13 +164,15 @@ function world(on: On): World {
     return { value: e.value }
   })
   on('turn.step', async function* (_$, e) {
+    const step = w.step
+    w.step = null
     return {
       turnId: e.turnId,
       index: e.index,
-      answer: 'done',
-      toolUses: [],
+      answer: step?.answer ?? 'done',
+      toolUses: step?.toolUses ?? [],
       stopReason: 'end_turn' as const,
-      usage: { model: 'claude-opus-5-5', input_tokens: 40, output_tokens: 300, cache_read_input_tokens: w.read, cache_creation_input_tokens: 2_000 },
+      usage: step?.usage ?? { model: 'claude-opus-5-5', input_tokens: 40, output_tokens: 300, cache_read_input_tokens: w.read, cache_creation_input_tokens: 2_000 },
     }
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -138,6 +201,7 @@ function world(on: On): World {
     w.commandRuns.push(e.command)
     w.commandLines.push(`/${e.command}${e.args ? ` ${e.args}` : ''}`)
     if (e.command === 'model') w.model = e.args
+    if (e.command === 'effort') return { text: w.effortReply || `Set effort level to ${e.args} (this session only)` }
     return { text: 'ok' }
   })
   on('turn.complete', ($, e) => ({ text: e.answer }))
@@ -238,6 +302,17 @@ async function review($: Engine, w: World) {
 
 const start = ($: Engine) => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
 
+
+/** Another plugin that makes a model call of its own, as a side chat does. */
+const sidechat = {
+  name: 'sidechat',
+  register: ((on: On) => {
+    on('command.run', { command: 'side' }, async $ => {
+      await $.model.fork({ prompt: 'a side question' })
+      return { text: 'answered' }
+    })
+  }) as Register,
+}
 
 /** Another plugin drawing a row above the prompt: each band must keep it. */
 const otherBand = {
@@ -510,64 +585,98 @@ test('the corner tab opens and closes the panel, and /hud does the same', async 
   expect(await band.find({ type: 'Button', key: 'handoff' })).toBe(undefined)
 })
 
-test('the tree grows to the band width, and a short band drops the dividers', async ($, on) => {
+test('the tree grows to the band width; short of rows the dividers go, then the settings fold onto one line', async ($, on) => {
   const w = world(on)
   await start($)
   await request($, w, 50_000)
   for (const surface of SURFACES) {
+    // Rail at the desktop's 12 rows: the pickers take two rows each, so the settings fold onto one line.
     const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 12 } })
     // The desktop sets the tree beside its own collapse control; ungrown, the tab would sit on the left.
     expect((await band.find({ type: 'Box' }))?.props.flexGrow).toBe(1)
     await band.press({ key: 'panel' })
     expect((await band.find({ type: 'Box' }))?.props.flexGrow).toBe(1)
-    expect(await band.find({ type: 'Text', text: /S E T T I N G S/ })).toBeTruthy()
-    expect(await band.find({ type: 'Text', text: /C A C H E|H A N D O F F|─ user-hud ─/ })).toBe(undefined)
-    expect(await band.find({ type: 'Button', key: 'handoff' })).toBeTruthy()
+    expect(await band.find({ type: 'Text', text: /C A C H E|S E T T I N G S|H A N D O F F|─ user-hud ─/ })).toBe(undefined)
+    expect(await band.find({ type: 'Box', key: 'settingsline' })).toBeTruthy()
+    for (const key of ['set-autoKeepWarm', 'set-sound', 'set-notifyMac', 'set-warnSeconds', 'set-selectorStyle', 'handoff', 'tokens']) {
+      expect(await band.find({ type: 'Button', key }), key).toBeTruthy()
+    }
+    await band.redraw({ ...BAND(), maxRows: 30 })
+    expect(await band.find({ type: 'Box', key: 'settingsline' })).toBe(undefined)
+    expect(await band.find({ type: 'Text', text: /^── C A C H E/ })).toBeTruthy()
     await band.press({ key: 'panel' })
     await band.unmount()
   }
 })
 
-test('the desktop gets its own buttons: the choice in use is the primary one', { options: { sound: true, autoKeepWarm: false } }, async ($, on) => {
+test('the one-row Ladder keeps the settings rows at 12 rows, under the SETTINGS divider alone', { options: { selectorStyle: 'ladder' } }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  await request($, w, 50_000)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 12 } })
+  await openPanel(band)
+  expect(await band.find({ type: 'Text', text: /S E T T I N G S/ })).toBeTruthy()
+  expect(await band.find({ type: 'Text', text: /C A C H E|H A N D O F F/ })).toBe(undefined)
+  expect(await band.find({ type: 'Box', key: 'settingsline' })).toBe(undefined)
+  expect(await band.find({ type: 'Box', key: 'row-selectorStyle' })).toBeTruthy()
+})
+
+test('the pickers are one tree on every surface; the settings use the desktop’s own buttons', { options: { sound: true, autoKeepWarm: false } }, async ($, on) => {
   const w = world(on)
   w.settings = { ...w.settings, effortLevel: 'high' }
   await start($)
-  const desktop = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  const drawn: Record<string, string> = {}
+  for (const surface of SURFACES) {
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+    await openPanel(band)
+    // Plain buttons whatever the surface: the colour and the bars are the plugin's own.
+    expect((await band.find({ type: 'Button', key: 'model-opus' }))?.props).toMatchObject({ label: 'Opus 5.5', plain: true })
+    expect((await band.find({ type: 'Button', key: 'model-opus' }))?.props.variant).toBe(undefined)
+    // Each mount hands its buttons fresh handles; everything drawn is compared.
+    const pickers = [await band.find({ type: 'Box', key: 'field-MODEL' }), await band.find({ type: 'Box', key: 'field-EFFORT' })]
+    drawn[surface] = JSON.stringify(pickers, (k, v: unknown) => (k === 'press' ? undefined : v))
+    await band.press({ key: 'panel' })
+    await band.unmount()
+  }
+  expect(drawn.desktop).toBe(drawn.terminal)
+
+  const desktop = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
   await openPanel(desktop)
   const button = async (key: string) => (await desktop.find({ type: 'Button', key }))?.props
-  expect(await button('model-opus')).toMatchObject({ label: 'Opus 5.5', variant: 'primary' })
-  expect(await button('model-sonnet')).toMatchObject({ label: 'Sonnet 5.5', plain: true })
-  expect(await button('effort-high')).toMatchObject({ variant: 'primary' })
   expect(await button('set-sound')).toMatchObject({ label: 'On', variant: 'primary' })
   expect((await button('set-autoKeepWarm'))?.label).toBe('Off')
-  expect((await button('set-autoKeepWarm'))?.variant).toBe(undefined)
-  expect(await desktop.find({ type: 'Box', key: 'seg-model-opus' })).toBe(undefined)
   await desktop.unmount()
-
-  // The terminal keeps its filled-cell pills.
-  const terminal = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
-  expect((await terminal.find({ type: 'Box', key: 'seg-model-opus' }))?.props.backgroundColor).toBe('claude')
+  const terminal = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
   expect((await terminal.find({ type: 'Button', key: 'set-sound' }))?.props.label).toBe(' ● On ')
 })
+
+/** The Rail segment under an option: filled Boxes when chosen, a thin line in its colour when not. */
+async function segment(band: { find: (q: { type: string; key: string }) => Promise<{ children: unknown[] } | undefined> }, key: string) {
+  const seg = await band.find({ type: 'Box', key: `rail-${key}` })
+  const text = JSON.stringify(seg?.children ?? [])
+  return { isFilled: !text.includes('▔'), colors: [...text.matchAll(/#[0-9a-f]{6}/g)].map(m => m[0]) }
+}
 
 test('the model and effort pickers run /model and /effort and show what requests carry', async ($, on) => {
   const w = world(on)
   w.settings = { ...w.settings, effortLevel: 'high' }
   await start($)
-  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
   expect(await band.find({ type: 'Text', text: 'Opus 5.5 · High' })).toBeTruthy()
 
   await openPanel(band)
-  expect((await band.find({ type: 'Box', key: 'seg-model-opus' }))?.props.backgroundColor).toBe('claude')
-  expect((await band.find({ type: 'Box', key: 'seg-effort-high' }))?.props.backgroundColor).toBe('claude')
-  expect((await band.find({ type: 'Box', key: 'seg-model-sonnet' }))?.props.backgroundColor).toBe(undefined)
+  expect(await segment(band, 'model-opus')).toEqual({ isFilled: true, colors: [MODEL_COLORS.opus] })
+  expect(await segment(band, 'model-sonnet')).toEqual({ isFilled: false, colors: [MODEL_COLORS.sonnet] })
+  expect((await segment(band, 'effort-high')).isFilled).toBe(true)
+  expect((await segment(band, 'effort-high')).colors).toEqual([...EFFORT_COLORS.high])
 
   await band.press({ key: 'model-opus' }) // already in use: nothing runs
   await band.press({ key: 'model-sonnet' })
   await band.press({ key: 'effort-max' })
   expect(w.commandLines).toEqual(['/model sonnet', '/effort max'])
-  expect((await band.find({ type: 'Box', key: 'seg-model-sonnet' }))?.props.backgroundColor).toBe('claude')
-  expect((await band.find({ type: 'Box', key: 'seg-effort-max' }))?.props.backgroundColor).toBe('claude')
+  expect((await segment(band, 'model-sonnet')).isFilled).toBe(true)
+  expect((await segment(band, 'model-opus')).isFilled).toBe(false)
+  expect((await segment(band, 'effort-max')).isFilled).toBe(true)
 
   // The next request carries xhigh (the model's ceiling): the panel shows what is really used.
   await request($, w, 40_000, 'xhigh')
@@ -602,7 +711,7 @@ test('the settings toggles write their /config rows and take effect at once', { 
   w.lockedRows = ['user-hud.sound']
   await start($)
   await request($, w, 80_000)
-  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
   await openPanel(band)
   // The world beneath swallows ui.invalidate, so redraw as the engine would before reading.
   const label = async (key: string) => {
@@ -632,4 +741,311 @@ test('the settings toggles write their /config rows and take effect at once', { 
   await w.clock.advance(300_000)
   expect(w.forks).toHaveLength(1)
   expect(w.argv.some(a => a[0] === 'osascript')).toBe(false)
+})
+
+const RUN = { origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 120 } }
+
+for (const selectorStyle of ['rail', 'ladder', 'meter'] as const) {
+  test(`the ${selectorStyle} pickers draw the same tree on the terminal and the desktop`, { options: { selectorStyle } }, async ($, on) => {
+    const w = world(on)
+    w.settings = { ...w.settings, effortLevel: 'xhigh' }
+    await start($)
+    const drawn: string[] = []
+    for (const surface of SURFACES) {
+      const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+      await openPanel(band)
+      for (const key of ['model-haiku', 'model-fable', 'effort-low', 'effort-ultracode']) expect(await band.find({ type: 'Button', key }), key).toBeTruthy()
+      const pickers = [await band.find({ type: 'Box', key: 'field-MODEL' }), await band.find({ type: 'Box', key: 'field-EFFORT' })]
+      drawn.push(JSON.stringify(pickers, (k, v: unknown) => (k === 'press' ? undefined : v)))
+      // Every colour of both ramps is on show, chosen or not.
+      for (const c of [...Object.values(MODEL_COLORS), ...EFFORT_COLORS.ultracode]) expect(drawn.at(-1)).toContain(c)
+      await band.press({ key: 'panel' })
+      await band.unmount()
+    }
+    expect(drawn[1]).toBe(drawn[0])
+  })
+}
+
+test('the Picker style row cycles Rail, Ladder, Meter and writes its /config row', async ($, on) => {
+  const w = world(on)
+  await start($)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await openPanel(band)
+  expect(await band.find({ type: 'Box', key: 'rail-model-opus' })).toBeTruthy()
+  await band.press({ key: 'set-selectorStyle' })
+  await band.redraw()
+  expect((await band.find({ type: 'Button', key: 'set-selectorStyle' }))?.props.label).toBe(' Ladder ')
+  expect(await band.find({ type: 'Box', key: 'rail-model-opus' })).toBe(undefined)
+  expect(await band.find({ type: 'Box', key: 'step-model-opus' })).toBeTruthy()
+  await band.press({ key: 'set-selectorStyle' })
+  await band.redraw()
+  expect(await band.find({ type: 'Box', key: 'meter-model-opus' })).toBeTruthy()
+  expect(w.configSets).toEqual([
+    ['user-hud.selectorStyle', 'ladder'],
+    ['user-hud.selectorStyle', 'meter'],
+  ])
+})
+
+test('the Meter lights every step up to the chosen one and dims the rest', { options: { selectorStyle: 'meter' } }, async ($, on) => {
+  const w = world(on)
+  w.settings = { ...w.settings, effortLevel: 'high' }
+  await start($)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await openPanel(band)
+  const isDim = async (key: string) => JSON.stringify((await band.find({ type: 'Box', key: `meter-${key}` }))?.children).includes('"dimColor":true')
+  expect([await isDim('effort-low'), await isDim('effort-high'), await isDim('effort-xhigh'), await isDim('effort-ultracode')]).toEqual([false, false, true, true])
+  expect([await isDim('model-haiku'), await isDim('model-opus'), await isDim('model-fable')]).toEqual([false, false, true])
+})
+
+test('Ultracode runs /effort ultracode on; a level turns it off again', async ($, on) => {
+  const w = world(on)
+  w.settings = { ...w.settings, effortLevel: 'high' }
+  w.effortReply = 'Ultracode on (this session only): Claude may run multi-agent workflows. Effort stays high'
+  await start($)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await openPanel(band)
+  await band.press({ key: 'effort-ultracode' })
+  expect(w.commandLines).toEqual(['/effort ultracode on'])
+  expect((await segment(band, 'effort-ultracode')).isFilled).toBe(true)
+  expect((await segment(band, 'effort-high')).isFilled).toBe(false)
+  await band.press({ key: 'panel' })
+  // Collapsed, the effort reads in its own colours, letter by letter: the rainbow for Ultracode.
+  const chip = await band.find({ type: 'Text', text: 'Opus 5.5 · Ultracode' })
+  expect(JSON.stringify(chip?.children)).toContain(EFFORT_COLORS.ultracode[0])
+  expect(JSON.stringify(chip?.children)).toContain(EFFORT_COLORS.ultracode[6])
+  expect(JSON.stringify(chip?.children)).toContain(MODEL_COLORS.opus)
+
+  w.effortReply = ''
+  await band.press({ key: 'panel' })
+  await band.press({ key: 'effort-medium' })
+  expect(w.commandLines).toEqual(['/effort ultracode on', '/effort medium'])
+  expect((await segment(band, 'effort-medium')).isFilled).toBe(true)
+  expect((await segment(band, 'effort-ultracode')).isFilled).toBe(false)
+})
+
+test('where ultracode is refused, the picker stays on the level and the toast says why', async ($, on) => {
+  const w = world(on)
+  w.settings = { ...w.settings, effortLevel: 'high' }
+  w.effortReply = 'Ultracode needs dynamic workflows enabled (see /config).'
+  await start($)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await openPanel(band)
+  await band.press({ key: 'effort-ultracode' })
+  expect(w.toasts.at(-1)).toBe('Ultracode needs dynamic workflows enabled (see /config).')
+  await band.redraw()
+  expect((await segment(band, 'effort-ultracode')).isFilled).toBe(false)
+  expect((await segment(band, 'effort-high')).isFilled).toBe(true)
+})
+
+test('/effort typed at the prompt moves the picker too', async ($, on) => {
+  const w = world(on)
+  w.settings = { ...w.settings, effortLevel: 'high' }
+  w.effortReply = 'Ultracode on (this session only)'
+  await start($)
+  await $.command.run({ command: 'effort', args: 'ultracode', ...RUN })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect(await band.find({ type: 'Text', text: 'Opus 5.5 · Ultracode' })).toBeTruthy()
+  w.effortReply = ''
+  await $.command.run({ command: 'effort', args: 'low', ...RUN })
+  await band.redraw()
+  expect(await band.find({ type: 'Text', text: 'Opus 5.5 · Low' })).toBeTruthy()
+})
+
+// ---------- token usage ----------
+
+let uuid = 0
+const append = ($: Engine, door: 'prompt' | 'response' | 'tool-result' | 'tool-message' | 'hook-context' | 'compaction', message: Record<string, unknown>, origin: Record<string, unknown>, agentId?: string) =>
+  $.session.append({
+    door,
+    uuid: `u${(uuid += 1)}`,
+    origin: origin as never,
+    message: { type: message.role === 'assistant' ? 'assistant' : 'user', ...message } as never,
+    ...(agentId ? { agentId } : {}),
+  })
+
+const words = (n: number) => 'x'.repeat(n * 4)
+
+/** One turn: a prompt, a Read of a big file, a Linear call, a skill and a hook's context; then the next request's real usage. */
+async function session($: Engine, w: World) {
+  await append($, 'prompt', { role: 'user', content: [{ type: 'text', text: words(500) }] }, { kind: 'composer' })
+  await append($, 'response', { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/work/hooks/register.tsx' } }] }, { kind: 'model', model: 'claude-opus-5-5' })
+  await append($, 'tool-result', { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: words(20_000) }] }, { kind: 'tool', tool: 'Read' })
+  await append($, 'response', { role: 'assistant', content: [{ type: 'tool_use', id: 't2', name: 'mcp__linear__list_issues', input: {} }] }, { kind: 'model', model: 'claude-opus-5-5' })
+  await append($, 'tool-result', { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't2', content: words(6_000) }] }, { kind: 'tool', tool: 'mcp__linear__list_issues' })
+  await append($, 'response', { role: 'assistant', content: [{ type: 'tool_use', id: 't3', name: 'Skill', input: { skill: 'pstack:tdd' } }] }, { kind: 'model', model: 'claude-opus-5-5' })
+  await append($, 'tool-message', { role: 'user', isMeta: true, content: [{ type: 'text', text: words(3_000) }] }, { kind: 'tool', tool: 'Skill' })
+  await append($, 'hook-context', { role: 'user', isMeta: true, content: [{ type: 'text', text: words(500) }] }, { kind: 'hook', event: 'PostToolUse' })
+  // A subagent's own rows: its conversation, not this one.
+  await append($, 'prompt', { role: 'user', content: [{ type: 'text', text: words(9_000) }] }, { kind: 'composer' }, 'a1')
+  w.step = {
+    answer: words(200),
+    toolUses: [{ name: 'Bash', input: { command: 'npm test' } }],
+    usage: { model: 'claude-opus-5-5', input_tokens: 1_000, cache_read_input_tokens: 70_000, cache_creation_input_tokens: 4_000, output_tokens: 2_000 },
+  }
+  await request($, w, 70_000)
+}
+
+const tokensText = async ($: Engine) => (await $.command.run({ command: 'tokens', args: '', ...RUN })).text ?? ''
+
+test('tokens: every row is filed under its group and each request’s real tokens are split across them', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await session($, w)
+  const text = await tokensText($)
+  // What the groups used adds up to the API's own count for the request.
+  expect(text).toContain('77k tokens over 1 requests: 70k cache read, 4k cache write, 1k new input, 2k output')
+  expect(text).toMatch(/^Files \d+%: 20k used, 20k in context now, 1 calls\. Read 20k {2}— {2}register\.tsx 20k$/m)
+  expect(text).toMatch(/^MCP \d+%: 9k used, 6k in context now, 1 calls\. linear 6k {2}— {2}list_issues 6k {2}— {2}schemas: linear 3k$/m)
+  expect(text).toMatch(/^Skills & plugins \d+%: .*pstack:tdd 3k · PostToolUse 500/m)
+  // Chat: the 500-token prompt, and the reply's 200; the subagent's 9k prompt is its own conversation's.
+  expect(text).toMatch(/^Chat <?\d+%: 700 used, 500 in context now, 1 calls\. you 500$/m)
+  expect(text).toMatch(/^Shell <?\d+%: 7 used, 0 in context now/m)
+  expect(text).toMatch(/^Thinking \d+%: 2k used, 0 in context now/m)
+  // 75k in: the groups held about 30k, the MCP schemas 3k; the system prompt and built-in tools the rest.
+  expect(text).toMatch(/^System & memory \d+%: 4[0-9]k used/m)
+  expect(text).toContain('Every request carries 23k before the chat: MCP 3k, System & memory 20k.')
+  expect(w.opens).toContain('tokens')
+})
+
+test('subagents’ requests and other plugins’ model calls are counted whole, under who spent', { plugins: [sidechat] }, async ($, on) => {
+  const w = world(on)
+  w.agents = [{ id: 'a1', type: 'Explore' }]
+  await start($)
+  for await (const _ of $.turn.step({ turnId: 't9', index: 0, model: 'claude-haiku-4-5', messageCount: 2, agentId: 'a1' })) {
+    // drain
+  }
+  await $.command.run({ command: 'side', args: '', ...RUN })
+  const text = await tokensText($)
+  expect(text).toContain('152k tokens over 2 requests')
+  expect(text).toContain('Of those, subagents 2k over 1 requests; plugin model calls 150k over 1.')
+  expect(text).toMatch(/^Subagents \d+%: 2k used.*spent: Explore 2k$/m)
+  expect(text).toMatch(/^Skills & plugins \d+%: 150k used.*spent: sidechat 150k$/m)
+  // The main conversation made no request: nothing landed in its groups.
+  expect(text).not.toMatch(/^(Files|Chat|Thinking) /m)
+})
+
+test('the TOKENS row shows the split and opens the Tokens pane; /clear starts the tally over', async ($, on) => {
+  const w = world(on)
+  await start($)
+  for (const surface of SURFACES) {
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+    await openPanel(band)
+    expect(await band.find({ type: 'Text', text: 'counting from the next request' })).toBeTruthy()
+    await band.press({ key: 'panel' })
+    await band.unmount()
+  }
+  await session($, w)
+  for (const surface of SURFACES) {
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+    expect(await band.find({ type: 'Text', text: '77k tokens' })).toBeTruthy()
+    await openPanel(band)
+    const bar = await band.find({ type: 'Box', key: 'panel-bar' })
+    expect(bar?.children.length).toBeGreaterThan(3)
+    expect(JSON.stringify(bar)).toContain('#3987e5')
+    expect(await band.find({ type: 'Text', text: /· System & memory \d+%/ })).toBeTruthy()
+    await band.press({ key: 'tokens' })
+    await band.press({ key: 'panel' })
+    await band.unmount()
+
+    const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'tokens', props: { ...PANE_PROPS, title: 'Tokens' } })
+    expect(await pane.find({ type: 'Text', text: /^77k tokens over 1 requests/ })).toBeTruthy()
+    for (const label of ['Files', 'MCP', 'Skills & plugins', 'Thinking', 'System & memory', 'Chat', 'Shell']) {
+      expect(await pane.find({ type: 'Text', text: label }), label).toBeTruthy()
+    }
+    expect(await pane.find({ type: 'Text', text: /register\.tsx 20k/ })).toBeTruthy()
+    expect(await pane.find({ type: 'Text', text: /pstack:tdd 3k/ })).toBeTruthy()
+    await pane.unmount()
+  }
+  expect(w.opens.filter(id => id === 'tokens')).toHaveLength(2)
+
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { sessionId: 's1' } as never })
+  const pane = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'Pane', requestId: 'tokens', props: { ...PANE_PROPS, title: 'Tokens' } })
+  expect(await pane.find({ type: 'Text', text: /No tokens counted yet/ })).toBeTruthy()
+  // What every request carries before the chat stays known.
+  expect(await pane.find({ type: 'Text', text: /Every request carries 23k/ })).toBeTruthy()
+})
+
+test('a compaction empties what the groups hold in the context and keeps what they used', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await session($, w)
+  await append($, 'compaction', { content: [{ type: 'text', text: 'boundary' }] }, { kind: 'engine' })
+  await append($, 'compaction', { role: 'user', isMeta: true, content: [{ type: 'text', text: words(2_000) }] }, { kind: 'engine' })
+  const text = await tokensText($)
+  expect(text).toMatch(/^Files \d+%: 20k used, 0 in context now/m)
+  expect(text).toMatch(/^System & memory \d+%: \d+k used, 2k in context now/m)
+})
+
+test('where a two-row style’s columns do not fit, both pickers fall back to the Ladder together', async ($, on) => {
+  const w = world(on)
+  await start($)
+  for (const [columns, isLadder] of [[110, false], [62, true]] as const) {
+    const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: columns } })
+    await openPanel(band)
+    expect(!!(await band.find({ type: 'Box', key: 'step-model-opus' })), `model at ${columns}`).toBe(isLadder)
+    expect(!!(await band.find({ type: 'Box', key: 'step-effort-max' })), `effort at ${columns}`).toBe(isLadder)
+    // The style row still names the one chosen.
+    expect((await band.find({ type: 'Button', key: 'set-selectorStyle' }))?.props.label).toBe(' Rail ')
+    await band.press({ key: 'panel' })
+    await band.unmount()
+  }
+  expect(w.configSets).toEqual([])
+})
+
+test('after /resume the tally starts over and the next request is split by the conversation now in the context', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await session($, w)
+  await $.session.end({ reason: 'resume', sessionId: 's1', resume: { sessionId: 's1' } as never })
+  // The resumed conversation: loaded, never appended.
+  w.messages = [
+    { role: 'user', content: [{ type: 'text', text: words(100) }] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'old', name: 'Bash', input: { command: 'make' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'old', content: words(30_000) }] },
+  ]
+  w.step = { answer: '', toolUses: [], usage: { model: 'claude-opus-5-5', input_tokens: 0, cache_read_input_tokens: 60_000, cache_creation_input_tokens: 0, output_tokens: 0 } }
+  await request($, w, 60_000)
+  const text = await tokensText($)
+  expect(text).toContain('60k tokens over 1 requests')
+  expect(text).toMatch(/^Shell \d+%: 30k used, 30k in context now/m)
+  expect(text).not.toMatch(/^Files /m)
+})
+
+test('Reset in the pane starts the counts over and keeps what the context holds', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await session($, w)
+  const pane = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'Pane', requestId: 'tokens', props: { ...PANE_PROPS, title: 'Tokens' } })
+  await pane.press({ key: 'reset' })
+  expect(await pane.find({ type: 'Text', text: /No tokens counted yet/ })).toBeTruthy()
+  w.step = { answer: '', toolUses: [], usage: { model: 'claude-opus-5-5', input_tokens: 0, cache_read_input_tokens: 75_000, cache_creation_input_tokens: 0, output_tokens: 0 } }
+  await request($, w, 75_000)
+  // The 20k file is still in the context: it keeps its share of the next request.
+  expect(await tokensText($)).toMatch(/^Files \d+%: 20k used, 20k in context now, 0 calls/m)
+})
+
+test('an agent no list names (a workflow’s, the engine’s own fork) is counted as unlisted, the list asked at most every 5 seconds', async ($, on) => {
+  const w = world(on)
+  await start($)
+  for (const id of ['wf1', 'wf2']) {
+    for await (const _ of $.turn.step({ turnId: 't9', index: 0, model: 'claude-haiku-4-5', messageCount: 2, agentId: id })) {
+      // drain
+    }
+  }
+  expect(w.agentLists).toBe(1)
+  expect(await tokensText($)).toContain('spent: unlisted (workflows, compaction) 5k')
+  expect(w.toasts).toEqual([])
+})
+
+test('the Ladder’s rows are counted as it wraps, so a narrow 12-row band folds the settings instead of scrolling', { options: { selectorStyle: 'ladder' } }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  await request($, w, 50_000)
+  for (const [columns, isFolded] of [[110, false], [64, true]] as const) {
+    const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 12, bodyColumns: columns } })
+    await openPanel(band)
+    expect(!!(await band.find({ type: 'Box', key: 'settingsline' })), `at ${columns} columns`).toBe(isFolded)
+    await band.press({ key: 'panel' })
+    await band.unmount()
+  }
 })

@@ -4,7 +4,7 @@ Polar's Claude Code mods, as one plugin marketplace (`polar-mods`) with three pl
 
 | Plugin | What it does |
 | --- | --- |
-| [user-hud](plugins/user-hud) | A control panel tucked into the corner above the prompt: prompt-cache countdown with a 2-minute keep-warm alert (a macOS alert with a Keep warm button), model and effort pickers, quick settings, and Write / Read handoff buttons. |
+| [user-hud](plugins/user-hud) | A control panel tucked into the corner above the prompt: where your tokens go (files, chat, MCP, shell, skills and plugins, subagents and more, split from the API's real counts), model and effort pickers in three styles (blue to orange by model, grey to rainbow by effort, Ultracode included), prompt-cache countdown with a 2-minute keep-warm alert, quick settings, and Write / Read handoff buttons. |
 | [pr-review-ui](plugins/pr-review-ui) | PR reviews as numbered points in one standard format. Say "review" with a PR link (or "review pr") and the PR is checked out into a review worktree; each point's code opens beside the review with the changes highlighted: in your editor from a VS Code, JetBrains, Zed or Neovim terminal, in terminal-browser from Ghostty or kitty, or in a code pane. |
 | [ask](plugins/ask) | A side chat in a pane that forks the main chat to answer, so it knows the whole session; nothing goes back unless you send it (`s`). It scrolls, and draws Mermaid diagrams: box art in the terminal, SVG in the desktop app. `/ask`, `/draw`. |
 
