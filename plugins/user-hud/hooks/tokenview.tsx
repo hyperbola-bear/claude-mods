@@ -1,7 +1,7 @@
 // The token views: the stacked bar the panel's TOKENS row shows, and the Tokens pane, group by group.
 // Bars are coloured Boxes, labels and numbers plain text: each group's colour marks it, never its words.
 import type { GroupId, TokenState } from '../types'
-import type { Ui } from './pickers.tsx'
+import type { Ui } from './ui.ts'
 import { apiLine, apiTotal, detailLine, fmt, groupOf, pct, ranked, stack, standingLine, totalUsed } from './tokens.ts'
 
 /** A run of `cells` cells in a colour: a Box, so it fills the same width on every surface. */

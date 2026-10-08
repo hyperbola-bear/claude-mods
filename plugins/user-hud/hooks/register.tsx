@@ -52,7 +52,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ModelForkResult, Register } from 'claude-code'
 
-import type { CacheTtl, HandoffFile, HandoffState, HudState, PlanLimit, SelectorStyle, TtlInfo } from '../types'
+import type { CacheState, CacheTtl, HandoffFile, HandoffState, HudState, PlanLimit, SelectorStyle, TtlInfo } from '../types'
 import {
   EMPTY_CACHE,
   KEEP_WARM_PROMPT,
@@ -72,15 +72,19 @@ import {
   shouldAlert,
   shouldAutoPing,
 } from './cache.ts'
+import type { Level } from './cache.ts'
 import { HANDOFF_DIRS, age, handoffPrompt, handoffTarget, isHandoffName, joinPath, newest, resumePrompt } from './handoff.ts'
-import { MODELS, asEffort, footerRule, lifeBar, modelAlias, modelLabel, nextWarn, sectionRule } from './hud.ts'
-import { picker, pickerRows, styleAt, tinted } from './pickers.tsx'
-import type { PickerOption, Ui } from './pickers.tsx'
-import { EFFORT_COLORS, EFFORT_STEPS, MODEL_COLORS, SELECTOR_STYLES, asStyle, effortStep, nextStyle, parseEffortArgs, styleLabel, ultracodeTook } from './selector.ts'
+import { MODELS, asEffort, lifeBar, modelAlias, modelLabel, nextWarn } from './hud.ts'
+import { EFFORT_COLORS, EFFORT_STEPS, MODEL_COLORS, SELECTOR_STYLES, asStyle, effortStep, nextStyle, parseEffortArgs, spread, styleLabel, ultracodeTook } from './selector.ts'
 import type { EffortStep } from './selector.ts'
-import { fittedStyle, layout } from './selectorgrid.ts'
-import type { GridField, GridKind, GridProps } from './selectorgrid.ts'
-import { stackedBar, tokenPane } from './tokenview.tsx'
+import { builder, line, order, piece, put, runs, textOf, wrap } from './cells.ts'
+import type { CellsProps, Run } from './cells.ts'
+import { bandGrid } from './panelgrid.ts'
+import type { Band, Setting } from './panelgrid.ts'
+import { fittedStyle, layout, parsePick } from './selectorgrid.ts'
+import type { GridField } from './selectorgrid.ts'
+import type { Ui } from './ui.ts'
+import { tokenPane } from './tokenview.tsx'
 import {
   addShares,
   attributeAgent,
@@ -96,6 +100,7 @@ import {
   pct,
   ranked,
   restarted,
+  stack,
   standingFrom,
   summary,
   totalUsed,
@@ -111,8 +116,6 @@ const STYLES_PANE = 'styles'
 /** The width the styles pane asks for: Rail's and Meter's columns, beside the field names. */
 const STYLES_PANE_COLUMNS = 76
 const PANEL_WIDTH = 72
-/** The column the field names (MODEL, EFFORT, TOKENS) sit in. */
-const FIELD_WIDTH = 8
 /** Cells of the TOKENS row's stacked bar. */
 const TOKEN_BAR_CELLS = 16
 /** The context breakdown is asked for at most this often, after a turn. */
@@ -354,31 +357,9 @@ async function cycleStyle($: EngineInterface) {
   await setOption($, 'selectorStyle', nextStyle(cfg.selectorStyle))
 }
 
-// ---------- pickers ----------
+// ---------- the band's grid ----------
 
-/** The model and effort options as the pickers draw them; `prefix` keeps the keys of several drawings apart. */
-function pickerOptions($: EngineInterface, hud: HudState, prefix = ''): { model: PickerOption[]; effort: PickerOption[] } {
-  const alias = modelAlias(hud.model)
-  const step = effortStep(hud.effort, hud.ultracode)
-  return {
-    model: MODELS.map(m => ({
-      key: `${prefix}model-${m.alias}`,
-      label: m.label,
-      colors: [MODEL_COLORS[m.alias] ?? '#888888'],
-      isOn: alias === m.alias,
-      onPress: () => void pickModel($, m.alias),
-    })),
-    effort: EFFORT_STEPS.map(f => ({
-      key: `${prefix}effort-${f.step}`,
-      label: f.label,
-      colors: EFFORT_COLORS[f.step],
-      isOn: step === f.step,
-      onPress: () => void pickEffort($, f.step),
-    })),
-  }
-}
-
-/** The pickers as the grid draws them: plain data, the ids the hooks module picks by. */
+/** The pickers as the grid draws them: plain data, the ids the actions carry. */
 function gridFields(hud: HudState): GridField[] {
   const alias = modelAlias(hud.model)
   const step = effortStep(hud.effort, hud.ultracode)
@@ -388,29 +369,120 @@ function gridFields(hud: HudState): GridField[] {
   ]
 }
 
-/** A pick the grid posted: runs /model or /effort for an id the pickers offer, ignores anything else. */
-async function pickFromGrid($: EngineInterface, data: unknown) {
-  if (typeof data !== 'object' || data === null) return
-  const { kind, id } = data as { kind?: GridKind; id?: unknown }
-  if (kind === 'model' && MODELS.some(m => m.alias === id)) await pickModel($, String(id))
-  const step = EFFORT_STEPS.find(f => f.step === id)?.step
-  if (kind === 'effort' && step) await pickEffort($, step)
+/** The settings as the panel lists them, each a toggle or a choice. */
+function settingsView(): Setting[] {
+  const warnSeconds = Math.round(cfg.warnMs / 1000)
+  return [
+    { key: 'autoKeepWarm', label: 'Auto keep-warm', desc: `ping 30s before expiry, up to ${cfg.maxAutoPings}`, kind: 'toggle', isOn: cfg.autoKeepWarm, value: '' },
+    { key: 'sound', label: 'Alert sound', desc: 'Glass at the warning', kind: 'toggle', isOn: cfg.sound, value: '' },
+    { key: 'notifyMac', label: 'Mac alert', desc: `Keep warm button, closes in ${cfg.alertSeconds}s`, kind: 'toggle', isOn: cfg.notifyMac, value: '' },
+    { key: 'warnSeconds', label: 'Alert at', desc: 'time left when the alert fires', kind: 'choice', isOn: false, value: fmtClock(warnSeconds * 1000) },
+    { key: 'selectorStyle', label: 'Picker style', desc: 'Rail, Ladder or Meter', kind: 'choice', isOn: false, value: styleLabel(cfg.selectorStyle) },
+  ]
 }
 
-/** Whether a surface draws the pickers as the grid: the terminal and the desktop, unless it faulted there. */
+/** A settings row pressed: a toggle flips, a choice steps to its next value. */
+async function pressSetting($: EngineInterface, key: string) {
+  if (key === 'warnSeconds') return setOption($, 'warnSeconds', nextWarn(Math.round(cfg.warnMs / 1000)))
+  if (key === 'selectorStyle') return cycleStyle($)
+  const toggles: Record<string, boolean> = { autoKeepWarm: cfg.autoKeepWarm, sound: cfg.sound, notifyMac: cfg.notifyMac }
+  const isOn = toggles[key]
+  if (isOn !== undefined) await setOption($, key, !isOn)
+}
+
+/** Carries out an action from the grid, a click or a hotkey; anything it does not know is ignored. */
+async function runAction($: EngineInterface, action: unknown) {
+  if (typeof action !== 'string') return
+  const pick = parsePick(action)
+  if (pick?.kind === 'model' && MODELS.some(m => m.alias === pick.id)) return pickModel($, pick.id)
+  const step = pick?.kind === 'effort' ? EFFORT_STEPS.find(f => f.step === pick.id)?.step : undefined
+  if (step) return pickEffort($, step)
+  if (action.startsWith('set:')) return pressSetting($, action.slice(4))
+  if (action.startsWith('use:')) return setOption($, 'selectorStyle', asStyle(action.slice(4)))
+  if (action === 'panel') return setPanelOpen($, !(await read($, hudA)).isOpen)
+  if (action === 'keepwarm') return void ping($, 'manual')
+  if (action === 'newchat') return startNewChat($)
+  if (action === 'tokens') return openTokensPane($)
+  if (action === 'handoff') return runHandoff($)
+  if (action === 'readhandoff') return openHandoffPane($)
+}
+
+/** Whether a surface paints grids as a `Client`: the terminal and the desktop, unless a grid failed there. */
 const drawsGrid = (surface: string) => (surface === 'terminal' || surface === 'desktop') && !gridFaults.has(surface)
 
-/** A field's name in its column, then its body; beside the body's last row where the labels sit last (the Meter). */
-function fieldRow(ui: Ui, label: string, body: JSX.Element, isLabelLast = false) {
-  const { Box, Text } = ui
+/**
+ * A grid as a `Client` where the surface draws one, the same cells everywhere. Elsewhere, or where a grid
+ * failed, its rows as text and its actions as buttons beneath, hotkeys kept.
+ */
+function cellsElement(ui: Ui, surface: string, key: string, band: Band, onAction: (action: string) => void) {
+  if (drawsGrid(surface) && ui.Client) {
+    const props: CellsProps = { rows: band.rows, hits: band.hits, keys: band.keys }
+    return <ui.Client key={key} module="./cellsclient.tsx" props={props} width={band.width} height={band.rows.length} />
+  }
+  const { Box, Text, Button } = ui
+  const hotkeys = Object.fromEntries(Object.entries(band.keys).map(([k, a]) => [a, k]))
   return (
-    <Box key={`field-${label}`} flexDirection="row" alignItems={isLabelLast ? 'flex-end' : 'flex-start'}>
-      <Box width={FIELD_WIDTH} flexShrink={0}>
-        <Text dimColor>{label}</Text>
+    <Box key={key} flexDirection="column">
+      {band.rows.map((row, y) => (
+        <Text key={`${key}-row-${y}`} wrap="truncate">
+          {row.map((run, i) => (
+            <Text key={`${key}-run-${y}-${i}`} color={run.color || undefined} backgroundColor={run.bg || undefined} dimColor={run.isDim} bold={run.isBold}>
+              {run.text}
+            </Text>
+          ))}
+        </Text>
+      ))}
+      <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+        {order(band).map(a => (
+          <Button key={a} label={(textOf(band, a) ?? a).trim()} hotkey={hotkeys[a]} onPress={() => onAction(a)} />
+        ))}
       </Box>
-      {body}
     </Box>
   )
+}
+
+/** The cache chip beside the tab: warm, cooling, cold, live, or pinging. */
+function chipRuns(c: CacheState, lv: Level, rem: number | null): Run[] {
+  if (c.isPinging) return runs('◆ pinging…', { isDim: true })
+  if (lv === 'live') return runs('◆ cache live', { color: 'success' })
+  if (lv === 'warm') return runs(`◆ ${fmtClock(rem ?? 0)}`, { color: 'success' })
+  if (lv === 'cooling') return runs(`◆ ${fmtClock(rem ?? 0)} left`, { color: 'warning', isBold: true })
+  if (lv === 'cold') return runs('◇ cache cold', { color: 'error' })
+  return []
+}
+
+/** The panel's cache line: the countdown, its life bar, and what is cached. */
+function cacheRuns(c: CacheState, ttl: CacheTtl, lv: Level, rem: number | null): Run[] {
+  const r: Run[] = []
+  if (lv === 'none') put(r, c.resetReason ? `◇ cache reset (${c.resetReason}): the next prompt writes a new one` : '◇ nothing cached yet: send a first prompt', { isDim: true })
+  if (lv === 'live') put(r, '◆ cache live', { color: 'success' })
+  if (lv === 'warm') put(r, `◆ cache ${fmtClock(rem ?? 0)}`, { color: 'success' })
+  if (lv === 'cooling') put(r, `◆ cache ${fmtClock(rem ?? 0)} left`, { color: 'warning', isBold: true })
+  if (lv === 'cold') put(r, `◇ cache cold · next prompt re-writes ${fmtTokens(promptTokens(c))}`, { color: 'error' })
+  if (lv === 'warm' || lv === 'cooling') {
+    const bar = lifeBar(rem ?? 0, TTL_MS[ttl])
+    put(r, ' ')
+    put(r, bar.on, { color: lv === 'cooling' ? 'warning' : 'success' })
+    put(r, bar.off, { isDim: true })
+  }
+  if (lv === 'live' || lv === 'warm' || lv === 'cooling') {
+    const hit = hitRate(c)
+    put(r, ` ${fmtTokens(cachedTokens(c))} cached${hit !== null ? ` · hit ${hit}%` : ''} · ${ttl}`, { isDim: true })
+  }
+  return r
+}
+
+/** The model in its colour on the blue-to-orange ramp, then the effort in its own, letter by letter. */
+function setupRuns(hud: HudState): Run[] {
+  const alias = modelAlias(hud.model)
+  const name = modelLabel(hud.model)
+  const step = effortStep(hud.effort, hud.ultracode)
+  const stepLabel = EFFORT_STEPS.find(f => f.step === step)?.label
+  const r: Run[] = []
+  if (name) put(r, name, alias ? { color: MODEL_COLORS[alias] ?? '' } : { isDim: true })
+  if (name && stepLabel) put(r, ' · ', { isDim: true })
+  if (step && stepLabel) [...stepLabel].forEach((ch, i) => put(r, ch, { color: spread(EFFORT_COLORS[step], stepLabel.length)[i] ?? '' }))
+  return r
 }
 
 // ---------- token usage ----------
@@ -804,289 +876,60 @@ export const register: Register = (on, given) => {
     const hud = await read($, hudA)
     const handoff = await read($, handoffA)
     const tokens = await read($, tokensA)
-    const ui = $.ui.resolve(e)
-    const { Box, Text, Button } = ui
+    const ui: Ui = $.ui.resolve(e)
+    const { Box } = ui
     const now = await $.clock.now()
     const rem = remainingMs(c.lastHitAt, t.ttl, now)
     const lv = level(rem, cfg.warnMs, e.props.isWorking || c.isWorking)
-    const hit = hitRate(c)
     const width = Math.max(24, Math.min(PANEL_WIDTH, e.props.bodyColumns))
-    // The terminal draws pills as filled cells; the other surfaces draw native buttons, which only look
-    // right as themselves (a coloured Box behind a plain Button paints a square block there).
-    const isNative = e.surface !== 'terminal'
-    const canWarm = !c.isPinging && (lv === 'warm' || lv === 'cooling')
-    const alias = modelAlias(hud.model)
-    const step = effortStep(hud.effort, hud.ultracode)
     const used = totalUsed(tokens)
-
-    const keepWarm = (
-      <Button
-        key="keepwarm"
-        label="Keep warm"
-        hotkey="w"
-        variant={lv === 'cooling' ? 'primary' : undefined}
-        dimColor={lv === 'warm'}
-        onPress={() => void ping($, 'manual')}
-      />
-    )
-
-    const newChat = <Button key="newchat" label="New chat" onPress={() => void startNewChat($)} />
-    const overageMark = hud.overage && <Text color="warning">⚠ overage</Text>
-
-    // ----- the tab row: always there, at the band's right edge -----
-
-    const chip =
-      c.isPinging ? <Text dimColor>◆ pinging…</Text>
-      : lv === 'live' ? <Text color="success">◆ cache live</Text>
-      : lv === 'warm' ? <Text color="success">◆ {fmtClock(rem ?? 0)}</Text>
-      : lv === 'cooling' ? <Text color="warning" bold>◆ {fmtClock(rem ?? 0)} left</Text>
-      : lv === 'cold' ? <Text color="error">◇ cache cold</Text>
-      : null
-
-    // The model in its colour on the blue-to-orange ramp, the effort in its own, letter by letter.
-    const modelName = modelLabel(hud.model)
-    const stepLabel = EFFORT_STEPS.find(f => f.step === step)?.label
-    const setup = !modelName && !stepLabel ? null : (
-      <Text key="setup">
-        {modelName && (
-          <Text color={alias ? MODEL_COLORS[alias] : undefined} dimColor={!alias}>
-            {modelName}
-          </Text>
-        )}
-        {modelName && stepLabel && <Text dimColor> · </Text>}
-        {step && stepLabel && tinted(ui, 'setup-effort', stepLabel, EFFORT_COLORS[step])}
-      </Text>
-    )
-
-    const tab = (
-      <Box key="tabrow" flexDirection="row" flexWrap="wrap" justifyContent="flex-end" columnGap={2}>
-        {!hud.isOpen && chip}
-        {!hud.isOpen && overageMark}
-        {!hud.isOpen && hud.overage && newChat}
-        {!hud.isOpen && used > 0 && <Text dimColor>{fmtTokens(Math.round(used))} tokens</Text>}
-        {!hud.isOpen && setup}
-        {!hud.isOpen && lv === 'cooling' && canWarm && keepWarm}
-        <Box key="tab" backgroundColor="claude" paddingX={1}>
-          <Button key="panel" plain label={`◆ user-hud ${hud.isOpen ? '▾' : '▴'}`} onPress={() => void setPanelOpen($, !hud.isOpen)} />
-        </Box>
-      </Box>
-    )
+    const fields = gridFields(hud)
+    const newestNote = handoff.files[0]
+    const band = bandGrid({
+      isOpen: hud.isOpen,
+      width,
+      maxWidth: Math.max(24, e.props.bodyColumns),
+      maxRows: e.props.maxRows,
+      chip: chipRuns(c, lv, rem),
+      overage: hud.overage ? limitLabel(hud.overage) : null,
+      usedTokens: used > 0 ? `${fmtTokens(Math.round(used))} tokens` : null,
+      setup: setupRuns(hud),
+      keepWarm: c.isPinging ? 'none' : lv === 'cooling' ? 'urged' : lv === 'warm' ? 'quiet' : 'none',
+      isPinging: c.isPinging,
+      pickers: { style: fittedStyle(cfg.selectorStyle, width, fields), width, fields },
+      tokens: {
+        segments: used > 0 ? stack(tokens, TOKEN_BAR_CELLS).map(sg => ({ color: groupOf(sg.id).color, cells: sg.cells })) : [],
+        total: fmtTokens(Math.round(used)),
+        leaders: ranked(tokens)
+          .filter(g => g.used > 0)
+          .slice(0, 2)
+          .map(g => `${groupOf(g.id).label} ${pct(g.share)}`),
+      },
+      cache: cacheRuns(c, t.ttl, lv, rem),
+      settings: settingsView(),
+      handoff: { hasNewest: newestNote !== undefined, note: newestNote ? `newest · ${age(newestNote.mtimeMs, now)}` : 'no notes yet' },
+    })
     // flexGrow: the desktop sets the tree beside its own collapse control in a row, where an ungrown
     // tree shrinks to its content and the tab lands on the left.
-    if (!hud.isOpen) {
-      return (
-        <Box flexDirection="column" flexGrow={1}>
-          {beneath}
-          {tab}
-        </Box>
-      )
-    }
-
-    // ----- the panel: grows up from the tab -----
-
-    const pill = (key: string, label: string, isOn: boolean, onPress: () => void) =>
-      isNative ? (
-        <Button key={`set-${key}`} label={label} variant={isOn ? 'primary' : undefined} onPress={onPress} />
-      ) : (
-        <Box key={`pill-${key}`} flexShrink={0} backgroundColor={isOn ? 'success' : 'subtle'}>
-          <Button key={`set-${key}`} plain label={` ${label} `} onPress={onPress} />
-        </Box>
-      )
-    const field = (label: string, body: JSX.Element, isLabelLast = false) => fieldRow(ui, label, body, isLabelLast)
-
-    // The pickers: the same tree on every surface, in the style chosen.
-    const pickerWidth = width - FIELD_WIDTH
-    const { model: modelOptions, effort: effortOptions } = pickerOptions($, hud)
-    const fields = gridFields(hud)
-    const isGrid = drawsGrid(e.surface) && 'Client' in ui
-    const style = isGrid ? fittedStyle(cfg.selectorStyle, width, fields) : styleAt(cfg.selectorStyle, pickerWidth, [modelOptions.map(o => o.label), effortOptions.map(o => o.label)])
-    const gridProps: GridProps = { style, width, fields }
-    const gridRows = layout(gridProps).rows.length
-    const pickerRowCount = isGrid ? gridRows : pickerRows(style, pickerWidth, modelOptions) + pickerRows(style, pickerWidth, effortOptions)
-    // The Meter's labels sit under its bars: the field name goes beside the labels.
-    const isLabelLast = style === 'meter'
-
-    // ----- the tokens row: a stacked bar of where they went, the two largest named -----
-
-    const leaders = ranked(tokens).filter(g => g.used > 0).slice(0, 2)
-    const tokensRow = (
-      <Box key="tokensrow" flexDirection="row" columnGap={1}>
-        {used > 0 ? stackedBar(ui, 'panel-bar', tokens, TOKEN_BAR_CELLS) : <Text dimColor>counting from the next request</Text>}
-        {used > 0 && <Text>{fmtTokens(Math.round(used))}</Text>}
-        {leaders.map(l => (
-          <Text key={`lead-${l.id}`} dimColor wrap="truncate">
-            · {groupOf(l.id).label} {pct(l.share)}
-          </Text>
-        ))}
-        <Box flexGrow={1} />
-        <Button key="tokens" plain hotkey="t" label="Details" onPress={() => void openTokensPane($)} />
-      </Box>
-    )
-
-    const bar = lifeBar(rem ?? 0, TTL_MS[t.ttl])
-    const cacheLine = (
-      <Box key="cacheline" flexDirection="row" columnGap={1}>
-        {lv === 'none' && (
-          <Text dimColor wrap="truncate">
-            {c.resetReason ? `◇ cache reset (${c.resetReason}): the next prompt writes a new one` : '◇ nothing cached yet: send a first prompt'}
-          </Text>
-        )}
-        {lv === 'live' && <Text color="success">◆ cache live</Text>}
-        {lv === 'warm' && <Text color="success">◆ cache {fmtClock(rem ?? 0)}</Text>}
-        {lv === 'cooling' && (
-          <Text color="warning" bold>
-            ◆ cache {fmtClock(rem ?? 0)} left
-          </Text>
-        )}
-        {lv === 'cold' && (
-          <Text color="error" wrap="truncate">
-            ◇ cache cold · next prompt re-writes {fmtTokens(promptTokens(c))}
-          </Text>
-        )}
-        {(lv === 'warm' || lv === 'cooling') && (
-          <Text>
-            <Text color={lv === 'cooling' ? 'warning' : 'success'}>{bar.on}</Text>
-            <Text dimColor>{bar.off}</Text>
-          </Text>
-        )}
-        {(lv === 'live' || lv === 'warm' || lv === 'cooling') && (
-          <Text dimColor wrap="truncate">
-            {fmtTokens(cachedTokens(c))} cached{hit !== null ? ` · hit ${hit}%` : ''} · {t.ttl}
-          </Text>
-        )}
-        <Box flexGrow={1} />
-        {c.isPinging && <Text dimColor>pinging…</Text>}
-        {canWarm && keepWarm}
-      </Box>
-    )
-
-    const toggle = (key: string, label: string, desc: string, isOn: boolean) => (
-      <Box key={`row-${key}`} flexDirection="row" columnGap={1}>
-        {isOn ? <Text color="success">●</Text> : <Text dimColor>○</Text>}
-        <Box width={16} flexShrink={0}>
-          <Text bold>{label}</Text>
-        </Box>
-        <Box flexGrow={1} flexShrink={1}>
-          <Text dimColor wrap="truncate">
-            {desc}
-          </Text>
-        </Box>
-        {pill(key, isNative ? (isOn ? 'On' : 'Off') : isOn ? '● On' : '○ Off', isOn, () => void setOption($, key, !isOn))}
-      </Box>
-    )
-    const choice = (key: string, label: string, desc: string, value: string, onPress: () => void) => (
-      <Box key={`row-${key}`} flexDirection="row" columnGap={1}>
-        <Text dimColor>◇</Text>
-        <Box width={16} flexShrink={0}>
-          <Text bold>{label}</Text>
-        </Box>
-        <Box flexGrow={1} flexShrink={1}>
-          <Text dimColor wrap="truncate">
-            {desc}
-          </Text>
-        </Box>
-        {pill(key, value, false, onPress)}
-      </Box>
-    )
-    const warnSeconds = Math.round(cfg.warnMs / 1000)
-    const onWarn = () => void setOption($, 'warnSeconds', nextWarn(warnSeconds))
-    const onStyle = () => void cycleStyle($)
-    const settingRows = [
-      toggle('autoKeepWarm', 'Auto keep-warm', `ping 30s before expiry, up to ${cfg.maxAutoPings}`, cfg.autoKeepWarm),
-      toggle('sound', 'Alert sound', 'Glass at the warning', cfg.sound),
-      toggle('notifyMac', 'Mac alert', `Keep warm button, closes in ${cfg.alertSeconds}s`, cfg.notifyMac),
-      choice('warnSeconds', 'Alert at', 'time left when the alert fires', fmtClock(warnSeconds * 1000), onWarn),
-      choice('selectorStyle', 'Picker style', 'Rail, Ladder or Meter', styleLabel(cfg.selectorStyle), onStyle),
-    ]
-    // Short of rows, the settings fold onto one line of pills, the same buttons under the same keys.
-    const settingsLine = (
-      <Box key="settingsline" flexDirection="row" flexWrap="wrap" columnGap={1}>
-        {pill('autoKeepWarm', `${cfg.autoKeepWarm ? '●' : '○'} Auto keep-warm`, cfg.autoKeepWarm, () => void setOption($, 'autoKeepWarm', !cfg.autoKeepWarm))}
-        {pill('sound', `${cfg.sound ? '●' : '○'} Sound`, cfg.sound, () => void setOption($, 'sound', !cfg.sound))}
-        {pill('notifyMac', `${cfg.notifyMac ? '●' : '○'} Mac alert`, cfg.notifyMac, () => void setOption($, 'notifyMac', !cfg.notifyMac))}
-        {pill('warnSeconds', `Alert ${fmtClock(warnSeconds * 1000)}`, false, onWarn)}
-        {pill('selectorStyle', styleLabel(cfg.selectorStyle), false, onStyle)}
-      </Box>
-    )
-
-    const newestNote = handoff.files[0]
-    const handoffRow = (
-      <Box key="handoffrow" flexDirection="row" columnGap={3}>
-        <Box flexDirection="row" columnGap={1}>
-          <Text color="claude">✦</Text>
-          <Button key="handoff" plain hotkey="h" label="Write handoff" onPress={() => void runHandoff($)} />
-        </Box>
-        {newestNote && (
-          <Box flexDirection="row" columnGap={1}>
-            <Text color="suggestion">◆</Text>
-            <Button key="readhandoff" plain hotkey="r" label="Read handoff" onPress={() => void openHandoffPane($)} />
-          </Box>
-        )}
-        <Text dimColor wrap="truncate">
-          {newestNote ? `newest · ${age(newestNote.mtimeMs, now)}` : 'no notes yet'}
-        </Text>
-      </Box>
-    )
-
-    const rule = (key: string, text: string) => (
-      <Text key={key} dimColor wrap="truncate">
-        {text}
-      </Text>
-    )
-
-    // Rows to spare decide the layout: every divider; then only SETTINGS's; then none, the settings on one line.
-    const core = pickerRowCount + 1 + 1 + (hud.overage ? 1 : 0) + 1 + 1
-    const fit = e.props.maxRows >= core + settingRows.length + 4 ? 'full' : e.props.maxRows >= core + settingRows.length + 1 ? 'tight' : 'compact'
-    const isFull = fit === 'full'
-
-    const panel = (
-      <Box key="panel" flexDirection="column" width={width}>
-        {isGrid && 'Client' in ui ? (
-          <ui.Client key="pickers" module="./selectorclient.tsx" props={gridProps} width={width} height={gridRows} />
-        ) : (
-          [field('MODEL', picker(ui, style, modelOptions, pickerWidth), isLabelLast), field('EFFORT', picker(ui, style, effortOptions, pickerWidth), isLabelLast)]
-        )}
-        {field('TOKENS', tokensRow)}
-        {isFull && rule('rule-cache', sectionRule('CACHE', width))}
-        {cacheLine}
-        {hud.overage && (
-          <Box key="overage" flexDirection="row" columnGap={1}>
-            {overageMark}
-            <Text dimColor wrap="truncate">
-              {limitLabel(hud.overage)} · a new chat costs less per turn
-            </Text>
-            <Box flexGrow={1} />
-            {newChat}
-          </Box>
-        )}
-        {fit !== 'compact' && rule('rule-settings', sectionRule('SETTINGS', width))}
-        {fit === 'compact' ? settingsLine : settingRows}
-        {isFull && rule('rule-handoff', sectionRule('HANDOFF', width))}
-        {handoffRow}
-        {isFull && rule('rule-footer', footerRule('user-hud', width))}
-      </Box>
-    )
-
     return (
       <Box flexDirection="column" flexGrow={1}>
         {beneath}
-        <Box flexDirection="column" alignItems="flex-end">
-          {panel}
-          {tab}
+        <Box flexDirection="row" justifyContent="flex-end">
+          {cellsElement(ui, e.surface, 'hud', band, a => void runAction($, a))}
         </Box>
       </Box>
     )
   })
 
-  // A pick from the pickers' grid, on any surface that draws it.
+  // An action from a grid (a click, a hotkey), on any surface that paints one.
   on('ui.message', async ($, e, next) => {
-    if (e.module.endsWith('selectorclient.tsx')) await pickFromGrid($, e.data).catch(() => {})
+    if (e.module.endsWith('cellsclient.tsx')) await runAction($, (e.data as { action?: unknown } | null)?.action).catch(() => {})
     return next(e)
   })
 
-  // Where the grid fails to draw, that surface gets the plain pickers from then on.
+  // Where a grid fails to draw, that surface gets text rows and buttons from then on.
   on('ui.fault', async ($, e, next) => {
-    if (e.module.endsWith('selectorclient.tsx') && !gridFaults.has(e.surface)) {
+    if (e.module.endsWith('cellsclient.tsx') && !gridFaults.has(e.surface)) {
       gridFaults.add(e.surface)
       $.ui.invalidate('ui.render')
     }
@@ -1095,47 +938,24 @@ export const register: Register = (on, given) => {
 
   // ---------- picker styles pane ----------
 
-  // The three styles drawn as the panel draws them, each in full whatever the pane's width.
+  // The three styles drawn as the panel draws them, each in full whatever the pane's width, in one grid.
   on('ui.render', { component: 'Pane', requestId: STYLES_PANE }, async ($, e) => {
-    const ui = $.ui.resolve(e)
-    const { Box, Text, Button } = ui
+    const ui: Ui = $.ui.resolve(e)
     const hud = await read($, hudA)
-    const width = Math.max(e.props.bodyColumns, STYLES_PANE_COLUMNS) - FIELD_WIDTH
+    const width = Math.max(e.props.bodyColumns, STYLES_PANE_COLUMNS)
     const fields = gridFields(hud)
-    return (
-      <Box flexDirection="column" rowGap={1}>
-        <Text dimColor wrap="wrap">
-          Model: blue to orange as the models get more capable. Effort: one grey to the full rainbow at Ultracode. Each style is the same tree on every surface; pressing a step here picks it.
-        </Text>
-        {SELECTOR_STYLES.map(st => {
-          const options = pickerOptions($, hud, `${st.style}-`)
-          const isLabelLast = st.style === 'meter'
-          return (
-            <Box key={`style-${st.style}`} flexDirection="column">
-              <Box flexDirection="row" columnGap={2}>
-                <Text bold>{st.label}</Text>
-                {cfg.selectorStyle === st.style ? (
-                  <Text color="success">● in use</Text>
-                ) : (
-                  <Button key={`use-${st.style}`} label={`Use ${st.label}`} onPress={() => void setOption($, 'selectorStyle', st.style)} />
-                )}
-              </Box>
-              {drawsGrid(e.surface) && 'Client' in ui ? (
-                <ui.Client
-                  key={`pickers-${st.style}`}
-                  module="./selectorclient.tsx"
-                  props={{ style: st.style, width: width + FIELD_WIDTH, fields }}
-                  width={width + FIELD_WIDTH}
-                  height={layout({ style: st.style, width: width + FIELD_WIDTH, fields }).rows.length}
-                />
-              ) : (
-                [fieldRow(ui, 'MODEL', picker(ui, st.style, options.model, width), isLabelLast), fieldRow(ui, 'EFFORT', picker(ui, st.style, options.effort, width), isLabelLast)]
-              )}
-            </Box>
-          )
-        })}
-      </Box>
-    )
+    const b = builder()
+    for (const row of wrap('Model: blue to orange as the models get more capable. Effort: one grey to the full rainbow at Ultracode. Pressing a step here picks it.', width, { isDim: true })) b.add(row)
+    for (const st of SELECTOR_STYLES) {
+      b.add([])
+      const head = line(width, [
+        piece(st.label, { isBold: true }),
+        cfg.selectorStyle === st.style ? piece('● in use', { color: 'success' }) : piece(` Use ${st.label} `, { bg: 'subtle' }, `use:${st.style}`),
+      ])
+      b.add(head.row, head.spans)
+      b.append(layout({ style: st.style, width, fields }))
+    }
+    return cellsElement(ui, e.surface, 'styles', { ...b.grid, keys: {}, width }, a => void runAction($, a))
   })
 
   // ---------- tokens pane ----------
