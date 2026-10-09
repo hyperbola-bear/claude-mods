@@ -37,11 +37,11 @@ import { WINDOW, blobUrl, changeNote, hunkRows, inDiff, parseDiff, prLineAnchor,
 import type { Hunk } from './code.ts'
 import { isCodeReference, parseDoc, sourceOf } from './doc.ts'
 import type { Doc } from './doc.ts'
-import { drawRows } from './draw.tsx'
+import { BUDGET, drawRows, planRows } from './draw.tsx'
 import { explainContext, mentionsCommand, parseCommand, reviewContext, reviewRequest, rewritePrompt } from './format.ts'
 import type { ReviewAsk } from './format.ts'
 import { ghError } from './gh.ts'
-import { paneRows } from './layout.ts'
+import { paneRows, replyRows, trimInline } from './layout.ts'
 import type { InlineCode, PaneProps, ReplyProps } from './layout.ts'
 import { offerSetup, wasAsked } from './setup.ts'
 import type { SetupIo, SetupMode, Stored } from './setup.ts'
@@ -679,11 +679,15 @@ export const register: Register = (on, options) => {
       const pane = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
       const isUp = !st.isPaneClosed && pane !== undefined && (e.surface !== 'terminal' || pane.isPlaced)
       const view = st.code[refKey(place)] ?? null
-      if (!isUp) inline = { place, view, tag: view?.kind === 'rows' ? view.note : sourceTag(st.source) }
+      if (!isUp) inline = trimInline({ place, view, tag: view?.kind === 'rows' ? view.note : sourceTag(st.source) })
     }
     const props: ReplyProps = { key, doc, current: place?.n ?? null, inline, cols: Math.max(20, e.viewport?.columns ?? 100) }
     const els = $.ui.resolve(e)
     if (!('Client' in els)) return next(e)
+    // A Client's props and tree are each held to 100,000 characters. A reply
+    // too long to draw whole even without its syntax colours is left to the
+    // engine's own drawing, which shows all of it, rather than cut short.
+    if (JSON.stringify(props).length > BUDGET || planRows(replyRows(props, props.cols, null)).left > 0) return next(e)
     const { Client } = els
     return <Client key="reply" module="./reply.view.tsx" props={props} width="100%" />
   })
