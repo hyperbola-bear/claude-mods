@@ -7,12 +7,12 @@ import type { CodeLine, CodeView, Place } from '../types'
 import { splitPath } from './code.ts'
 import type { Block, Doc, Inline } from './doc.ts'
 
-/** A run of one style; `hit` names what a click on it does. */
-export type Span = { t: string; fg?: string; bg?: string; b?: boolean; d?: boolean; u?: boolean; i?: boolean; hit?: string }
+/** A run of one style; `hit` names what a click on it does; `soft` marks a syntax colour, the first thing dropped when a drawing runs out of room. */
+export type Span = { t: string; fg?: string; bg?: string; b?: boolean; d?: boolean; u?: boolean; i?: boolean; hit?: string; soft?: boolean }
 export type Row = Span[]
 
-/** The code shown under a section while the pane is closed. */
-export type InlineCode = { place: Place; view: CodeView | null; tag: string }
+/** The code shown under a section while the pane is closed; `signs` whether the window it came from has changed lines. */
+export type InlineCode = { place: Place; view: CodeView | null; tag: string; signs?: boolean }
 
 /** What the reply's surface module is handed. */
 export type ReplyProps = { key: string; doc: Doc; current: number | null; inline: InlineCode | null; cols: number }
@@ -189,7 +189,7 @@ export function codeRow(r: CodeLine, p: Place | null, numW: number, w: number, s
       const edge = [a, b].filter(x => x > at + i).sort((x, y) => x - y)[0] ?? Infinity
       const take = Math.min(tok.t.length - i, edge - (at + i), left)
       const inHot = at + i >= a && at + i < b
-      row.push(S(tok.t.slice(i, i + take), { fg: tok.fg, bg: inHot ? word : bg, d: !lit }))
+      row.push(S(tok.t.slice(i, i + take), { fg: tok.fg, bg: inHot ? word : bg, d: !lit, soft: true }))
       i += take
       left -= take
     }
@@ -265,6 +265,16 @@ function near(view: CodeView & { kind: 'rows' }, p: Place, max: number): CodeLin
   return view.rows.slice(at, at + Math.min(max, Math.max(1, p.endLine - p.line + 5)))
 }
 
+/**
+ * The inline code as the reply's region is handed it: the rows its box shows,
+ * not the whole window the pane scrolls through, so the props stay small.
+ */
+export function trimInline(code: InlineCode): InlineCode {
+  const { place: p, view } = code
+  if (!view || view.kind !== 'rows') return code
+  return { ...code, signs: view.rows.some(r => r.k !== ' '), view: { ...view, rows: near(view, p, 16) } }
+}
+
 /** The code under the section while the pane is closed, boxed in the shown place's color. */
 export function codeBox(code: InlineCode, w: number): Row[] {
   const { place: p, view } = code
@@ -279,7 +289,7 @@ export function codeBox(code: InlineCode, w: number): Row[] {
   else {
     const rows = near(view, p, 16)
     const numW = Math.max(1, ...rows.map(r => String(r.n ?? r.o ?? '').length))
-    const signs = view.rows.some(r => r.k !== ' ')
+    const signs = code.signs ?? view.rows.some(r => r.k !== ' ')
     for (const r of rows) body(codeRow(r, p, numW, inner, signs))
   }
   const left: Row = [S('╰─ ', C), S('‹ prev', { fg: 'suggestion', hit: 'prev' }), S('  ', C), S('next ›', { fg: 'suggestion', hit: 'next' }), S(' ', C)]
@@ -314,7 +324,7 @@ function blockRows(b: Block, doc: Doc, w: number, current: number | null, hover:
       for (const t of tokens(l)) {
         if (left <= 0) break
         const part = t.t.slice(0, left)
-        row.push(S(part, { fg: t.fg }))
+        row.push(S(part, { fg: t.fg, soft: true }))
         left -= part.length
       }
       if (full > room) row.push(S('…', DIM))
