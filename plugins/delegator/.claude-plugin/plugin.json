@@ -1,0 +1,31 @@
+{
+  "name": "delegator",
+  "version": "0.1.0",
+  "author": {
+    "name": "Polar"
+  },
+  "description": "Every subagent Claude starts waits for your approval: approve, refuse, approve all for the turn, change its model (suggested by the task's complexity) or add a note to its task. A pane lists the agents waiting, the full task and recent decisions, the same in the terminal and the desktop app.",
+  "types": "./types/index.d.ts",
+  "license": "MIT",
+  "keywords": [
+    "subagents",
+    "approval",
+    "models",
+    "delegation",
+    "mod"
+  ],
+  "userConfig": {
+    "approveAgents": {
+      "type": "boolean",
+      "title": "Approve subagents before launch",
+      "description": "Hold every subagent Claude starts until you approve it. Off, agents launch without asking. /delegator on or off flips it too.",
+      "default": true
+    },
+    "suggestModels": {
+      "type": "boolean",
+      "title": "Suggest a model by task complexity",
+      "description": "When Claude names no model for an agent, launch it on the one its task suggests: Haiku for lookups, Sonnet for building, Opus for design and analysis. Off, it runs on the agent's own default.",
+      "default": true
+    }
+  }
+}

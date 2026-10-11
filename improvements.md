@@ -2,6 +2,8 @@
 
 Status: implementation plan, 11 October 2026. This document records requested behavior and reviewable implementation slices; it does not claim that the features below are implemented.
 
+Update, 12 October 2026: slices 1–4 shipped as their own plugin, `delegator` 0.1.0, not inside user-hud. The live proof found that a pane cannot hold a spawn (a hook has 10 s of its own time, and one that runs out lets the agent start) and that a dialog holds the keys, so the engine's question dialog is the hold, edits are made through it (Change model, and typed notes), and the pane shows the queue and the full task. Slice 7 shipped in user-hud 1.5.2.
+
 ## Ticket Summary
 
 - **Goal:** Add a subagent delegator to `user-hud`. Before any subagent starts, show its proposed task and model in a pane. Let the person edit the task, choose a model tier, approve, or refuse it. Provide **Approve all** for a burst of proposed agents, and an on/off setting. Make the user-hud area and the separately installed `next-steps@claude-community` suggestions sit side by side when there is enough width, with user-hud on the left and next steps on the right. Also improve the five token-efficiency issues identified in the current mods.

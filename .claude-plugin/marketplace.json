@@ -19,6 +19,11 @@
       "name": "ask",
       "source": "./plugins/ask",
       "description": "A side chat in a pane that reads the main chat, scrolls and draws: /ask a question, /draw a diagram. Nothing goes back to the main chat unless you send it. Answers are Mermaid drawn as box art in the terminal and as SVG in the desktop app."
+    },
+    {
+      "name": "delegator",
+      "source": "./plugins/delegator",
+      "description": "Every subagent Claude starts waits for your approval: approve, refuse, approve all for the turn, change its model (suggested by the task's complexity) or add a note to its task. A pane lists the agents waiting, the full task and recent decisions, the same in the terminal and the desktop app."
     }
   ]
 }
