@@ -423,7 +423,7 @@ test('the band counts down, alerts once at two minutes, and Keep warm resets the
   expect(await has(band, 'handoff')).toBe(false)
   await act(band, 'keepwarm')
   expect(w.forks).toHaveLength(1)
-  expect(w.toasts.at(-1)).toContain('Cache refreshed: read 150k')
+  expect(w.toasts.at(-1)).toContain("Cache refreshed for ~15k tokens' worth (read 150k cached")
   await band.redraw()
   expect(await shows(band, '◆ 5:00')).toBe(true)
   expect(await has(band, 'keepwarm')).toBe(false)
@@ -477,6 +477,21 @@ test('auto keep-warm pings at 30 seconds and stops at the cap', { options: { aut
   await request($, w, 80_000)
   for (let i = 0; i < 4; i += 1) await w.clock.advance(300_000)
   expect(w.forks).toHaveLength(2)
+})
+
+test('auto keep-warm shows what a ping costs before it is turned on', { options: { notifyMac: false, sound: false } }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await openPanel(band)
+  expect(await shows(band, 'ping 30s before expiry, up to 3')).toBe(true)
+  await request($, w, 80_000)
+  await band.redraw({ ...BAND(), maxRows: 30 })
+  expect(await shows(band, 'ping 30s before expiry, ~8k cost each, ≤3')).toBe(true)
+  expect(await labelOf(band, 'set:autoKeepWarm')).toBe('○ Off')
+  const cache = await $.command.run({ command: 'cache', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  expect(cache.text).toContain("Auto keep-warm off: a ping costs ~8k input tokens' worth (it re-reads the 82k cached at a tenth of the price); at most 3 per idle stretch, ~25k.")
+  expect(w.forks).toHaveLength(0)
 })
 
 test('the countdown runs an hour, as promptCacheTtl: "1h" or a subscription keeps it', { options: { notifyMac: false, sound: false } }, async ($, on) => {

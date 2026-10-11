@@ -25,7 +25,7 @@ TOKENS  ████████████████ 1.2M · Files 38% · Sy
 ── C A C H E ───────────────────────────────────────────────────────────
 ◆ cache 52:10 ▰▰▰▰▰▰▰▰▰▱ 182k cached · hit 94% · 1h          [ Keep warm ]
 ── S E T T I N G S ─────────────────────────────────────────────────────
-● Auto keep-warm   ping 30s before expiry, up to 3                 ○ Off
+● Auto keep-warm   ping 30s before expiry, ~18k cost each, ≤3      ○ Off
 ● Alert sound      Glass at the warning                            ● On
 ● Mac alert        Keep warm button, closes in 7s                  ● On
 ◇ Alert at         time left when the alert fires                   2:00
@@ -86,7 +86,7 @@ How it counts:
 
 - Green while warm, yellow with 2 minutes or less left, red once cold (the next prompt re-writes the whole prefix).
 - With 2 minutes left and Claude idle, it alerts once: a toast, the Glass sound, and a macOS alert with the user-hud logo and its own **Keep warm** button (Return presses it). The alert closes by itself after 7 seconds; set **macOS alert stays (seconds)** in `/config` to change that (3 to 60).
-- **Keep warm** (`w`, or `/keepwarm`) sends a one-line request that reads the cached prefix, which resets the cache timer, and adds nothing to the conversation. It costs one cache read of the prefix plus a few output tokens.
+- **Keep warm** (`w`, or `/keepwarm`) sends a one-line request that reads the cached prefix, which resets the cache timer, and adds nothing to the conversation. Every request re-reads the whole cached conversation (typing "hi" does too), so a ping reads all of it: with 182k cached that is 182k cache-read tokens, billed at a tenth of the input price, about 18k input tokens' worth, plus a few output tokens. Once something is cached, the **Auto keep-warm** row shows that cost (`~18k cost each, ≤3`: up to 3 pings while you are idle), so you see it before turning it on; `/cache` gives the same with the total for one idle stretch. If the cache expires instead, your next prompt writes it again at 1.25× (5m) to 2× (1h) the input price.
 - The countdown follows the lifetime Claude Code gives the cache: 1 hour. Claude Code's `promptCacheTtl` setting decides it, and `"promptCacheTtl": "1h"` in `~/.claude/settings.json` keeps it at an hour for every session, API-key sessions and overage included. 1-hour cache writes cost more than 5-minute ones (cache reads cost the same). Unset, a subscription gets 1 hour and drops to 5 minutes while on overage, and the countdown follows.
 - **Overage:** when a plan window (5-hour or weekly) is past its limit, the subscription runs on overage. **⚠ overage** shows beside the cache with a **New chat** button: every turn re-sends the whole chat at extra-usage rates, so a fresh one costs less per turn. **New chat** runs `/clear`; the old chat stays in `/resume`.
 - `/cache` prints time left, size, hit rate, the lifetime and why, and the overage state.

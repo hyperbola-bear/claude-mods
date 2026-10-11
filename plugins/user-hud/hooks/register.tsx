@@ -63,6 +63,7 @@ import {
   fmtClock,
   fmtTokens,
   hitRate,
+  keepWarmCost,
   level,
   limitLabel,
   overageOf,
@@ -370,11 +371,29 @@ function gridFields(hud: HudState): GridField[] {
   ]
 }
 
+/** Auto keep-warm's row: once something is cached, what each ping costs, so it is seen before turning it on. */
+function keepWarmDesc(c: CacheState): string {
+  const cost = keepWarmCost(c, cfg.maxAutoPings)
+  if (!cost) return `ping 30s before expiry, up to ${cfg.maxAutoPings}`
+  return `ping 30s before expiry, ~${fmtTokens(cost.perPing)} cost each, ≤${cfg.maxAutoPings}`
+}
+
+/** /cache's line on auto keep-warm: whether it is on, what a ping costs and what one idle stretch can. */
+function keepWarmLine(c: CacheState): string {
+  const cost = keepWarmCost(c, cfg.maxAutoPings)
+  const state = `Auto keep-warm ${cfg.autoKeepWarm ? 'on' : 'off'}`
+  if (!cost) return `${state}.`
+  return (
+    `${state}: a ping costs ~${fmtTokens(cost.perPing)} input tokens' worth (it re-reads the ${fmtTokens(cachedTokens(c))} cached at a tenth of the price); ` +
+    `at most ${cfg.maxAutoPings} per idle stretch, ~${fmtTokens(cost.max)}.`
+  )
+}
+
 /** The settings as the panel lists them, each a toggle or a choice. */
-function settingsView(): Setting[] {
+function settingsView(c: CacheState): Setting[] {
   const warnSeconds = Math.round(cfg.warnMs / 1000)
   return [
-    { key: 'autoKeepWarm', label: 'Auto keep-warm', desc: `ping 30s before expiry, up to ${cfg.maxAutoPings}`, kind: 'toggle', isOn: cfg.autoKeepWarm, value: '' },
+    { key: 'autoKeepWarm', label: 'Auto keep-warm', desc: keepWarmDesc(c), kind: 'toggle', isOn: cfg.autoKeepWarm, value: '' },
     { key: 'sound', label: 'Alert sound', desc: 'Glass at the warning', kind: 'toggle', isOn: cfg.sound, value: '' },
     { key: 'notifyMac', label: 'Mac alert', desc: `Keep warm button, closes in ${cfg.alertSeconds}s`, kind: 'toggle', isOn: cfg.notifyMac, value: '' },
     { key: 'warnSeconds', label: 'Alert at', desc: 'time left when the alert fires', kind: 'choice', isOn: false, value: fmtClock(warnSeconds * 1000) },
@@ -850,6 +869,7 @@ export const register: Register = (on, given) => {
         (hitRate(c) !== null ? ` (hit ${hitRate(c)}%).` : '.'),
       c.model ? `Model: ${c.model}.` : '',
       c.lastPing ? `Last ping: ${c.lastPing}` : '',
+      keepWarmLine(c),
     ]
     return { text: lines.filter(Boolean).join('\n') }
   })
@@ -924,7 +944,7 @@ export const register: Register = (on, given) => {
           .map(g => `${groupOf(g.id).label} ${pct(g.share)}`),
       },
       cache: cacheRuns(c, t.ttl, lv, rem),
-      settings: settingsView(),
+      settings: settingsView(c),
       handoff: { hasNewest: newestNote !== undefined, note: newestNote ? `newest · ${age(newestNote.mtimeMs, now)}` : 'no notes yet' },
     })
     // flexGrow: the desktop sets the tree beside its own collapse control in a row, where an ungrown

@@ -7,6 +7,7 @@ import {
   fmtTokens,
   hitRate,
   cacheTtlFor,
+  keepWarmCost,
   limitLabel,
   overageOf,
   level,
@@ -93,8 +94,13 @@ test('a request that touched the cache resets the clock; one that did not leaves
 })
 
 test('ping summaries', () => {
-  expect(pingSummary(usage(180_000, 0))).toEqual({ line: 'Cache refreshed: read 180k tokens from the cache.', isWarm: true })
+  expect(pingSummary(usage(180_000, 0))).toEqual({ line: "Cache refreshed for ~18k tokens' worth (read 180k cached at a tenth of the price).", isWarm: true })
   expect(pingSummary(usage(0, 50_000)).line).toContain('re-wrote 50k')
   expect(pingSummary(usage(0, 0)).isWarm).toBe(false)
 })
 
+
+test('keep-warm cost: each ping re-reads the cached prefix at a tenth of the input price, an idle stretch at most maxPings of them', () => {
+  expect(keepWarmCost(EMPTY_CACHE, 3)).toBe(null)
+  expect(keepWarmCost({ readTokens: 180_000, writeTokens: 2_000 }, 3)).toEqual({ perPing: 18_200, max: 54_600 })
+})

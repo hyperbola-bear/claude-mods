@@ -94,6 +94,22 @@ export function shouldAutoPing(
   )
 }
 
+/** A cache read is billed at a tenth of the input price, so a read token costs 0.1 of an input token. */
+export const CACHE_READ_RATE = 0.1
+
+/** A request that reads `read` tokens from the cache, in what the same number of plain input tokens would cost. */
+export const readCost = (read: number) => Math.round(read * CACHE_READ_RATE)
+
+/**
+ * What auto keep-warm costs, in input tokens' worth: each ping re-reads the
+ * whole cached prefix (as any prompt does, "hi" included) and an idle stretch
+ * sends at most `maxPings`. Null before anything is cached.
+ */
+export function keepWarmCost(c: Pick<CacheState, 'readTokens' | 'writeTokens'>, maxPings: number): { perPing: number; max: number } | null {
+  const perPing = readCost(cachedTokens(c))
+  return perPing > 0 ? { perPing, max: perPing * maxPings } : null
+}
+
 /**
  * The lifetime Claude Code gives the main conversation's cache. An explicit
  * `promptCacheTtl` (or CLAUDE_CODE_PROMPT_CACHE_TTL) wins, overage included;
@@ -135,7 +151,7 @@ export const KEEP_WARM_PROMPT =
 export function pingSummary(usage: Usage): { line: string; isWarm: boolean } {
   const read = usage.cache_read_input_tokens
   const wrote = usage.cache_creation_input_tokens
-  if (read > 0) return { line: `Cache refreshed: read ${fmtTokens(read)} tokens from the cache.`, isWarm: true }
+  if (read > 0) return { line: `Cache refreshed for ~${fmtTokens(readCost(read))} tokens' worth (read ${fmtTokens(read)} cached at a tenth of the price).`, isWarm: true }
   if (wrote > 0) return { line: `Cache had already expired; the ping re-wrote ${fmtTokens(wrote)} tokens.`, isWarm: true }
   return { line: 'Ping answered but touched no cache (caching may be off for this model or provider).', isWarm: false }
 }
