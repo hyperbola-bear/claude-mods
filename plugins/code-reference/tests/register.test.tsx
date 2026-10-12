@@ -237,17 +237,19 @@ test('with the pane closed, the code shows under its section', { plugins: [close
   expect(await msg.find({ type: 'Text', text: 'open in pane', in: 'reply' })).toBe(undefined)
 })
 
-test('prompts: /code-reference <question> sends the question with the format; "use /code-reference" adds it in passing', async ($, on) => {
+test('prompts: /code-reference <question> sends the question with the format; no other prompt is touched', async ($, on) => {
   const w = world(on)
   await start($, w)
   await $.prompt.submit(TYPED('/code-reference how does the band work'))
   expect(w.submits.at(-1)).toBe('how does the band work')
   expect(w.contexts.at(-1)?.join('\n')).toContain('`**Code reference:** /work`')
-  await $.prompt.submit(TYPED('explain how x works with y and use /code-reference'))
-  expect(w.submits.at(-1)).toBe('explain how x works with y and use /code-reference')
-  expect(w.contexts.at(-1)?.join('\n')).toContain('Link every place in the code')
-  await $.prompt.submit(TYPED('what is in this repo?'))
-  expect(w.contexts.at(-1)).toBe(undefined)
+  // No trigger words: the command in passing, a review request and a bare PR link all pass untouched.
+  for (const typed of ['explain how x works with y and use /code-reference', `review ${PR_URL}`, PR_URL, 'review pr 418', 'what is in this repo?']) {
+    await $.prompt.submit(TYPED(typed))
+    expect(w.submits.at(-1)).toBe(typed)
+    expect(w.contexts.at(-1)).toBe(undefined)
+  }
+  expect(w.argv.filter(a => a[0] === 'gh' || a[0] === 'git')).toEqual([])
 })
 
 test('/code-reference alone draws the last reply in place when it names files, else asks for it again with links', async ($, on) => {
@@ -272,7 +274,7 @@ test('/code-reference alone draws the last reply in place when it names files, e
 test('a review: the PR is checked out into a worktree and its code shows with the changes marked', async ($, on) => {
   const w = world(on)
   await start($, w)
-  await $.prompt.submit(TYPED(`review ${PR_URL}`))
+  await $.prompt.submit(TYPED(`/code-reference ${PR_URL}`))
   expect(w.contexts.at(-1)?.join('\n')).toContain(`\`**Code reference:** ${PR_URL}\``)
   expect(w.contexts.at(-1)?.join('\n')).toContain(WT)
   await answer($, w, REVIEW)
@@ -287,7 +289,7 @@ test('without gh, the PR is read through a GitHub MCP server', async ($, on) => 
   w.hasGh = false
   w.mcpTools = ['get_pull_request', 'get_file_contents']
   await start($, w)
-  await $.prompt.submit(TYPED(`review ${PR_URL}`))
+  await $.prompt.submit(TYPED(`/code-reference ${PR_URL}`))
   expect(w.mcp).toEqual(['mcp__github__get_pull_request'])
   expect(w.contexts.at(-1)?.join('\n')).toContain(WT)
   // The clone the worktree hangs off is the session's own, so no clone is made; nothing ran gh after it was found missing.
@@ -312,7 +314,7 @@ const brokenBrowser = {
 test("when terminal-browser can't load the PR page, the pane keeps the code and says so, with retry", { plugins: [brokenBrowser] }, async ($, on) => {
   const w = world(on, { TERM_PROGRAM: 'ghostty', TERM: 'xterm-ghostty', HOME }, ['browser'])
   await start($, w)
-  await $.prompt.submit(TYPED(`review ${PR_URL}`))
+  await $.prompt.submit(TYPED(`/code-reference ${PR_URL}`))
   await answer($, w, REVIEW)
   const pane = await $.ui.mount({ plugin: 'code-reference', surface: 'terminal', component: 'Pane', requestId: 'code-reference', props: PANE_PROPS, viewport: VIEW })
   await pane.post({ act: 'github' }, { in: 'pane' })

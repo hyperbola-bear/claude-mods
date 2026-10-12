@@ -1,7 +1,8 @@
 ---
 name: reply-format
-description: Answer in the code-reference format, whose links the code-reference plugin opens beside the reply in a code pane. Use whenever the user asks for a code reference or mentions /code-reference, asks to explain how code works and see the code behind it, or asks to review a GitHub pull request (a github.com/.../pull/N link, "review pr", "review pr 418", "pr review").
+description: The code-reference format, prose linked to the code, whose links the code-reference plugin opens beside the reply in a code pane. Run by hand only, as /code-reference:reply-format; /code-reference hands the model this format itself.
 argument-hint: "[question, or PR URL or number]"
+disable-model-invocation: true
 ---
 
 # Code reference: prose linked to the code

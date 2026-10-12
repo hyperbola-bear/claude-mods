@@ -1,11 +1,12 @@
 /**
  * code-reference: replies that point at code, the code beside them.
  *
- * Ask with /code-reference: `/code-reference how does x work with y`, "…and
- * use /code-reference" anywhere in a prompt, or /code-reference alone after a
- * reply. A pull request link with "review" (or `/code-reference <PR link>`)
- * asks for a review the same way. The model is handed the format: prose in
- * sections, every place in the code linked on the words that describe it.
+ * Only the command asks, never words in a prompt: `/code-reference how does x
+ * work with y`, /code-reference alone after a reply, and for a review
+ * `/code-reference <PR link>`, `/code-reference review 418` or
+ * `/code-reference review` (this branch's PR). The model is handed the format:
+ * prose in sections, every place in the code linked on the words that
+ * describe it.
  *
  * The reply is drawn by the mod: the prose wrapped, each link underlined with
  * its number, and under each section a row of boxes, one per place. Clicking
@@ -38,7 +39,7 @@ import type { Hunk } from './code.ts'
 import { isCodeReference, parseDoc, sourceOf } from './doc.ts'
 import type { Doc } from './doc.ts'
 import { BUDGET, drawRows, planRows } from './draw.tsx'
-import { explainContext, mentionsCommand, parseCommand, reviewContext, reviewRequest, rewritePrompt } from './format.ts'
+import { explainContext, parseCommand, reviewContext, reviewText, rewritePrompt } from './format.ts'
 import type { ReviewAsk } from './format.ts'
 import { ghError } from './gh.ts'
 import { paneRows, replyRows, trimInline } from './layout.ts'
@@ -75,13 +76,12 @@ const refA = atom({ plugin: 'code-reference', key: 'ref' } as const, EMPTY)
 const browserA = atom({ plugin: 'code-reference', key: 'hasBrowser' } as const, false)
 const worktreeA = atom({ plugin: 'code-reference', key: 'worktree' } as const, EMPTY_WORKTREE)
 
-type Cfg = { ghPath: string; ideCommand: string; autoReview: boolean; offerSetup: boolean }
+type Cfg = { ghPath: string; ideCommand: string; offerSetup: boolean }
 
 export function readCfg(o: Record<string, unknown>): Cfg {
   return {
     ghPath: typeof o.ghPath === 'string' && o.ghPath.trim() ? o.ghPath.trim() : 'gh',
     ideCommand: typeof o.ideCommand === 'string' ? o.ideCommand.trim() : '',
-    autoReview: typeof o.autoReview === 'boolean' ? o.autoReview : true,
     offerSetup: typeof o.offerSetup === 'boolean' ? o.offerSetup : true,
   }
 }
@@ -551,7 +551,7 @@ export const register: Register = (on, options) => {
       {
         name: 'code-reference',
         description: 'Answer with links to the code, shown beside the reply. Alone: show the code of the last reply. A number: show that place',
-        argumentHint: '[question | PR link | place number]',
+        argumentHint: '[question | PR link | review [number] | place number]',
       },
       { name: 'code-reference-setup', description: 'code-reference: offer to install what it can use and this machine lacks (GitHub CLI, Ghostty, terminal-browser)' },
     ]
@@ -589,16 +589,12 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // A prompt that asks for a code reference or a review: hand the model the format.
+  // /code-reference with a question or a review: hand the model the format. Any other prompt passes untouched.
   on('prompt.submit', async ($, e, next) => {
     const context = e.context ?? []
     const cmd = parseCommand(e.text)
     if (cmd?.kind === 'ask') return next({ ...e, text: cmd.question, context: [...context, explainContext(await sessionRoot($))] })
-    if (cmd?.kind === 'review') return next({ ...e, text: `Review ${cmd.url}`, context: [...context, ...(await reviewPrompt($, { kind: 'url', url: cmd.url }))] })
-    if (cmd) return next(e)
-    if (mentionsCommand(e.text)) return next({ ...e, context: [...context, explainContext(await sessionRoot($))] })
-    const ask = cfg.autoReview ? reviewRequest(e.text) : null
-    if (ask) return next({ ...e, context: [...context, ...(await reviewPrompt($, ask))] })
+    if (cmd?.kind === 'review') return next({ ...e, text: reviewText(cmd.target), context: [...context, ...(await reviewPrompt($, cmd.target))] })
     return next(e)
   }).catch(($, e, next) => next(e))
 

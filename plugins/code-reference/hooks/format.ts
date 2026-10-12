@@ -1,5 +1,6 @@
-// What asks for a code reference, and the format the model is handed for one:
-// an explanation of code on disk, or a review of a pull request. No `$` here.
+// What /code-reference asks for, and the format the model is handed for it: an
+// explanation of code on disk, or a review of a pull request. Only the command
+// asks: no words in a prompt do. No `$` here.
 
 /** How every code-reference reply links its prose to the code. */
 const LINKS = [
@@ -43,17 +44,23 @@ export function reviewContext(url: string, worktree?: string): string {
  * plugin's own prompt carries no hidden context.
  */
 export function rewritePrompt(root: string): string {
-  return `Say your last reply again in the code-reference format (the code-reference:reply-format skill): first line **Code reference:** ${root}, then the same content, as briefly, with every place in the code linked on the words that describe it, like [the retry loop](src/worker/retry.ts:40-62). Read files first where you need the line numbers.`
+  return `Say your last reply again in the code-reference format: first line **Code reference:** ${root}, then the same content, as briefly, with every place in the code linked on the words that describe it, like [the retry loop](src/worker/retry.ts:40-62). Read files first where you need the line numbers.`
 }
+
+/** What `/code-reference review` asks to have reviewed: a PR by link or number, or the current branch's. */
+export type ReviewAsk = { kind: 'url'; url: string } | { kind: 'number'; number: number } | { kind: 'branch' }
 
 /** What a prompt beginning with `/code-reference` asks for. */
 export type Command =
   | { kind: 'last' }
   | { kind: 'pick'; n: number }
-  | { kind: 'review'; url: string }
+  | { kind: 'review'; target: ReviewAsk }
   | { kind: 'ask'; question: string }
 
 const PR_URL = /https?:\/\/[^\s/]+\/[^\s/]+\/[^\s/]+\/pull\/\d+/i
+
+/** `review`, `review pr 418`, `review #418`, `review this branch`: the words after /code-reference that ask for a review. */
+const REVIEW = /^re-?view(?:\s+(?:this|the|my)?\s*(?:pr|pull\s+request|branch))?(?:\s+#?(\d+))?[.!]?$/i
 
 export function parseCommand(text: string): Command | null {
   const m = /^\/(?:code-reference:)?code-reference(?:\s+([\s\S]*))?$/i.exec(text.trim())
@@ -62,35 +69,14 @@ export function parseCommand(text: string): Command | null {
   if (!arg) return { kind: 'last' }
   if (/^\d+$/.test(arg)) return { kind: 'pick', n: Number(arg) }
   const url = PR_URL.exec(arg)?.[0]
-  if (url && arg.replace(PR_URL, '').replace(/\b(re-?view|this|the|pr|please)\b|[\s.,;:!?<>()]/gi, '') === '') return { kind: 'review', url }
+  if (url && arg.replace(PR_URL, '').replace(/\b(re-?view|this|the|pr|please)\b|[\s.,;:!?<>()]/gi, '') === '') return { kind: 'review', target: { kind: 'url', url } }
+  const review = REVIEW.exec(arg)
+  if (review) return { kind: 'review', target: review[1] ? { kind: 'number', number: Number(review[1]) } : { kind: 'branch' } }
   return { kind: 'ask', question: arg }
 }
 
-/** Whether a prompt asks for the format in passing: "…and use /code-reference". */
-export const mentionsCommand = (text: string) => !text.trim().startsWith('/') && /(^|[\s(])\/code-reference\b/i.test(text)
-
-/** What a typed prompt asks to have reviewed. */
-export type ReviewAsk = { kind: 'url'; url: string } | { kind: 'number'; number: number } | { kind: 'branch' }
-
-const REVIEW_WORD = /\b(?:re-?view\w*|cr|look\s+over|go\s+(?:over|through))\b/i
-const PR_PHRASE = /\b(?:re-?view|cr)\s+(?:(?:the|this|my|that|a|our)\s+)?(?:pr|pull\s+request)\b(?:\s+(?:number\s+)?#?(\d+)\b)?|\b(?:pr|pull\s+request)\s+re-?view\b|\bre-?view\s+#(\d+)\b/i
-
-/**
- * The review a typed prompt asks for: a GitHub pull request link with a word
- * like review (or the link alone), or a phrase like "review pr", "review pr
- * 418", "review #418" or "pr review" (this repository's PR by number, or the
- * current branch's). Slash commands and shell escapes are left alone.
- */
-export function reviewRequest(text: string): ReviewAsk | null {
-  const t = text.trim()
-  if (t.startsWith('/') || t.startsWith('!')) return null
-  const url = PR_URL.exec(t)?.[0]
-  if (url) {
-    const isAlone = t.replace(PR_URL, '').replace(/[\s.,;:!?<>()]/g, '') === ''
-    return isAlone || REVIEW_WORD.test(t) ? { kind: 'url', url } : null
-  }
-  const m = PR_PHRASE.exec(t)
-  if (!m) return null
-  const n = Number(m[1] ?? m[2] ?? 0)
-  return n > 0 ? { kind: 'number', number: n } : { kind: 'branch' }
+/** The prompt a review is sent as. */
+export function reviewText(target: ReviewAsk): string {
+  if (target.kind === 'url') return `Review ${target.url}`
+  return target.kind === 'number' ? `Review pull request #${target.number}` : "Review this branch's pull request"
 }

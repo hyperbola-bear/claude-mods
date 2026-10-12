@@ -3,26 +3,27 @@
 Replies that point at code. Ask a question with `/code-reference` and the answer comes back as plain prose whose words link to the code they describe. Click one and that code opens in a pane beside the reply. It looks the same in the terminal and in the desktop app.
 
 ```
-● code-reference · claude-mods · 6 places in the code
+● code-reference · claude-mods · 4 places in the code
 
-  A prompt becomes a review
-  Every prompt passes through a prompt.submit hook¹ before the model sees it. The hook
-  asks reviewRequest² whether the words add up to a review, attaches the review format³
-  and starts the worktree checkout⁴ in the background.
+  /code-reference becomes a review
+  Every prompt passes through a prompt.submit hook¹, but only one that starts with
+  /code-reference is read: parseCommand² finds the PR, the review format³ is attached
+  and the worktree checkout⁴ starts in the background.
 
   ─────────────────────────────────────────────────────────────────────────────────────
   ╭─ 1 ──────────────────┬─ 2 ─────────────┬─ 3 ─────────────┬─ 4 ──────────────────╮
-  │ register.tsx:792-811 │ review.ts:42-54 │ review.ts:69-80 │ register.tsx:266-294 │
+  │ register.tsx:593-599 │ format.ts:65-76 │ format.ts:24-39 │ register.tsx:245-275 │
   ╰──────────────────────┴─────────────────┴─────────────────┴──────────────────────╯
 ```
 
 ## Asking
 
+Only the command starts it. No words in a prompt do (not "review", not a PR link, not `/code-reference` in the middle of a sentence), and Claude never picks the format up on its own.
+
 - `/code-reference how does the worker retry failed batches` sends the question with the format.
-- Anywhere in a prompt: `explain how x works with y and use /code-reference`.
 - `/code-reference` on its own after a long reply. If that reply already names files (`path:line` links or backticked `path:line`), it is redrawn in place. If not, Claude is asked to say it again with links.
 - `/code-reference 5` shows place 5 of the reply.
-- A pull request: `review https://github.com/acme/billing/pull/12`, a PR link on its own, `review pr`, `review pr 418`, or `/code-reference <PR link>`. **Review when you ask for one** in `/config` turns the typed triggers off.
+- A pull request: `/code-reference https://github.com/acme/billing/pull/12`, `/code-reference review 418` (this repository's PR #418), or `/code-reference review` (the current branch's PR).
 
 ## How a reply reads
 

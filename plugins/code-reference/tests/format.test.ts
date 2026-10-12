@@ -1,21 +1,17 @@
 import { expect, test } from 'claude-code/testing'
 
-import { explainContext, mentionsCommand, parseCommand, reviewContext, reviewRequest, rewritePrompt } from '../hooks/format.ts'
+import { explainContext, parseCommand, reviewContext, reviewText, rewritePrompt } from '../hooks/format.ts'
 
 test('what /code-reference asks for: the last reply, a place, a review, or a question', () => {
   expect(parseCommand('/code-reference')).toEqual({ kind: 'last' })
   expect(parseCommand('  /code-reference  ')).toEqual({ kind: 'last' })
   expect(parseCommand('/code-reference 7')).toEqual({ kind: 'pick', n: 7 })
-  expect(parseCommand('/code-reference https://github.com/acme/billing/pull/12')).toEqual({ kind: 'review', url: 'https://github.com/acme/billing/pull/12' })
-  expect(parseCommand('/code-reference review this PR https://github.com/acme/billing/pull/12')).toEqual({ kind: 'review', url: 'https://github.com/acme/billing/pull/12' })
+  expect(parseCommand('/code-reference https://github.com/acme/billing/pull/12')).toEqual({ kind: 'review', target: { kind: 'url', url: 'https://github.com/acme/billing/pull/12' } })
+  expect(parseCommand('/code-reference review this PR https://github.com/acme/billing/pull/12')).toEqual({ kind: 'review', target: { kind: 'url', url: 'https://github.com/acme/billing/pull/12' } })
   expect(parseCommand('/code-reference how does x work with y')).toEqual({ kind: 'ask', question: 'how does x work with y' })
   expect(parseCommand('/code-reference:code-reference why')).toEqual({ kind: 'ask', question: 'why' })
   expect(parseCommand('/code-references')).toBe(null)
   expect(parseCommand('explain x, use /code-reference')).toBe(null)
-  expect(mentionsCommand('explain how x works with y and use /code-reference')).toBe(true)
-  expect(mentionsCommand('(/code-reference) explain x')).toBe(true)
-  expect(mentionsCommand('/code-reference x')).toBe(false)
-  expect(mentionsCommand('see docs/code-reference.md')).toBe(false)
 })
 
 test('the format the model is handed: the header, sections, every place linked, no severity', () => {
@@ -32,18 +28,26 @@ test('the format the model is handed: the header, sections, every place linked, 
   expect(rewritePrompt('/work/repo')).toContain('**Code reference:** /work/repo')
 })
 
-test('what a typed prompt asks to review: a PR link with review, a link alone, or review pr', () => {
-  const url = (u: string) => ({ kind: 'url', url: u })
-  expect(reviewRequest('review https://github.com/acme/billing/pull/12')).toEqual(url('https://github.com/acme/billing/pull/12'))
-  expect(reviewRequest('can you Review this? https://github.com/acme/billing/pull/12/files#diff-1')).toEqual(url('https://github.com/acme/billing/pull/12'))
-  expect(reviewRequest('  https://github.com/acme/billing/pull/12  ')).toEqual(url('https://github.com/acme/billing/pull/12'))
-  expect(reviewRequest('look over https://github.com/acme/billing/pull/12')).toEqual(url('https://github.com/acme/billing/pull/12'))
-  expect(reviewRequest('review pr')).toEqual({ kind: 'branch' })
-  expect(reviewRequest('PR review please')).toEqual({ kind: 'branch' })
-  expect(reviewRequest('review pr 418')).toEqual({ kind: 'number', number: 418 })
-  expect(reviewRequest('review #418')).toEqual({ kind: 'number', number: 418 })
-  expect(reviewRequest('what does https://github.com/acme/billing/pull/12 change?')).toBe(null)
-  expect(reviewRequest('review the prices page')).toBe(null)
-  expect(reviewRequest('/code-reference https://github.com/acme/billing/pull/12')).toBe(null)
-  expect(reviewRequest('! gh pr view 12 # review')).toBe(null)
+test('a review asked with the command: a PR link, review with a number, or review alone for this branch', () => {
+  const review = (text: string) => parseCommand(`/code-reference ${text}`)
+  expect(review('review')).toEqual({ kind: 'review', target: { kind: 'branch' } })
+  expect(review('review this branch')).toEqual({ kind: 'review', target: { kind: 'branch' } })
+  expect(review('review pr')).toEqual({ kind: 'review', target: { kind: 'branch' } })
+  expect(review('review 418')).toEqual({ kind: 'review', target: { kind: 'number', number: 418 } })
+  expect(review('review #418')).toEqual({ kind: 'review', target: { kind: 'number', number: 418 } })
+  expect(review('Review PR 418.')).toEqual({ kind: 'review', target: { kind: 'number', number: 418 } })
+  // Anything more is a question about code, not a review.
+  expect(review('review the retry logic')).toEqual({ kind: 'ask', question: 'review the retry logic' })
+  expect(reviewText({ kind: 'url', url: 'https://github.com/acme/billing/pull/12' })).toBe('Review https://github.com/acme/billing/pull/12')
+  expect(reviewText({ kind: 'number', number: 418 })).toBe('Review pull request #418')
+  expect(reviewText({ kind: 'branch' })).toBe("Review this branch's pull request")
+})
+
+test('no words in a prompt ask: only a prompt that starts with the command is read', () => {
+  for (const typed of [
+    'review https://github.com/acme/billing/pull/12',
+    'https://github.com/acme/billing/pull/12',
+    'review pr 418',
+    'explain how x works with y and use /code-reference',
+  ]) expect(parseCommand(typed)).toBe(null)
 })
