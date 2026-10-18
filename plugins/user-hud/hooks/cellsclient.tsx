@@ -38,8 +38,10 @@ const Cells: ClientModule<CellsProps, State> = (props, surface) => {
           {/* An empty row still takes its row: an empty Text has no height. */}
           {row.length === 0 ? ' ' : null}
           {row.map((run, i) => (
+            // Every glyph one cell wide on the desktop too, whose default face is proportional.
             <Text
               key={`run-${y}-${i}`}
+              mono
               color={run.color || undefined}
               backgroundColor={run.bg || undefined}
               dimColor={run.isDim}

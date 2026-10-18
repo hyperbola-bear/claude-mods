@@ -487,7 +487,7 @@ function cellsElement(ui: Ui, surface: string, key: string, band: Band, onAction
         <Text key={`${key}-row-${y}`} wrap="truncate">
           {row.length === 0 ? ' ' : null}
           {row.map((run, i) => (
-            <Text key={`${key}-run-${y}-${i}`} color={run.color || undefined} backgroundColor={run.bg || undefined} dimColor={run.isDim} bold={run.isBold}>
+            <Text key={`${key}-run-${y}-${i}`} mono color={run.color || undefined} backgroundColor={run.bg || undefined} dimColor={run.isDim} bold={run.isBold}>
               {run.text}
             </Text>
           ))}
