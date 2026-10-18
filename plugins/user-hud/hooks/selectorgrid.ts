@@ -1,7 +1,7 @@
 // Pure picker layout: every cell of the model and effort pickers in a style, and the cells each option
 // covers, its action `pick:<kind>:<id>`.
 import type { SelectorStyle } from '../types'
-import { builder, pad, put, widthOf } from './cells.ts'
+import { builder, pad, put, runs, widthOf } from './cells.ts'
 import type { Grid, Run } from './cells.ts'
 import { columnWidth, ladderCells, meterGlyph, spread } from './selector.ts'
 
@@ -68,24 +68,34 @@ function columns(f: GridField, width: number, isMeter: boolean): Grid {
   return b.grid
 }
 
-/** Ladder: before each label a strip a cell longer per step; full blocks when chosen, half blocks else. Wraps. */
-function ladder(f: GridField, width: number): Grid {
+const strips = (f: GridField) => f.options.map((o, i) => spread(o.colors, ladderCells(i, o.colors)))
+
+/** The Ladder's widest step: its strip, a space, its label. */
+const widestStep = (f: GridField) => Math.max(0, ...strips(f).map((cells, i) => cells.length + 1 + f.options[i]!.label.length))
+
+/**
+ * Ladder: before each label a strip a cell longer per step; full blocks when chosen, half blocks else. Wraps.
+ * With no `indent`, the name takes a row of its own and the steps start at the left edge.
+ */
+function ladder(f: GridField, width: number, indent: number): Grid {
   const b = builder()
+  const steps = strips(f)
+  if (indent === 0) b.add(runs(f.name, { isDim: true }))
   let row: Run[] = []
   let spans: Spans = []
-  put(row, pad(f.name, NAME_WIDTH), { isDim: true })
-  let x = NAME_WIDTH
+  if (indent > 0) put(row, pad(f.name, NAME_WIDTH), { isDim: true })
+  let x = indent
   f.options.forEach((o, i) => {
-    const cells = spread(o.colors, ladderCells(i, o.colors))
+    const cells = steps[i]!
     const span = cells.length + 1 + o.label.length
-    if (x > NAME_WIDTH && x + 1 + span > width) {
+    if (x > indent && x + 1 + span > width) {
       b.add(row, spans)
       row = []
       spans = []
-      put(row, ' '.repeat(NAME_WIDTH))
-      x = NAME_WIDTH
+      put(row, ' '.repeat(indent))
+      x = indent
     }
-    if (x > NAME_WIDTH) {
+    if (x > indent) {
       put(row, ' ')
       x += 1
     }
@@ -113,7 +123,9 @@ export function fittedStyle(style: SelectorStyle, width: number, fields: readonl
 /** Every row and option of the pickers in `style` (already fitted), `width` cells across. */
 export function layout(props: PickerProps): Grid {
   const b = builder()
-  for (const f of props.fields) b.append(props.style === 'ladder' ? ladder(f, props.width) : columns(f, props.width, props.style === 'meter'))
+  // Every field's Ladder keeps the names' column, or none does: too narrow for the widest step beside it.
+  const indent = props.fields.every(f => NAME_WIDTH + widestStep(f) <= props.width) ? NAME_WIDTH : 0
+  for (const f of props.fields) b.append(props.style === 'ladder' ? ladder(f, props.width, indent) : columns(f, props.width, props.style === 'meter'))
   // Every row as wide as the region, so the grid is a clean rectangle on any surface.
   for (const row of b.grid.rows) put(row, ' '.repeat(Math.max(0, props.width - widthOf(row))))
   return b.grid

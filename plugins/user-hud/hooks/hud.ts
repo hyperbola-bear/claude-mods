@@ -79,9 +79,10 @@ export function nextWarn(seconds: number): number {
   return (i === -1 ? undefined : WARN_STEPS[(i + 1) % WARN_STEPS.length]) ?? 120
 }
 
-/** `── S E T T I N G S ──────…`, `width` cells across. */
+/** `── S E T T I N G S ──────…`, `width` cells across; `── SETTINGS ──` where the spaced title does not fit. */
 export function sectionRule(title: string, width: number): string {
-  const head = `── ${title.split('').join(' ')} `
+  const spaced = `── ${title.split('').join(' ')} `
+  const head = spaced.length + 2 <= width ? spaced : `── ${title} `
   return head + '─'.repeat(Math.max(2, width - head.length))
 }
 

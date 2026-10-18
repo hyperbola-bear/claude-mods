@@ -120,3 +120,22 @@ test('next steps: numbered rows under their divider, 1 to 3 as hotkeys; folded i
   expect(plain(closed)).toEqual(['◆ 52:10  context 34%  1.2M tokens  Opus 5.5 · XHigh  ✦ 2 next   ◆ user-hud ▴ '])
   expect(textOf(closed, 'panel')).toBe('✦ 2 next')
 })
+
+test('narrow: no row wider than the band region, open or closed, so nothing falls off its left edge', () => {
+  const view = { ...VIEW, overage: '5-hour limit 103%', keepWarm: 'urged' as const, next: { items: ['Run the tests'], note: null } }
+  const over: string[] = []
+  for (let w = 14; w <= 30; w += 1) {
+    for (const v of [
+      { ...view, width: w, maxWidth: w },
+      { ...view, width: w, maxWidth: w, maxRows: 10 },
+      { ...view, width: w, maxWidth: w, isOpen: false },
+    ]) {
+      const g = bandGrid({ ...v, pickers: v.pickers && { ...v.pickers, style: 'ladder', width: w } })
+      for (const l of plain(g)) if (l.length > w) over.push(`${w}${v.isOpen ? '' : ' closed'}: ${JSON.stringify(l)}`)
+      for (const h of g.hits) if (h.x1 > w) over.push(`${w}: ${h.id} ends at ${h.x1}`)
+      // The tab still opens and closes the panel.
+      expect(g.hits.map(h => h.id)).toContain('panel')
+    }
+  }
+  expect(over).toEqual([])
+})

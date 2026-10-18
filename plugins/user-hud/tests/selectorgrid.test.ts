@@ -45,6 +45,13 @@ test('Ladder: one row a field where it fits, wrapping where it does not', () => 
   expect(hitAt(narrow, 9, 2)).toBe('pick:effort:ultracode')
 })
 
+test('Ladder too narrow for the names beside it: each name on a row of its own, every field alike', () => {
+  const rows = plain(layout({ style: 'ladder', width: 22, fields: FIELDS }))
+  expect(rows.filter(r => /^(MODEL|EFFORT) *$/.test(r))).toHaveLength(2)
+  expect(rows.some(r => /^ /.test(r))).toBe(false)
+  for (const r of rows) expect(r).toHaveLength(22)
+})
+
 test('Rail and Meter give way to the Ladder where their columns do not fit', () => {
   expect(fittedStyle('rail', 72, FIELDS)).toBe('rail')
   expect(fittedStyle('meter', 66, FIELDS)).toBe('ladder')

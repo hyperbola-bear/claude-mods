@@ -1025,14 +1025,15 @@ export const register: Register = (on, given) => {
     const now = await $.clock.now()
     const rem = remainingMs(c.lastHitAt, t.ttl, now)
     const lv = level(rem, cfg.warnMs, e.props.isWorking || c.isWorking)
-    const width = Math.max(24, Math.min(PANEL_WIDTH, e.props.bodyColumns))
+    // No floor: a band wider than its column would lose its left end against the right edge.
+    const width = Math.max(1, Math.min(PANEL_WIDTH, e.props.bodyColumns))
     const used = totalUsed(tokens)
     const fields = gridFields(hud)
     const newestNote = handoff.files[0]
     const band = bandGrid({
       isOpen: hud.isOpen,
       width,
-      maxWidth: Math.max(24, e.props.bodyColumns),
+      maxWidth: Math.max(1, e.props.bodyColumns),
       maxRows: e.props.maxRows,
       chip: mods.cache ? chipRuns(c, lv, rem) : [],
       overage: mods.cache && hud.overage ? limitLabel(hud.overage) : null,

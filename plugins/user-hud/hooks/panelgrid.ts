@@ -1,6 +1,6 @@
 // Pure band layout: the corner tab row, or the open panel above it, as one grid of cells and the actions on
 // it, so a `Client` paints the band the same on the terminal and the desktop.
-import { builder, line, pad, piece, put, runs, widthOf } from './cells.ts'
+import { builder, cut, line, pad, piece, put, runs, widthOf } from './cells.ts'
 import type { Grid, Piece, Run } from './cells.ts'
 import { footerRule, sectionRule } from './hud.ts'
 import { NAME_WIDTH, layout } from './selectorgrid.ts'
@@ -75,8 +75,7 @@ const contextText = (percent: number) => `context ${percent}%`
 
 /** The closed row: the cache, overage, context, tokens, model and effort beside the tab; the least needed go first when narrow. */
 function closedRow(v: BandView): Band {
-  const kw = v.keepWarm === 'urged' && !v.isPinging ? keepWarm(v) : null
-  // Lowest priority first: what goes when the row is too wide.
+  // Lowest priority first: what goes when the row is too wide. Only the tab always stays.
   const optional: (Piece | null)[] = [
     v.usedTokens ? text(v.usedTokens, { isDim: true }) : null,
     v.setup.length > 0 ? { runs: v.setup, action: null } : null,
@@ -85,9 +84,10 @@ function closedRow(v: BandView): Band {
     v.overage ? pill('New chat', 'newchat', 'subtle') : null,
     v.overage ? text('⚠ overage', { color: 'warning' }) : null,
     v.chip.length > 0 ? { runs: v.chip, action: null } : null,
+    v.keepWarm === 'urged' && !v.isPinging ? keepWarm(v) : null,
   ]
   const order = (kept: (Piece | null)[]) =>
-    [kept[6], kept[5], kept[4], kept[3], kept[0], kept[1], kept[2], kw, tab(false)].filter((p): p is Piece => p !== null)
+    [kept[6], kept[5], kept[4], kept[3], kept[0], kept[1], kept[2], kept[7], tab(false)].filter((p): p is Piece => p !== null)
   const widthOfRow = (ps: Piece[]) => ps.reduce((n, p) => n + widthOf(p.runs), 0) + 2 * Math.max(0, ps.length - 1)
   const kept = [...optional]
   for (let i = 0; i < kept.length && widthOfRow(order(kept)) > v.maxWidth; i += 1) kept[i] = null
@@ -96,7 +96,7 @@ function closedRow(v: BandView): Band {
   const b = builder()
   const l = line(width, [], pieces, 2)
   b.add(l.row, l.spans)
-  return { ...b.grid, keys: kw ? { w: 'keepwarm' } : {}, width }
+  return { ...b.grid, keys: kept[7] ? { w: 'keepwarm' } : {}, width }
 }
 
 function tokensRow(tokens: NonNullable<BandView['tokens']>, context: number | null, width: number): ReturnType<typeof line> {
@@ -206,12 +206,22 @@ function openPanel(v: BandView, fit: Fit): Band {
   return { ...b.grid, keys, width: W }
 }
 
+/**
+ * The band cut to `width` cells, an ellipsis on the right of a cut row. The band sits against the right edge,
+ * so a row wider than its region would lose its left end instead.
+ */
+function clip(g: Band, width: number): Band {
+  if (g.rows.every(r => widthOf(r) <= width)) return g
+  const hits = g.hits.filter(h => h.x0 < width).map(h => ({ ...h, x1: Math.min(h.x1, width) }))
+  return { ...g, rows: g.rows.map(r => cut(r, width)), hits, width: Math.min(g.width, width) }
+}
+
 /** The band: the closed row, or the panel at the most generous fit its rows allow. */
 export function bandGrid(v: BandView): Band {
-  if (!v.isOpen) return closedRow(v)
+  if (!v.isOpen) return clip(closedRow(v), v.maxWidth)
   for (const fit of ['full', 'tight'] as const) {
     const g = openPanel(v, fit)
-    if (g.rows.length <= v.maxRows) return g
+    if (g.rows.length <= v.maxRows) return clip(g, v.width)
   }
-  return openPanel(v, 'compact')
+  return clip(openPanel(v, 'compact'), v.width)
 }

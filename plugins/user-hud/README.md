@@ -61,6 +61,7 @@ TOKENS  ████████████████ 1.2M · context 34%    
 - When 2 minutes or less are left, **Keep warm** comes out next to the tab, so it is one press away with the panel closed.
 - The whole band, the closed row and the open panel, is one grid of cells the plugin lays out itself and paints in a `Client` region: no native buttons and no text in the app's own font, so the terminal and Claude Desktop draw the same cells (the tests require the two drawings identical). Click any button in it; or click into it, then use its hotkeys, or the arrow keys and Return. VS Code and mobile, which draw no `Client`, get the same rows as text with plain buttons beneath.
 - When the band is short (the desktop shows 12 rows), the panel drops the dividers first, then folds the settings onto one line of pills, so it fits without scrolling. In a short terminal it can still scroll.
+- When the band is narrow, for example beside a pane docked in the terminal, the pickers put each name on its own row above its steps, the section titles lose their letter spacing, and the closed row keeps only the tab. A row that still does not fit is cut on the right, ending in `…`; the band never runs off its left edge.
 - To put the panel away, use the tab. The `[-]` (× on the desktop) at the band's right end is Claude Code's own control for collapsing the whole band; a plugin cannot remove it.
 
 ## Model and effort pickers

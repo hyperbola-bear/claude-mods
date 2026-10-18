@@ -30,6 +30,8 @@ test('rules fill the panel width exactly', () => {
   expect(sectionRule('CACHE', 20)).toHaveLength(20)
   expect(footerRule('user-hud', 20)).toBe('──────────── user-hud ─'.slice(-20))
   expect(footerRule('user-hud', 20)).toHaveLength(20)
+  // Too narrow for the spaced title: the plain one, still as wide as the panel.
+  expect(sectionRule('SETTINGS', 20)).toBe('── SETTINGS ────────')
 })
 
 test('the life bar fills with the time left', () => {

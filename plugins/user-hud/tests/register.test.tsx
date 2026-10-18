@@ -1335,3 +1335,26 @@ test('with the next module off, a reply asks for nothing', { options: { nextModu
   await w.clock.settle()
   expect(w.completes).toEqual([])
 })
+
+test('in a narrow column, beside a docked pane, the band never draws wider than its region', { options: { notifyMac: false, sound: false } }, async ($, on) => {
+  const w = world(on)
+  w.settings = { promptCacheTtl: '1h' }
+  await start($)
+  await request($, w, 100_000)
+  await $.session.measure(PAST_LIMIT)
+  for (const surface of SURFACES) {
+    for (const bodyColumns of [16, 19, 24]) {
+      const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), bodyColumns, maxRows: 30 } })
+      for (const isOpen of [false, true]) {
+        if (isOpen) await act(band, 'panel')
+        const lines = await linesOf(band)
+        expect(lines.filter(l => l.length > bodyColumns)).toEqual([])
+        // Whole names, cut on the right if at all: nothing lost off the left edge.
+        if (isOpen) expect(lines).toContainEqual(expect.stringMatching(/^EFFORT *$/))
+        expect(lines.at(-1)).toMatch(/◆ user-hud [▴▾] $/)
+      }
+      await act(band, 'panel')
+      await band.unmount()
+    }
+  }
+})
