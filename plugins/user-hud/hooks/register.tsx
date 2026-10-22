@@ -59,7 +59,7 @@
  * `next`), so it sits beside pr-review-ui's band rather than replacing it.
  *
  * Reaches: model.fork (keep-warm pings), model.complete (next steps, on Haiku), process.run (osascript, afplay;
- * ps and a grep of the transcripts for the sessions), fs reads (handoff notes, the alert's logo, the session
+ * ps and a grep of the transcripts for the sessions; open, to jump to a desktop session), fs reads (handoff notes, the alert's logo, the session
  * status files), store (the panel's open state), settings read (the effort level, promptCacheTtl), env read
  * (CLAUDE_CODE_PROMPT_CACHE_TTL, HOME, CLAUDE_CONFIG_DIR), session usage (the plan windows, the context
  * breakdown, the cost), session id (this session among the others), agent list (a subagent's type), config set
@@ -108,7 +108,7 @@ import type { GridField } from './selectorgrid.ts'
 import type { Ui } from './ui.ts'
 import { handoffPaneGrid } from './handoffview.ts'
 import { NEXT_MODEL, NEXT_SYSTEM, nextRequest, parseNext } from './next.ts'
-import { EMPTY_SESSIONS, TITLES_SCRIPT, grouped, livePids, parseSessionFile, parseTitles, titleOf } from './sessions.ts'
+import { EMPTY_SESSIONS, TITLES_SCRIPT, grouped, isHostId, jumpUrl, livePids, parseSessionFile, parseTitles, titleOf } from './sessions.ts'
 import type { SessionFile, Titles } from './sessions.ts'
 import { sessionsPaneGrid } from './sessionsview.ts'
 import { parseGroupAction, tokensPaneGrid } from './tokenview.ts'
@@ -516,6 +516,7 @@ async function runAction($: EngineInterface, action: unknown) {
   if (action === 'sessions') return openSessionsPane($)
   if (action === 'sessions:close') return void (await $.ui.close({ id: SESSIONS_PANE }).catch(() => {}))
   if (action === 'sessions:asleep') return update($, asleepA, isShown => !isShown)
+  if (action.startsWith('session:')) return jumpToSession($, action.slice('session:'.length))
   if (action === 'assume:review') return reviewGuesses($)
   if (action.startsWith('assume:right:')) return update($, guessesA, gs => marked(gs, action.slice('assume:right:'.length), 'right'))
   if (action.startsWith('assume:wrong:')) return correctGuess($, action.slice('assume:wrong:'.length))
@@ -832,13 +833,19 @@ async function refreshSessions($: EngineInterface) {
     if (!dir) return
     const files = await sessionFiles($, dir)
     await refreshTitles($, dir, files.map(f => f.sessionId))
-    const list: SessionInfo[] = files.map(f => ({ sessionId: f.sessionId, pid: f.pid, status: f.status, title: titleOf(f, titles.get(f.sessionId)), entry: f.entry, statusAt: f.statusAt }))
+    const list: SessionInfo[] = files.map(f => ({ sessionId: f.sessionId, pid: f.pid, status: f.status, title: titleOf(f, titles.get(f.sessionId)), entry: f.entry, hostId: f.hostId, statusAt: f.statusAt }))
     const selfId = await $.session.id().catch(() => null)
     const now = await $.clock.now()
     await update($, sessionsA, () => grouped(list, selfId, now))
   } finally {
     isReadingSessions = false
   }
+}
+
+/** Brings the desktop app forward on that session, from the terminal or the app alike. */
+async function jumpToSession($: EngineInterface, hostId: string) {
+  if (!isHostId(hostId)) return
+  await $.process.run(['open', jumpUrl(hostId)], { timeoutMs: 5000 }).catch(() => {})
 }
 
 async function openSessionsPane($: EngineInterface) {

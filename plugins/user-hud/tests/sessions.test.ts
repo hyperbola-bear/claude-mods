@@ -1,11 +1,12 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { SessionInfo } from '../types'
-import { DONE_MS, ageOf, clip, groupOf, grouped, livePids, parseSessionFile, parseTitles, titleOf } from '../hooks/sessions.ts'
+import { DONE_MS, ageOf, clip, groupOf, grouped, jumpUrl, livePids, parseSessionFile, parseTitles, titleOf } from '../hooks/sessions.ts'
+import { sessionsPaneGrid } from '../hooks/sessionsview.ts'
 
 const NOW = Date.parse('2026-10-22T09:00:00Z')
 
-const info = (sessionId: string, status: SessionInfo['status'], statusAt: number): SessionInfo => ({ sessionId, pid: 1, status, title: sessionId, entry: 'cli', statusAt })
+const info = (sessionId: string, status: SessionInfo['status'], statusAt: number): SessionInfo => ({ sessionId, pid: 1, status, title: sessionId, entry: 'cli', hostId: null, statusAt })
 
 test('a session is filed by what it needs from you: waiting needs you, busy works, idle is done for 8 hours, then asleep', () => {
   expect(groupOf({ status: 'waiting', statusAt: 0 }, NOW)).toBe('needs')
@@ -27,13 +28,13 @@ test('a status file is read for what the panel uses; one broken, or without a pi
   const f = parseSessionFile(
     JSON.stringify({ pid: 12738, sessionId: 'e7696d37-1df4', status: 'idle', name: ' BILLING1-709 ', nameSource: 'user', entrypoint: 'claude-desktop', statusUpdatedAt: 5 }),
   )
-  expect(f).toEqual({ pid: 12738, sessionId: 'e7696d37-1df4', status: 'idle', name: 'BILLING1-709', isUserName: true, entry: 'app', statusAt: 5 })
+  expect(f).toEqual({ pid: 12738, sessionId: 'e7696d37-1df4', status: 'idle', name: 'BILLING1-709', isUserName: true, entry: 'app', hostId: null, statusAt: 5 })
   expect(parseSessionFile(JSON.stringify({ pid: 1, sessionId: 'a', status: 'thinking', entrypoint: 'cli' }))).toMatchObject({ status: 'idle', entry: 'cli', name: null, statusAt: 0 })
   for (const text of ['{', 'null', '[]', '{"sessionId":"a"}', '{"pid":-1,"sessionId":"a"}', '{"pid":1,"sessionId":"../../etc"}']) expect(parseSessionFile(text), text).toBe(null)
 })
 
 test('the title: the person’s own name, then the custom title, then the AI title, then the name; 30 characters at most', () => {
-  const f = (name: string | null, isUserName: boolean) => ({ pid: 1, sessionId: 'a', status: 'idle' as const, name, isUserName, entry: 'cli' as const, statusAt: 0 })
+  const f = (name: string | null, isUserName: boolean) => ({ pid: 1, sessionId: 'a', status: 'idle' as const, name, isUserName, entry: 'cli' as const, hostId: null, statusAt: 0 })
   const both = { custom: 'Custom', ai: 'AI' }
   expect(titleOf(f('Mine', true), both)).toBe('Mine')
   expect(titleOf(f('pd-billing-1d', false), both)).toBe('Custom')
@@ -62,4 +63,21 @@ test('the transcripts’ titles, the last of each kind; the pids ps printed', ()
 
 test('how long ago, in the largest whole unit', () => {
   expect([0, 59_000, 60_000, 59 * 60_000, 3_600_000, 23 * 3_600_000, 86_400_000, 5 * 86_400_000].map(ms => ageOf(NOW - ms, NOW))).toEqual(['now', 'now', '1m', '59m', '1h', '23h', '1d', '5d'])
+})
+
+test('a desktop session keeps the app’s id for its deep link; a terminal’s, or one not shaped like it, has none', () => {
+  const file = (hostSessionId: unknown) => parseSessionFile(JSON.stringify({ pid: 1, sessionId: 'a', entrypoint: 'claude-desktop', hostSessionId }))?.hostId
+  expect(file('local_4c4432ad-2706')).toBe('local_4c4432ad-2706')
+  for (const bad of [undefined, 'session_01', 'local_a&b=c', `local_${'x'.repeat(65)}`, 7]) expect(file(bad), String(bad)).toBe(null)
+  expect(jumpUrl('local_4c4432ad-2706')).toBe('claude://code/continue?session=local_4c4432ad-2706')
+})
+
+test('in the Sessions pane a desktop session’s row jumps to it; a terminal’s and this one’s do not', () => {
+  const app = { ...info('app', 'waiting', NOW), entry: 'app' as const, hostId: 'local_app' }
+  const me = { ...info('me', 'busy', NOW), entry: 'app' as const, hostId: 'local_me' }
+  const g = sessionsPaneGrid(grouped([app, info('cli', 'busy', NOW), me], 'me', NOW), NOW, 60, false)
+  const jumps = g.hits.filter(h => h.id.startsWith('session:'))
+  expect([...new Set(jumps.map(h => h.id))]).toEqual(['session:local_app'])
+  // The whole row: the dot, the title, where it runs and how long ago.
+  expect(jumps).toHaveLength(4)
 })

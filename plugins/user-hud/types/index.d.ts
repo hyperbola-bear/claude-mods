@@ -85,6 +85,8 @@ export type SessionInfo = {
   /** The name to show, at most 30 characters. */
   title: string
   entry: 'cli' | 'app'
+  /** The desktop app's id for it (`local_…`): pressing its row opens it there. Null for a terminal's. */
+  hostId: string | null
   /** When its status last changed, in ms since the epoch. */
   statusAt: number
 }
