@@ -1609,6 +1609,27 @@ test('the Sessions pane: needs you, working, done in the last 8h, asleep on requ
   expect(w.closes).toEqual(['sessions'])
 })
 
+test('pressing a desktop session’s row, in the Sessions pane or on the card, opens the app on it; a terminal’s does nothing', async ($, on) => {
+  const w = world(on)
+  mock.env(on, { HOME })
+  sixSessions(w)
+  statusFile(w, 104, { sessionId: 'aaaa-0004', status: 'idle', name: 'x', entrypoint: 'claude-desktop', hostSessionId: 'local_4c4432ad-2706', statusUpdatedAt: T0 - 3 * 3_600_000 })
+  await start($)
+  await w.clock.settle()
+  const opens = () => w.argv.filter(a => a[0] === 'open')
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'sessions', props: { ...PANE_PROPS, title: 'Sessions', bodyColumns: 60 } })
+    const jumps = (await cellsOf(pane, 'sessions'))!.hits.filter(h => h.id.startsWith('session:'))
+    expect([...new Set(jumps.map(h => h.id))]).toEqual(['session:local_4c4432ad-2706'])
+    await act(pane, 'session:local_4c4432ad-2706', 'sessions')
+    await pane.unmount()
+  }
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: 100 } })
+  await openPanel(band)
+  await act(band, 'session:local_4c4432ad-2706')
+  expect(opens()).toEqual(Array.from({ length: 3 }, () => ['open', 'claude://code/continue?session=local_4c4432ad-2706']))
+})
+
 test('sessions: read again every 5 seconds, their titles at most once a minute', async ($, on) => {
   const w = world(on)
   mock.env(on, { HOME })

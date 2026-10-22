@@ -18,6 +18,8 @@ export type SessionFile = {
   name: string | null
   isUserName: boolean
   entry: 'cli' | 'app'
+  /** The desktop app's id for it (`local_…`), which its deep link opens; null for a terminal's. */
+  hostId: string | null
   statusAt: number
 }
 
@@ -25,6 +27,12 @@ const STATUSES: readonly SessionStatus[] = ['busy', 'waiting', 'idle']
 
 /** A session id as the engine mints one: it names a transcript file, so nothing else is let through. */
 const isSessionId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(v)
+
+/** A desktop session's id as the app's deep link takes it; it goes into a URL, so nothing else is let through. */
+export const isHostId = (v: unknown): v is string => typeof v === 'string' && /^local_[A-Za-z0-9-]{1,64}$/.test(v)
+
+/** The link that brings the desktop app forward on that session. */
+export const jumpUrl = (hostId: string) => `claude://code/continue?session=${hostId}`
 
 /** A status file's text as a session, or null for one unreadable or missing its pid or id. */
 export function parseSessionFile(text: string): SessionFile | null {
@@ -44,6 +52,7 @@ export function parseSessionFile(text: string): SessionFile | null {
     name: typeof o.name === 'string' && o.name.trim() ? o.name.trim() : null,
     isUserName: o.nameSource === 'user',
     entry: o.entrypoint === 'cli' ? 'cli' : 'app',
+    hostId: isHostId(o.hostSessionId) ? o.hostSessionId : null,
     statusAt: typeof o.statusUpdatedAt === 'number' ? o.statusUpdatedAt : 0,
   }
 }

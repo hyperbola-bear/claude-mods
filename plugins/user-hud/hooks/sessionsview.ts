@@ -26,12 +26,16 @@ const TITLE_LOOKS: Partial<Record<Kind, Look>> = { needs: { isBold: true }, asle
 
 const counts = (s: Sessions) => ({ needs: s.byGroup.needs.length, working: s.byGroup.working.length, done: s.byGroup.done.length, asleep: s.byGroup.asleep.length })
 
-/** One session: its dot, its title, and on the right where it runs (when there is room) and how long ago. */
+/**
+ * One session: its dot, its title, and on the right where it runs (when there is room) and how long ago.
+ * A desktop session's row, this one's aside, jumps to it when pressed.
+ */
 function sessionRow(s: SessionInfo, kind: Kind, width: number, now: number) {
+  const jump = kind !== 'self' && s.hostId ? `session:${s.hostId}` : null
   const right: Piece[] = []
-  if (width >= ENTRY_MIN_WIDTH) right.push(piece(s.entry, { isDim: true }))
-  right.push(piece(ageOf(s.statusAt, now).padStart(3), kind === 'needs' ? { color: 'warning' } : { isDim: true }))
-  return line(width, [piece(DOTS[kind].glyph, DOTS[kind].look), piece(s.title, TITLE_LOOKS[kind] ?? {})], right)
+  if (width >= ENTRY_MIN_WIDTH) right.push(piece(s.entry, { isDim: true }, jump))
+  right.push(piece(ageOf(s.statusAt, now).padStart(3), kind === 'needs' ? { color: 'warning' } : { isDim: true }, jump))
+  return line(width, [piece(DOTS[kind].glyph, DOTS[kind].look, jump), piece(s.title, TITLE_LOOKS[kind] ?? {}, jump)], right)
 }
 
 /** `● 1 needs you`, yellow while one does and dim at none. */
