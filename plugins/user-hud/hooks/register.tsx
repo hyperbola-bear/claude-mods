@@ -213,6 +213,7 @@ export function readCfg(o: Record<string, unknown>): Cfg {
 let options: Record<string, unknown> = {}
 let cfg: Cfg = readCfg({})
 let isHandoffPending = false
+let isOpenRestored = false
 const toolUses = new Map<string, Attribution>()
 let lastSkill: string | null = null
 const agentTypes = new Map<string, string>()
@@ -369,7 +370,19 @@ async function startNewChat($: EngineInterface) {
 
 // ---------- corner panel ----------
 
+const storedOpen = async ($: EngineInterface) => (await $.store.get(STORE_OPEN).catch(() => undefined)) === true
+
+/**
+ * Whether the panel is open: the session's state once this load has read it back (session.start does), else
+ * what the store kept. A load that runs no session.start (the desktop's /reload-plugins) so keeps the panel as
+ * it was; a draw cannot write state, so the first press writes it.
+ */
+async function panelIsOpen($: EngineInterface): Promise<boolean> {
+  return isOpenRestored ? (await read($, hudA)).isOpen : storedOpen($)
+}
+
 async function setPanelOpen($: EngineInterface, isOpen: boolean) {
+  isOpenRestored = true
   await update($, hudA, s => ({ ...s, isOpen }))
   await $.store.set(STORE_OPEN, isOpen).catch(() => {})
 }
@@ -483,7 +496,7 @@ async function runAction($: EngineInterface, action: unknown) {
   if (step) return pickEffort($, step)
   if (action.startsWith('set:')) return pressSetting($, action.slice(4))
   if (action.startsWith('use:')) return setOption($, 'selectorStyle', asStyle(action.slice(4)))
-  if (action === 'panel') return setPanelOpen($, !(await read($, hudA)).isOpen)
+  if (action === 'panel') return setPanelOpen($, !(await panelIsOpen($)))
   if (action === 'keepwarm') return void ping($, 'manual')
   if (action === 'newchat') return startNewChat($)
   if (action === 'tokens') return openTokensPane($)
@@ -906,6 +919,7 @@ export const register: Register = (on, given) => {
   options = { ...((given ?? {}) as Record<string, unknown>) }
   cfg = readCfg(options)
   isHandoffPending = false
+  isOpenRestored = false
   toolUses.clear()
   lastSkill = null
   agentTypes.clear()
@@ -933,7 +947,8 @@ export const register: Register = (on, given) => {
     if (tokens) await $.command.register({ name: 'tokens', description: 'Where this session’s tokens went: files, chat, MCP, shell, skills and plugins, subagents and more' })
     if (assume) await $.tool.register(ASSUME_SPEC)
 
-    const isOpen = (await $.store.get(STORE_OPEN).catch(() => undefined)) === true
+    const isOpen = await storedOpen($)
+    isOpenRestored = true
     const model = await $.session.model().catch(() => null)
     const settings = await $.settings.read().catch(() => ({}) as Record<string, unknown>)
     // `effortLevel: "ultracode"` starts a session at xhigh with ultracode on.
@@ -1162,7 +1177,7 @@ export const register: Register = (on, given) => {
     if (args.kind === 'set') return { text: await setModule($, args.id, args.isOn) }
     if (args.kind === 'unknown') return { text: `Usage: /hud, /hud modules, /hud <module> on|off, or /hud order <modules…> (${MODULES.map(m => m.id).join(', ')}).` }
     if (!MODULES.some(m => cfg.modules[m.id])) return { text: 'Every user-hud module is off, so the panel has nothing to show. Turn one on with /hud <module> on.' }
-    const { isOpen } = await read($, hudA)
+    const isOpen = await panelIsOpen($)
     await setPanelOpen($, !isOpen)
     return { text: isOpen ? 'user-hud panel closed.' : 'user-hud panel open.' }
   })
@@ -1202,7 +1217,7 @@ export const register: Register = (on, given) => {
     const used = totalUsed(tokens)
     const newestNote = handoff.files[0]
     const band = bandGrid({
-      isOpen: hud.isOpen,
+      isOpen: await panelIsOpen($),
       view: hud.view,
       columns,
       maxRows: e.props.maxRows,

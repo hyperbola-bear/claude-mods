@@ -182,8 +182,8 @@ const fakeBrowser = {
   }) as Register,
 }
 
-/** The world beneath the plugin: clock, store, gh, git, files, the model fork and the UI calls. */
-function world(on: On): World {
+/** The world beneath the plugin: clock, store (holding `stored` at the start), gh, git, files, the model fork and the UI calls. */
+function world(on: On, stored: Readonly<Record<string, unknown>> = {}): World {
   const w: World = {
     opened: [],
     read: 0,
@@ -220,7 +220,7 @@ function world(on: On): World {
     messages: [],
     clock: mock.clock(on, { now: Date.parse('2026-10-07T06:00:00Z') }),
   }
-  mock.store(on)
+  mock.store(on, stored)
   on('session.model', () => ({ value: w.model }))
   on('settings.read', () => ({ value: w.settings }))
   on('session.usage', ($, e) => ({
@@ -690,6 +690,31 @@ test('the band keeps what other plugins draw above the prompt', { plugins: [othe
     await act(band, 'panel')
     await band.unmount()
   }
+})
+
+test('/reload-plugins keeps the panel open: the reload’s session.start reads it back', async ($, on) => {
+  world(on)
+  await start($)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await act(band, 'panel')
+  expect(await labelOf(band, 'panel')).toBe('❖ user-hud ▾')
+  // A reload runs session.start again, with the panel's state as the session left it.
+  await start($)
+  expect(await labelOf(band, 'panel')).toBe('❖ user-hud ▾')
+  await act(band, 'panel')
+  await start($)
+  expect(await labelOf(band, 'panel')).toBe('❖ user-hud ▴')
+  await band.unmount()
+})
+
+test('a load that runs no session.start (the desktop’s reload) still opens the panel as the store says', async ($, on) => {
+  world(on, { panelOpen: true })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  expect(await labelOf(band, 'panel')).toBe('❖ user-hud ▾')
+  // The open state is read back once a load: the tab still closes it.
+  await act(band, 'panel')
+  expect(await labelOf(band, 'panel')).toBe('❖ user-hud ▴')
+  await band.unmount()
 })
 
 test('the corner tab opens and closes the panel, and /hud does the same', async ($, on) => {
