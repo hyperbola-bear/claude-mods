@@ -57,6 +57,7 @@ const VIEW: BandView = {
   columns: 150,
   maxRows: 24,
   lead: null,
+  order: CARD_ORDER,
   chip: runs('● 52:10', { color: 'success' }),
   overage: null,
   usedTokens: '1.2M tokens',

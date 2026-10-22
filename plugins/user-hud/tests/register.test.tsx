@@ -1358,7 +1358,7 @@ test('/hud modules lists the modules and /hud <module> on|off writes its /config
   await start($)
   const hud = (args: string) => $.command.run({ command: 'hud', args, ...RUN })
   expect((await hud('modules')).text).toMatch(
-    /^● on {3}cache .*\n● on {3}pickers .*\n○ off {2}tokens .*\n● on {3}handoff .*\n● on {3}next .*\n● on {3}sessions .*\n● on {3}assume .*\nSwitch one with \/hud <module> on\|off, or in \/config\.$/,
+    /^● on {3}pickers .*\n● on {3}cache .*\n○ off {2}tokens .*\n● on {3}sessions .*\n● on {3}assume .*\n● on {3}next .*\n● on {3}handoff .*\nSwitch one with \/hud <module> on\|off, and reorder them with \/hud order <modules…>, or in \/config\.$/,
   )
   expect((await hud('sessions off')).text).toBe('The sessions module is off.')
   expect(w.configSets.at(-1)).toEqual(['user-hud.sessionsModule', false])
@@ -1375,6 +1375,34 @@ test('/hud modules lists the modules and /hud <module> on|off writes its /config
   // A row the organization owns stays as it is.
   w.lockedRows.push('user-hud.handoffModule')
   expect((await hud('handoff off')).text).toBe('The handoff module stays on.')
+})
+
+test('/hud order shows the cards’ order and sets it; the modules left out follow in their usual order', async ($, on) => {
+  const w = world(on)
+  await start($)
+  const hud = (args: string) => $.command.run({ command: 'hud', args, ...RUN })
+  expect((await hud('order')).text).toMatch(/^Cards top to bottom: pickers, cache, tokens, sessions, assume, next, handoff\. /)
+  expect((await hud('order next, sessions')).text).toMatch(/^Cards top to bottom: next, sessions, pickers, cache, tokens, assume, handoff\. /)
+  expect(w.configSets.at(-1)).toEqual(['user-hud.moduleOrder', 'next, sessions, pickers, cache, tokens, assume, handoff'])
+  expect((await hud('order next banana')).text).toBe('No module called banana. The modules: cache, pickers, tokens, handoff, next, sessions, assume.')
+  expect(w.configSets).toHaveLength(1)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 40, bodyColumns: 60 } })
+  await act(band, 'panel')
+  const order = ['N E X T', 'S E S S I O N S', 'M O D E L', 'C A C H E', 'C O N T E X T', 'C H E C K', 'H A N D O F F']
+  const titles = (await linesOf(band)).filter(l => l.startsWith('── ')).map(l => order.find(t => l.startsWith(`── ${t}`)))
+  expect(titles).toEqual(order)
+  await act(band, 'panel')
+})
+
+test('the Module order row puts the cards in its order', { options: { moduleOrder: 'handoff tokens' } }, async ($, on) => {
+  world(on)
+  await start($)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 40, bodyColumns: 60 } })
+  await act(band, 'panel')
+  const lines = await linesOf(band)
+  expect(lines[0]).toMatch(/^── H A N D O F F/)
+  expect(lines.findIndex(l => l.startsWith('── C O N T E X T'))).toBeLessThan(lines.findIndex(l => l.startsWith('── M O D E L')))
+  await act(band, 'panel')
 })
 
 test('with every module off the band draws nothing of its own and /hud says how to turn one on', { options: { cacheModule: false, pickersModule: false, tokensModule: false, handoffModule: false, nextModule: false, sessionsModule: false, assumeModule: false } }, async ($, on) => {

@@ -95,7 +95,7 @@ import {
 } from './cache.ts'
 import type { Level } from './cache.ts'
 import { HANDOFF_DIRS, age, handoffPrompt, handoffTarget, isHandoffName, joinPath, newest, resumePrompt } from './handoff.ts'
-import { MODELS, MODULES, asEffort, lifeBar, modelAlias, modelLabel, modulesFrom, modulesText, nextWarn, parseHudArgs, pieOf } from './hud.ts'
+import { MODELS, MODULES, MODULE_CARD, asEffort, lifeBar, modelAlias, modelLabel, modulesFrom, modulesText, nextWarn, orderFrom, orderText, parseHudArgs, pieOf } from './hud.ts'
 import type { ModuleId, Modules } from './hud.ts'
 import { EFFORT_COLORS, EFFORT_SHORT_LABELS, EFFORT_STEPS, MODEL_COLORS, SELECTOR_STYLES, asStyle, effortStep, nextStyle, parseEffortArgs, spread, styleLabel, ultracodeTook } from './selector.ts'
 import type { EffortStep } from './selector.ts'
@@ -187,6 +187,8 @@ type Cfg = {
   selectorStyle: SelectorStyle
   /** The modules switched on; one switched off draws nothing and does none of its work. */
   modules: Modules
+  /** The modules' cards, top to bottom, every module once. */
+  order: ModuleId[]
 }
 
 export function readCfg(o: Record<string, unknown>): Cfg {
@@ -203,6 +205,7 @@ export function readCfg(o: Record<string, unknown>): Cfg {
     handoffPath: typeof o.handoffPath === 'string' ? o.handoffPath.trim() : '',
     selectorStyle: asStyle(o.selectorStyle),
     modules: modulesFrom(o),
+    order: orderFrom(o.moduleOrder),
   }
 }
 
@@ -1150,9 +1153,14 @@ export const register: Register = (on, given) => {
 
   on('command.run', { command: 'hud' }, async ($, e) => {
     const args = parseHudArgs(e.args)
-    if (args.kind === 'list') return { text: modulesText(cfg.modules) }
+    if (args.kind === 'list') return { text: modulesText(cfg.modules, cfg.order) }
+    if (args.kind === 'badOrder') return { text: `No module called ${args.unknown.join(', ')}. The modules: ${MODULES.map(m => m.id).join(', ')}.` }
+    if (args.kind === 'order') {
+      if (args.ids) await setOption($, 'moduleOrder', args.ids.join(', '))
+      return { text: orderText(cfg.order) }
+    }
     if (args.kind === 'set') return { text: await setModule($, args.id, args.isOn) }
-    if (args.kind === 'unknown') return { text: `Usage: /hud, /hud modules, or /hud <module> on|off (${MODULES.map(m => m.id).join(', ')}).` }
+    if (args.kind === 'unknown') return { text: `Usage: /hud, /hud modules, /hud <module> on|off, or /hud order <modules…> (${MODULES.map(m => m.id).join(', ')}).` }
     if (!MODULES.some(m => cfg.modules[m.id])) return { text: 'Every user-hud module is off, so the panel has nothing to show. Turn one on with /hud <module> on.' }
     const { isOpen } = await read($, hudA)
     await setPanelOpen($, !isOpen)
@@ -1199,6 +1207,7 @@ export const register: Register = (on, given) => {
       columns,
       maxRows: e.props.maxRows,
       lead: hud.lead,
+      order: cfg.order.map(id => MODULE_CARD[id]),
       chip: mods.cache ? chipRuns(c, t.ttl, lv, rem) : [],
       overage: mods.cache && hud.overage ? limitLabel(hud.overage) : null,
       usedTokens: mods.tokens && used > 0 ? `${fmtTokens(Math.round(used))} tokens` : null,

@@ -61,6 +61,12 @@
       "description": "An assumption tool Claude calls with the guesses it acts on, and the CHECK MY GUESSES card where you mark each right or wrong. Off, the tool is not registered.",
       "default": true
     },
+    "moduleOrder": {
+      "type": "string",
+      "title": "Module order",
+      "description": "The order of the panel's cards, top to bottom: module names separated by commas (pickers, cache, tokens, sessions, assume, next, handoff). Modules left out follow in this usual order. /hud order sets it too.",
+      "default": "pickers, cache, tokens, sessions, assume, next, handoff"
+    },
     "warnSeconds": {
       "type": "number",
       "title": "Alert when this many seconds are left",

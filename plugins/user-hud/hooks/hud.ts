@@ -41,22 +41,64 @@ export function modulesFrom(o: Record<string, unknown>): Modules {
   return Object.fromEntries(MODULES.map(m => [m.id, o[m.key] !== false])) as Modules
 }
 
-export type HudArgs = { kind: 'toggle' } | { kind: 'list' } | { kind: 'set'; id: ModuleId; isOn: boolean } | { kind: 'unknown' }
+/** The card each module draws in the open panel. */
+export const MODULE_CARD = {
+  pickers: 'model',
+  cache: 'cache',
+  tokens: 'context',
+  sessions: 'sessions',
+  assume: 'assume',
+  next: 'next',
+  handoff: 'handoff',
+} as const satisfies Record<ModuleId, string>
 
-/** `/hud` toggles the panel, `/hud modules` lists the modules, `/hud <module> on|off` switches one. */
+/** The cards' order, top to bottom, unless the Module order row says otherwise. */
+export const DEFAULT_ORDER: readonly ModuleId[] = ['pickers', 'cache', 'tokens', 'sessions', 'assume', 'next', 'handoff']
+
+const moduleIds = (s: string): string[] => s.toLowerCase().split(/[\s,]+/).filter(Boolean)
+
+/** The modules named in order, once each; the ones left out keep their default order after them. */
+export function orderFrom(v: unknown): ModuleId[] {
+  const named = typeof v === 'string' ? moduleIds(v).filter((id): id is ModuleId => MODULES.some(m => m.id === id)) : []
+  return [...new Set([...named, ...DEFAULT_ORDER])]
+}
+
+export type HudArgs =
+  | { kind: 'toggle' }
+  | { kind: 'list' }
+  | { kind: 'set'; id: ModuleId; isOn: boolean }
+  | { kind: 'order'; ids: ModuleId[] | null }
+  | { kind: 'badOrder'; unknown: string[] }
+  | { kind: 'unknown' }
+
+/**
+ * `/hud` toggles the panel, `/hud modules` lists the modules, `/hud <module> on|off` switches one, and
+ * `/hud order [modules…]` shows or sets the order of their cards.
+ */
 export function parseHudArgs(args: string): HudArgs {
   const words = args.trim().toLowerCase().split(/\s+/).filter(Boolean)
   if (words.length === 0) return { kind: 'toggle' }
   if (words.length === 1 && words[0] === 'modules') return { kind: 'list' }
+  if (words[0] === 'order') {
+    const ids = moduleIds(words.slice(1).join(' '))
+    const unknown = ids.filter(id => !MODULES.some(m => m.id === id))
+    if (unknown.length > 0) return { kind: 'badOrder', unknown }
+    return { kind: 'order', ids: ids.length > 0 ? orderFrom(ids.join(',')) : null }
+  }
   const m = MODULES.find(x => x.id === words[0])
   if (m && words.length === 2 && (words[1] === 'on' || words[1] === 'off')) return { kind: 'set', id: m.id, isOn: words[1] === 'on' }
   return { kind: 'unknown' }
 }
 
-/** `/hud modules`: one line per module, on or off, then how to switch one. */
-export function modulesText(modules: Modules): string {
-  const lines = MODULES.map(m => `${modules[m.id] ? '● on ' : '○ off'}  ${m.id.padEnd(8)} ${m.desc}`)
-  return [...lines, 'Switch one with /hud <module> on|off, or in /config.'].join('\n')
+/** `/hud modules`: one line per module in the panel's order, on or off, then how to switch or move one. */
+export function modulesText(modules: Modules, order: readonly ModuleId[] = DEFAULT_ORDER): string {
+  const lines = order.map(id => MODULES.find(m => m.id === id)!).map(m => `${modules[m.id] ? '● on ' : '○ off'}  ${m.id.padEnd(8)} ${m.desc}`)
+  return [...lines, 'Switch one with /hud <module> on|off, and reorder them with /hud order <modules…>, or in /config.'].join('\n')
+}
+
+/** `/hud order`: the cards' order as it stands, and how to change it. */
+export function orderText(order: readonly ModuleId[]): string {
+  return `Cards top to bottom: ${order.join(', ')}. Change it with /hud order <modules…>; the ones you leave out follow in their usual order.`
 }
 
 /** Seconds of cache life left when the alert fires: what the Alert at pill cycles through. */

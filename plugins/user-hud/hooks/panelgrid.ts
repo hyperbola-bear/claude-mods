@@ -4,7 +4,7 @@ import type { CardId, HudView, SelectorStyle, Sessions } from '../types'
 import { BATTERY_COLORS, batteryRuns, levelOf } from './battery.ts'
 import { builder, cut, fits, keyed, line, pad, piece, pill, put, runs, spanOf, widthOf } from './cells.ts'
 import type { Grid, Piece, Run, Span } from './cells.ts'
-import { hintedRule } from './hud.ts'
+import { DEFAULT_ORDER, MODULE_CARD, hintedRule } from './hud.ts'
 import { fittedStyle, layout } from './selectorgrid.ts'
 import type { GridField } from './selectorgrid.ts'
 import { CARD_SESSIONS, sessionChips, sessionsCard } from './sessionsview.ts'
@@ -22,6 +22,8 @@ export type BandView = {
   maxRows: number
   /** The card the panel starts with; null for the usual order. */
   lead: CardId | null
+  /** The cards top to bottom, as the person ordered the modules. */
+  order: readonly CardId[]
   /** The cache countdown chip, a pie of the time left before it; empty when nothing is cached. */
   chip: Run[]
   /** The plan window past its limit, worded (`5-hour limit 103%`); null when not on overage. */
@@ -58,7 +60,7 @@ export type Band = Grid & { keys: Record<string, string>; width: number }
 /** A card of the open panel, as it draws with rows to spare and as one row. */
 export type Card = { id: CardId; full: Grid; folded: Grid }
 
-export const CARD_ORDER: readonly CardId[] = ['model', 'cache', 'context', 'sessions', 'assume', 'next', 'handoff']
+export const CARD_ORDER: readonly CardId[] = DEFAULT_ORDER.map(id => MODULE_CARD[id])
 
 export const PANEL_MAX = 132
 
@@ -342,7 +344,7 @@ function padded(g: Grid, rows: number): Grid {
 
 /** The cards whose modules are on, each in its own space, in order from the lead card round. */
 export function cardsOf(v: BandView, w: number): Card[] {
-  const list = CARD_ORDER.map(id => CARDS[id](v, w))
+  const list = v.order.map(id => CARDS[id](v, w))
     .filter((c): c is Card => c !== null)
     .map(c => ({ ...c, full: padded(c.full, spaceOf(c.id, w)) }))
   const i = v.lead ? list.findIndex(c => c.id === v.lead) : -1

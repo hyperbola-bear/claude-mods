@@ -21,6 +21,7 @@ The panel is seven modules, each on by default:
 Turn a module off and it leaves the panel and the closed row, its commands are not registered, and none of its work runs: with `cache` off nothing counts down, alerts or pings; with `tokens` off nothing is counted; with `next` off no reply asks for suggestions; with `sessions` off no session file is read; and with `assume` off Claude is not given the tool. Turn every module off and the band draws nothing.
 
 - `/hud modules` lists them, and `/hud <module> on|off` switches one (`/hud tokens off`).
+- `/hud order` shows the order of their cards, and `/hud order <modules…>` changes it (`/hud order sessions next`): the modules you name come first, the rest after in the usual order. **Module order** in `/config` is the same setting.
 - `/config` has the same switches, as **Module: cache**, **Module: guesses** and so on.
 - The [`mods` script](../../README.md#install-and-update) asks which modules to turn on when it installs or updates user-hud.
 
@@ -67,7 +68,7 @@ EFFORT  ▄ Low ▄▄ Medium ▄▄▄ High ████ XHigh        ● Fix t
 ⚙ s: Settings                                                                          ❖ user-hud ▾
 ```
 
-- The cards sit in one, two or three columns, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. They come in this order, each only while its module is on: model and effort, cache, context, sessions, guesses, next steps, handoff. They read top to bottom: down the first column, then the next, a blank row between cards, cut where the columns come out most even (the left ones take a card more on a tie).
+- The cards sit in one, two or three columns, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. They come in this order unless you change it with `/hud order`, each only while its module is on: model and effort, cache, context, sessions, guesses, next steps, handoff. They read top to bottom: down the first column, then the next, a blank row between cards, cut where the columns come out most even (the left ones take a card more on a tie).
 - When the band is short (the desktop shows 12 rows), the cards fold to one row each, starting from the last and working up, until the rest fit in full. A card brought to the front goes first, so it folds last. Folded cards sit one under another with no blank row between them:
 
 ```
@@ -100,7 +101,7 @@ EFFORT  ▄ Low ▄▄ Medium ▄▄▄ High ████ XHigh        ● Fix t
 - **Model** runs `/model haiku|sonnet|opus|fable`. Switching models starts the prompt cache over, and the countdown says so.
 - **Effort** runs `/effort <level>`. The highlight follows the effort your requests actually carry, so a level the model caps shows the one in use. It shows once the first request has gone out.
 - **Ultracode** runs `/effort ultracode on`: the effort level stays and Claude may run multi-agent workflows. Picking a level turns it off again, as `/effort <level>` does. It needs dynamic workflows on (see `/config`); where they are off the picker stays on the level and a toast says why. `/effort` typed at the prompt moves the picker too.
-- **Settings** write the same rows as `/config`, so the two never disagree. A row your organization's policy owns stays put, with a toast saying why. The other settings (show the band, automatic pings per idle stretch, handoff note location, the modules) stay in `/config`.
+- **Settings** write the same rows as `/config`, so the two never disagree. A row your organization's policy owns stays put, with a toast saying why. The other settings (show the band, automatic pings per idle stretch, handoff note location, the modules and their order) stay in `/config`.
 - The whole band, the closed row and the open panel, is one grid of cells the plugin lays out itself and paints in a `Client` region, and so are its panes: no native buttons and no text in the app's own font, so the terminal and Claude Desktop draw the same cells (the tests require the two drawings identical). Click any button in it; or click into it, then use its hotkeys, or the arrow keys and Return. VS Code and mobile, which draw no `Client`, get the same rows as text with plain buttons beneath.
 - When the band is narrow, for example beside a pane docked in the terminal, the cards stack in one column, the section titles lose their letter spacing, and the closed row sheds its pieces as above. A row that still does not fit is cut on the right, ending in `…`; the band never runs off its left edge.
 - To put the panel away, use the tab. The `[-]` (× on the desktop) at the band's right end is Claude Code's own control for collapsing the whole band; a plugin cannot remove it.

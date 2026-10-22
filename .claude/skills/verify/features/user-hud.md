@@ -15,6 +15,7 @@ A control panel above the prompt. Closed, it is one row at the right edge that s
 - `hud-guesses` shows the guesses Claude reports through its `assumption` tool; `✓` clears one, `✗` fills the prompt box.
 - `hud-pickers` runs `/model` and `/effort` from the model card; `/hud-styles` draws Rail, Ladder and Meter.
 - `hud-modules` switches each module with `/hud <module> on|off`.
+- `hud-order` reorders the cards with `/hud order <modules…>` (or **Module order** in `/config`).
 - `hud-tokens`, `hud-cache`, `hud-next`, `hud-handoff`: the Tokens pane (`t`, `/tokens`), Keep warm (`w`, `/keepwarm`), next steps (`1` to `3`), Write and Read handoff (`h`, `r`).
 
 ## How to get to it (user POV)
@@ -40,6 +41,7 @@ Preconditions:
 - **Settings.** Focus the band and run `tui.sh keys hud s`. The settings rows show and the bar reads `⚙ s: Back`. Press `s` again to return.
 - **Sessions pane.** With the band focused, run `tui.sh keys hud e`. A pane titled `Sessions` lists NEEDS YOU, WORKING, DONE, ASLEEP and THIS SESSION, each title at most 30 characters.
 - **Guesses.** Send a prompt that forces a choice, such as `tui.sh type hud "rename the main branch to trunk in a repo you pick"`. If Claude calls the `assumption` tool, the closed row shows `? N to check` and the card lists the guesses. Press `✗` on one (click its cells, or arrow to it and Return): the prompt box holds `Not quite: "<guess>". `. Clear the box before the next step.
+- **Order.** Run `tui.sh type hud "/hud order next sessions"`. It answers `Cards top to bottom: next, sessions, pickers, …`, and the open panel's first card is `── N E X T   S T E P S`. Put it back with `/hud order pickers`.
 - **Module off.** Run `tui.sh type hud "/hud sessions off"`, then sweep. The sessions card and the session pieces of the closed row are gone. Turn it back on with `/hud sessions on`.
 - **Proof.** Keep the sweep captures. For the mark and the battery, keep the `.ansi` files, which carry the colours.
 
