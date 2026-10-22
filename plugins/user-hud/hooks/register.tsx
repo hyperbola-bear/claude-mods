@@ -3,11 +3,11 @@
  *
  * Collapsed, it is one row at the band's right edge: who needs you, the cache
  * countdown, the context battery, what the other sessions do, the guesses to
- * check, next steps, model · effort, and the tab with Clawd's face, whose eyes
+ * check, next steps, model · effort, and the tab with its four diamonds, which
  * turn yellow while another session waits on you. The least needed pieces
  * shorten, then go, when the row is narrow. The tab (or /hud) opens the panel
- * above it: cards in one to three columns (sessions, context, model and effort,
- * cache, guesses, next steps, handoff), and behind `s` the settings toggled most
+ * above it: cards as tiles of one size, one to three across (model and effort,
+ * cache, context, sessions, guesses, next steps), handoff in its bottom bar, and behind `s` the settings toggled most
  * (written through /config). Open or closed is remembered.
  *
  * 1. Prompt cache countdown. Every main-thread model request refreshes the
@@ -95,13 +95,13 @@ import {
 } from './cache.ts'
 import type { Level } from './cache.ts'
 import { HANDOFF_DIRS, age, handoffPrompt, handoffTarget, isHandoffName, joinPath, newest, resumePrompt } from './handoff.ts'
-import { MODELS, MODULES, asEffort, lifeBar, modelAlias, modelLabel, modulesFrom, modulesText, nextWarn, parseHudArgs, pieOf } from './hud.ts'
+import { MODELS, MODULES, MODULE_CARD, asEffort, lifeBar, modelAlias, modelLabel, modulesFrom, modulesText, nextWarn, orderFrom, orderText, parseHudArgs, pieOf } from './hud.ts'
 import type { ModuleId, Modules } from './hud.ts'
 import { EFFORT_COLORS, EFFORT_SHORT_LABELS, EFFORT_STEPS, MODEL_COLORS, SELECTOR_STYLES, asStyle, effortStep, nextStyle, parseEffortArgs, spread, styleLabel, ultracodeTook } from './selector.ts'
 import type { EffortStep } from './selector.ts'
 import { builder, line, order, piece, put, runs, textOf, wrap } from './cells.ts'
 import type { CellsProps, Run } from './cells.ts'
-import { CARD_ORDER, bandGrid, cardLayout, clipped, tokenBarCells } from './panelgrid.ts'
+import { CARD_ORDER, bandGrid, clipped } from './panelgrid.ts'
 import type { Band, Setting } from './panelgrid.ts'
 import { layout, parsePick } from './selectorgrid.ts'
 import type { GridField } from './selectorgrid.ts'
@@ -123,12 +123,10 @@ import {
   contextWeights,
   emptyTokens,
   GROUP_IDS,
-  groupOf,
   heldOf,
   lineWeights,
   mcpSchemas,
   restarted,
-  stack,
   standingFrom,
   standingLinesFrom,
   summary,
@@ -187,6 +185,8 @@ type Cfg = {
   selectorStyle: SelectorStyle
   /** The modules switched on; one switched off draws nothing and does none of its work. */
   modules: Modules
+  /** The modules' cards, top to bottom, every module once. */
+  order: ModuleId[]
 }
 
 export function readCfg(o: Record<string, unknown>): Cfg {
@@ -203,6 +203,7 @@ export function readCfg(o: Record<string, unknown>): Cfg {
     handoffPath: typeof o.handoffPath === 'string' ? o.handoffPath.trim() : '',
     selectorStyle: asStyle(o.selectorStyle),
     modules: modulesFrom(o),
+    order: orderFrom(o.moduleOrder),
   }
 }
 
@@ -210,6 +211,7 @@ export function readCfg(o: Record<string, unknown>): Cfg {
 let options: Record<string, unknown> = {}
 let cfg: Cfg = readCfg({})
 let isHandoffPending = false
+let isOpenRestored = false
 const toolUses = new Map<string, Attribution>()
 let lastSkill: string | null = null
 const agentTypes = new Map<string, string>()
@@ -366,7 +368,19 @@ async function startNewChat($: EngineInterface) {
 
 // ---------- corner panel ----------
 
+const storedOpen = async ($: EngineInterface) => (await $.store.get(STORE_OPEN).catch(() => undefined)) === true
+
+/**
+ * Whether the panel is open: the session's state once this load has read it back (session.start does), else
+ * what the store kept. A load that runs no session.start (the desktop's /reload-plugins) so keeps the panel as
+ * it was; a draw cannot write state, so the first press writes it.
+ */
+async function panelIsOpen($: EngineInterface): Promise<boolean> {
+  return isOpenRestored ? (await read($, hudA)).isOpen : storedOpen($)
+}
+
 async function setPanelOpen($: EngineInterface, isOpen: boolean) {
+  isOpenRestored = true
   await update($, hudA, s => ({ ...s, isOpen }))
   await $.store.set(STORE_OPEN, isOpen).catch(() => {})
 }
@@ -480,7 +494,7 @@ async function runAction($: EngineInterface, action: unknown) {
   if (step) return pickEffort($, step)
   if (action.startsWith('set:')) return pressSetting($, action.slice(4))
   if (action.startsWith('use:')) return setOption($, 'selectorStyle', asStyle(action.slice(4)))
-  if (action === 'panel') return setPanelOpen($, !(await read($, hudA)).isOpen)
+  if (action === 'panel') return setPanelOpen($, !(await panelIsOpen($)))
   if (action === 'keepwarm') return void ping($, 'manual')
   if (action === 'newchat') return startNewChat($)
   if (action === 'tokens') return openTokensPane($)
@@ -903,6 +917,7 @@ export const register: Register = (on, given) => {
   options = { ...((given ?? {}) as Record<string, unknown>) }
   cfg = readCfg(options)
   isHandoffPending = false
+  isOpenRestored = false
   toolUses.clear()
   lastSkill = null
   agentTypes.clear()
@@ -930,7 +945,8 @@ export const register: Register = (on, given) => {
     if (tokens) await $.command.register({ name: 'tokens', description: 'Where this session’s tokens went: files, chat, MCP, shell, skills and plugins, subagents and more' })
     if (assume) await $.tool.register(ASSUME_SPEC)
 
-    const isOpen = (await $.store.get(STORE_OPEN).catch(() => undefined)) === true
+    const isOpen = await storedOpen($)
+    isOpenRestored = true
     const model = await $.session.model().catch(() => null)
     const settings = await $.settings.read().catch(() => ({}) as Record<string, unknown>)
     // `effortLevel: "ultracode"` starts a session at xhigh with ultracode on.
@@ -1150,11 +1166,16 @@ export const register: Register = (on, given) => {
 
   on('command.run', { command: 'hud' }, async ($, e) => {
     const args = parseHudArgs(e.args)
-    if (args.kind === 'list') return { text: modulesText(cfg.modules) }
+    if (args.kind === 'list') return { text: modulesText(cfg.modules, cfg.order) }
+    if (args.kind === 'badOrder') return { text: `No module called ${args.unknown.join(', ')}. The modules: ${MODULES.map(m => m.id).join(', ')}.` }
+    if (args.kind === 'order') {
+      if (args.ids) await setOption($, 'moduleOrder', args.ids.join(', '))
+      return { text: orderText(cfg.order) }
+    }
     if (args.kind === 'set') return { text: await setModule($, args.id, args.isOn) }
-    if (args.kind === 'unknown') return { text: `Usage: /hud, /hud modules, or /hud <module> on|off (${MODULES.map(m => m.id).join(', ')}).` }
+    if (args.kind === 'unknown') return { text: `Usage: /hud, /hud modules, /hud <module> on|off, or /hud order <modules…> (${MODULES.map(m => m.id).join(', ')}).` }
     if (!MODULES.some(m => cfg.modules[m.id])) return { text: 'Every user-hud module is off, so the panel has nothing to show. Turn one on with /hud <module> on.' }
-    const { isOpen } = await read($, hudA)
+    const isOpen = await panelIsOpen($)
     await setPanelOpen($, !isOpen)
     return { text: isOpen ? 'user-hud panel closed.' : 'user-hud panel open.' }
   })
@@ -1194,11 +1215,12 @@ export const register: Register = (on, given) => {
     const used = totalUsed(tokens)
     const newestNote = handoff.files[0]
     const band = bandGrid({
-      isOpen: hud.isOpen,
+      isOpen: await panelIsOpen($),
       view: hud.view,
       columns,
       maxRows: e.props.maxRows,
       lead: hud.lead,
+      order: cfg.order.flatMap(id => MODULE_CARD[id] ?? []),
       chip: mods.cache ? chipRuns(c, t.ttl, lv, rem) : [],
       overage: mods.cache && hud.overage ? limitLabel(hud.overage) : null,
       usedTokens: mods.tokens && used > 0 ? `${fmtTokens(Math.round(used))} tokens` : null,
@@ -1207,12 +1229,7 @@ export const register: Register = (on, given) => {
       keepWarm: !mods.cache || c.isPinging ? 'none' : lv === 'cooling' ? 'urged' : lv === 'warm' ? 'quiet' : 'none',
       isPinging: mods.cache && c.isPinging,
       pickers: mods.pickers ? { style: cfg.selectorStyle, fields: gridFields(hud) } : null,
-      tokens: mods.tokens
-        ? {
-            segments: used > 0 ? stack(tokens, tokenBarCells(cardLayout(columns).card)).map(sg => ({ color: groupOf(sg.id).color, cells: sg.cells })) : [],
-            total: fmtTokens(Math.round(used)),
-          }
-        : null,
+      tokens: mods.tokens ? { total: used > 0 ? fmtTokens(Math.round(used)) : null } : null,
       context: mods.tokens ? (hud.contextPercent ?? null) : null,
       contextWindow: mods.tokens && hud.contextWindow ? fmtTokens(hud.contextWindow) : null,
       cache: mods.cache ? cacheView(c, t.ttl, lv, rem) : null,

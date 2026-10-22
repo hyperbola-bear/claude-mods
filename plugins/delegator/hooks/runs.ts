@@ -197,7 +197,8 @@ export function plannedOf(flow: Flow | null, runs: readonly AgentRun[]): (Planne
 
 export const fmtTokens = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`)
 
-export const fmtCost = (usd: number): string => `$${usd < 10 ? usd.toFixed(2) : usd.toFixed(1)}`
+/** `$1.84`, `$12.3`; under a cent to three places (`$0.004`), so a cheap agent does not read as free. */
+export const fmtCost = (usd: number): string => `$${usd > 0 && usd < 0.01 ? usd.toFixed(3) : usd < 10 ? usd.toFixed(2) : usd.toFixed(1)}`
 
 /** `38s`, `6m 12s`, `1h 05m`. */
 export function fmtTime(ms: number): string {

@@ -113,8 +113,11 @@ test('each agent is tracked from its model requests to its end: tokens add up, c
   await w.clock.advance(10_000)
   await end($, 'agent-2', 'error')
   ;({ lines } = await pane($))
-  expect(lines.some(l => /^✓ #1 general-purpose · implement retry +220k · 1m 05s$/.test(l))).toBe(true)
-  expect(lines.some(l => /^✗ #2 Explore · inspect cache tests +130k · 1m 15s$/.test(l))).toBe(true)
+  // Ended, each keeps what it spent on show, and the rule and the totals row add it up.
+  expect(lines.some(l => /^✓ #1 general-purpose · implement retry +≈\$0\.34 · 220k · 1m 05s$/.test(l))).toBe(true)
+  expect(lines.some(l => /^✗ #2 Explore · inspect cache tests +≈\$0\.00 · 130k · 1m 15s$/.test(l))).toBe(true)
+  expect(lines.some(l => /^── D O N E {2}· 2 · ≈\$0\.34 ─+$/.test(l))).toBe(true)
+  expect(lines[1]).toMatch(/^0 running · ≈\$0\.34 · 350k tokens · 1m 15s +c: hide done$/)
   expect(lines.some(l => l.includes('R U N N I N G'))).toBe(false)
 })
 

@@ -9,7 +9,7 @@ Every subagent Claude starts waits in a dialog for the person's approval. Once i
 - `gate-suggest` shows a model for an agent Claude named none for: Haiku for lookups, Sonnet for building, Opus for design.
 - `pane-waiting` lists the agents waiting and the first one's full task, with the line asking for steps.
 - `pane-running` draws each running agent as its character (explorer, developer, architect, researcher, reviewer, Clawd), two frames 650 ms apart.
-- `pane-done` lists finished agents (`✓`, `✗`) and refusals, newest first; `c` hides them.
+- `pane-done` lists finished agents (`✓`, `✗`) with what each spent, and refusals, newest first; the DONE rule sums the spend; `c` hides them.
 - `pane-planned` lists the plan's tasks no agent has taken, with `after #n` for the ones they wait on.
 - `step-tool` takes an agent's `step` reports (`2/4` and a note).
 - `progress-band` shows the plan above the prompt (`<title> · <phase>  ▰▱▱ 1/3 accepted  ● 3 agents ▸`) until it finishes.
@@ -32,7 +32,7 @@ Preconditions:
 - **Pane, idle.** Run `tui.sh type dlg "/delegator"`, then `tui.sh wait dlg DELEGATOR`. The pane reads `DELEGATOR ● gate on`, `0 running · ≈$0.00 · 0 tokens · 0s` and the idle line.
 - **Gate.** Send a prompt that reports a plan and launches one agent, for example: `First call mcp__delegator__progress with title 'verify run', phase 'delegate', total 1, tasks [{"title":"List plugin folders","tier":"light"}]. Then launch one Explore agent with description 'List plugin folders' that lists the folder names under plugins/ and reports them. Do nothing else.` Run `tui.sh wait dlg Approve 120`. The dialog asks `Launch #1 Explore "List plugin folders" on Haiku (suggested: lookup)?`. The pane shows `verify run · delegate`, WAITING with `▸ #1 Explore · List plugin folders · Haiku`, the TASK ending in the line about `mcp__delegator__step`, and PLANNED with `◷ 1. List plugin folders`.
 - **Running.** Run `tui.sh keys dlg Enter` (Approve), then `tui.sh wait dlg "R U N N I N G" 30`. The agent's three rows sit beside the explorer's character, and the band reads `verify run · delegate  ▱ 0/1 accepted  ● 1 agent ▸`. A few seconds later the battery, tokens and cost have grown and the steps row reads `0/3` or similar.
-- **Done.** Run `tui.sh wait dlg "D O N E" 120`. The row reads `✓ #1 Explore · List plugin folders` with its tokens and time, and the totals row says `0 running`.
+- **Done.** Run `tui.sh wait dlg "D O N E" 120`. The rule reads `── D O N E  · 1 · ≈$…`, the row reads `✓ #1 Explore · List plugin folders` with its cost, tokens and time (`≈$0.01 · 31k · 38s`), and the totals row says `0 running` with the same cost.
 - **Widths.** Run `tui.sh sweep dlg done 160 100 80 60`. Every width prints `fits in <cols> columns`. At 160 the pane docks beside the transcript. At 100 and under it is a framed box above the prompt, with delegator's band above user-hud's panel.
 - **Band leaves.** Run `tui.sh type dlg "Call mcp__delegator__progress with done 1 and finished true. Nothing else."`. The tool answers `ok: verify run · finished, 1/1 accepted`, the pane reads `verify run · finished`, and no row above the prompt contains `agents ▸`.
 - **Refuse.** Launch another agent the same way, press Down three times to `Refuse` and Enter. The caller is told the person refused, and DONE lists `✗ #2 … refused`.

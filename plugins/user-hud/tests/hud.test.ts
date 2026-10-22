@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { asEffort, hintedRule, lifeBar, modelAlias, modelLabel, modulesFrom, nextWarn, parseHudArgs, pieOf, sectionRule } from '../hooks/hud.ts'
+import { asEffort, hintedRule, lifeBar, modelAlias, modelLabel, modulesFrom, nextWarn, orderFrom, parseHudArgs, pieOf, sectionRule } from '../hooks/hud.ts'
 import { keyed, plain } from '../hooks/cells.ts'
 
 test('models are recognised however /model or a request spells them', () => {
@@ -68,4 +68,12 @@ test('the cache countdown’s pie drains with the time left', () => {
   const pies = [100, 87.5, 87.4, 62.5, 62.4, 37.5, 37.4, 12.5, 12.4, 0, -20].map(p => pieOf(p, 100))
   expect(pies).toEqual(['●', '●', '◕', '◕', '◑', '◑', '◔', '◔', '○', '○', '○'])
   expect(pieOf(5, 0)).toBe('○')
+})
+
+test('the module order: named modules first, once each, the rest after in the usual order', () => {
+  expect(orderFrom(undefined)).toEqual(['pickers', 'cache', 'tokens', 'sessions', 'assume', 'next', 'handoff'])
+  expect(orderFrom('next, Sessions next banana')).toEqual(['next', 'sessions', 'pickers', 'cache', 'tokens', 'assume', 'handoff'])
+  expect(parseHudArgs('order')).toEqual({ kind: 'order', ids: null })
+  expect(parseHudArgs('order handoff')).toEqual({ kind: 'order', ids: ['handoff', 'pickers', 'cache', 'tokens', 'sessions', 'assume', 'next'] })
+  expect(parseHudArgs('order handoff, x')).toEqual({ kind: 'badOrder', unknown: ['x'] })
 })

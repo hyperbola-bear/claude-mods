@@ -9,8 +9,8 @@ export type BatteryLevel = 'low' | 'mid' | 'high'
 
 export const levelOf = (percent: number): BatteryLevel => (percent <= 50 ? 'low' : percent <= 75 ? 'mid' : 'high')
 
-/** Darker than the theme's own green, yellow and red, so the battery sits behind what needs attention. */
-export const BATTERY_COLORS: Record<BatteryLevel, string> = { low: '#3f7d4d', mid: '#9a7d2c', high: '#9a4640' }
+/** The theme's own green, yellow and red, as the cache countdown draws them. */
+export const BATTERY_COLORS: Record<BatteryLevel, string> = { low: 'success', mid: 'warning', high: 'error' }
 
 const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
 
@@ -23,7 +23,9 @@ export function batteryRuns(percent: number, withPercent = true): Run[] {
   const eighths = Math.floor((filled - full) * 8)
   const row: Run[] = []
   put(row, '▕', { isDim: true })
-  put(row, '█'.repeat(full), { color })
+  // The fill's own colour as its ground too: the desktop draws a block glyph shorter than its cell but a
+  // ground the whole cell high, so a glyph alone would sit thinner than the track beside it.
+  put(row, '█'.repeat(full), { color, bg: color })
   if (eighths > 0) put(row, EIGHTHS[eighths]!, { color, bg: 'subtle' })
   put(row, ' '.repeat(BATTERY_CELLS - full - (eighths > 0 ? 1 : 0)), { bg: 'subtle' })
   put(row, '▏', { isDim: true })

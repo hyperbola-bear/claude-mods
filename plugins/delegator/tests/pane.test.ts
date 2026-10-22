@@ -4,7 +4,7 @@ import type { AgentRun, Tracking } from '../types'
 import { plain, widthOf } from '../hooks/cells.ts'
 import { CHARACTER_MIN_WIDTH, bandGrid, paneGrid } from '../hooks/pane.ts'
 import { EMPTY, decided, makePending } from '../hooks/queue.ts'
-import { startRun } from '../hooks/runs.ts'
+import { fmtCost, startRun } from '../hooks/runs.ts'
 import { PAL } from '../hooks/sprites.ts'
 
 const run = (over: Partial<AgentRun> & Pick<AgentRun, 'n' | 'type' | 'description' | 'model'>): AgentRun => ({
@@ -22,7 +22,7 @@ const TRACKED: Tracking = {
   issued: 7,
   isDoneHidden: false,
   runs: [
-    run({ n: 1, type: 'Explore', description: 'read savvy-progress', model: 'claude-haiku-4-5', status: 'done', endedAt: 38_000, tokens: 31_000 }),
+    run({ n: 1, type: 'Explore', description: 'read savvy-progress', model: 'claude-haiku-4-5', status: 'done', endedAt: 38_000, tokens: 31_000, costUsd: 0.03 }),
     run({ n: 3, type: 'Explore', description: 'find session status files', model: 'claude-haiku-4-5', startedAt: AT - 41_000, contextTokens: 44_000, tokens: 48_000, costUsd: 0.02, steps: { done: 2, total: 4, note: 'reading sessions/*.json' } }),
     run({ n: 5, type: 'general-purpose', description: 'port the agent panel into delegator', model: 'claude-opus-5-5', contextTokens: 630_000, tokens: 412_000, costUsd: 1.84, steps: { done: 3, total: 6, note: 'cells for the running list' } }),
     run({ n: 6, type: 'claude-code-guide', description: 'how Client cells paint on desktop', model: 'claude-sonnet-5-5', startedAt: AT - 4 * MIN - 3_000, contextTokens: 810_000, tokens: 650_000, costUsd: 0.45 }),
@@ -52,7 +52,7 @@ test('the approved drawing: the gate, the totals, the flow, waiting, running wit
   const grid = paneGrid(QUEUE, TRACKED, 70, true, MOMENT)
   const lines = plain(grid).map(l => l.trimEnd())
   expect(lines[0]).toMatch(/^DELEGATOR ● gate on +o: Turn off$/)
-  expect(lines[1]).toMatch(/^3 running · ≈\$2\.31 · 1\.1M tokens · 6m 12s +c: hide done$/)
+  expect(lines[1]).toMatch(/^3 running · ≈\$2\.34 · 1\.1M tokens · 6m 12s +c: hide done$/)
   expect(lines[2]).toBe('verify skill · delegate')
   expect(lines[3]).toMatch(/^── W A I T I N G {2}· 1 ─+$/)
   expect(lines[4]).toBe('▸ #7 Plan · lay out the verify skill · Opus')
@@ -75,8 +75,9 @@ test('the approved drawing: the gate, the totals, the flow, waiting, running wit
     'no steps reported',
   ])
   expect(grid.rows.slice(8, 11).every(hasCharacter)).toBe(true)
-  expect(lines[19]).toMatch(/^── D O N E {2}· 2 ─+$/)
-  expect(lines[20]).toMatch(/^✓ #1 Explore · read savvy-progress +31k · 38s$/)
+  // A finished agent keeps what it spent on show: its own row, and the sum in the rule.
+  expect(lines[19]).toMatch(/^── D O N E {2}· 2 · ≈\$0\.03 ─+$/)
+  expect(lines[20]).toMatch(/^✓ #1 Explore · read savvy-progress +≈\$0\.03 · 31k · 38s$/)
   expect(lines[21]).toMatch(/^✗ #2 general-purpose · rewrite the tests +refused$/)
   expect(lines[22]).toMatch(/^── P L A N N E D {2}· 1 ─+$/)
   expect(lines[23]).toMatch(/^◷ 3\. write the polar-mods verify skill +after #5$/)
@@ -127,4 +128,8 @@ test('the band fits its row, the title giving way first', () => {
   expect(plain(bandGrid(flow, 3, 40))[0]).toBe('▰▱▱ 1/3 accepted  ● 3 agents ▸'.padStart(40))
   expect(plain(bandGrid(flow, 3, 20))[0]).toBe('● 3 agents ▸'.padStart(20))
   expect(bandGrid(flow, 3, 80).hits).toEqual([{ id: 'open', y: 0, x0: 68, x1: 80 }])
+})
+
+test('a cost under a cent shows to three places, so a cheap agent does not read as free', () => {
+  expect([0, 0.0042, 0.0099, 0.01, 0.344, 12.34].map(fmtCost)).toEqual(['$0.00', '$0.004', '$0.010', '$0.01', '$0.34', '$12.3'])
 })

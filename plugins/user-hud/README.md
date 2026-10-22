@@ -21,6 +21,7 @@ The panel is seven modules, each on by default:
 Turn a module off and it leaves the panel and the closed row, its commands are not registered, and none of its work runs: with `cache` off nothing counts down, alerts or pings; with `tokens` off nothing is counted; with `next` off no reply asks for suggestions; with `sessions` off no session file is read; and with `assume` off Claude is not given the tool. Turn every module off and the band draws nothing.
 
 - `/hud modules` lists them, and `/hud <module> on|off` switches one (`/hud tokens off`).
+- `/hud order` shows the order of their cards, and `/hud order <modules…>` changes it (`/hud order sessions next`): the modules you name come first, the rest after in the usual order. **Module order** in `/config` is the same setting.
 - `/config` has the same switches, as **Module: cache**, **Module: guesses** and so on.
 - The [`mods` script](../../README.md#install-and-update) asks which modules to turn on when it installs or updates user-hud.
 
@@ -29,16 +30,16 @@ Turn a module off and it leaves the panel and the closed row, its commands are n
 Closed, it is one row at the right edge. As the row narrows, the least needed piece shortens, then goes, until it fits:
 
 ```
-● 1 needs you  ● 52:10  context ▕███▍      ▏ 34%  ● 2 working · ✓ 3 done  ? 4 to check  ✦3   ▐▛▜▌ user-hud ▴
-                                                  ● 1 needs you  ● 52:10  ▕███▍      ▏ 34%   ▐▛▜▌ user-hud ▴
-                                                                                        ●1   ▐▛▜▌ user-hud ▴
-                                                                                                        ▐▛▜▌
+   ● 1 needs you  ● 52:10  context ▕███▍      ▏ 34%  ● 2 working · ✓ 3 done  ? 4 to check  ✦3   ❖ user-hud ▴
+                                                     ● 1 needs you  ● 52:10  ▕███▍      ▏ 34%   ❖ user-hud ▴
+                                                                                           ●1   ❖ user-hud ▴
+                                                                                                           ❖
 ```
 
-- The pieces, left to right: who needs you, the cache countdown, the context battery, what your other sessions are doing, guesses to check, next steps waiting, the model and effort (`Opus 5.5 · XHigh`), and the session's token total (`1.2M tokens`). The token total goes first, then the model and effort, next steps, the guesses, the other sessions, the context and the countdown, each shortening before it goes (`Opus · XH`, `✦3`, `?4`, `●2 ✓3`). Who needs you goes last, and then the tab keeps only its face.
-- The tab is Clawd's face, `▐▛▜▌`, in cream on Claude's orange. While another session needs you, its eyes (the two empty quarters) turn yellow, so the corner tells you even with nothing else on show.
+- The pieces, left to right: who needs you, the cache countdown, the context battery, what your other sessions are doing, guesses to check, next steps waiting, the model and effort (`Opus 5.5 · XHigh`), and the session's token total (`1.2M tokens`). The token total goes first, then the model and effort, next steps, the guesses, the other sessions, the context and the countdown, each shortening before it goes (`Opus · XH`, `✦3`, `?4`, `●2 ✓3`). Who needs you goes last, and then the tab keeps only its mark.
+- The tab's mark is four diamonds, `❖`, in cream on Claude's orange. While another session needs you, they turn yellow, so the corner tells you even with nothing else on show.
 - The countdown's dot is a pie of the cache life left: `●` while nearly all of it is, then `◕`, `◑`, `◔`, and `○` near the end and once cold. Its colour follows the cache: green while warm, yellow with 2 minutes or less left, red once cold.
-- The context is a battery: ten cells that fill left to right as the context window does, green up to half, yellow up to three quarters, red past that, then the percentage (the figure the status line reads). Short of room, it drops the word `context`, then the cells, leaving `34%`.
+- The context is a battery: ten cells that fill left to right as the context window does, in the cache countdown's green up to half, its yellow up to three quarters, red past that, then the percentage (the figure the status line reads). Short of room, it drops the word `context`, then the cells, leaving `34%`.
 - The model is drawn in its colour and the effort in its own, letter by letter (the whole rainbow for Ultracode).
 - When 2 minutes or less are left, **Keep warm** comes out next to the tab, so it is one press away with the panel closed. On overage, **⚠ overage** and **New chat** come out beside the countdown.
 - Click **● 1 needs you** or the session counts to open the Sessions pane, **? 4 to check** to open the panel with the guesses first, and **✦ 3 next** to open the panel.
@@ -46,41 +47,37 @@ Closed, it is one row at the right edge. As the row narrows, the least needed pi
 Click the tab (or run `/hud`) and the panel opens above it, as cards. Open or closed is remembered across sessions.
 
 ```
-── S E S S I O N S ────────────────── e: expand ─  ── C O N T E X T ─────────────────── t: details ─
-● 1 needs you  ● 2 working  ✓ 3 done     1 asleep  ▕███▍      ▏ 34%                          of 200k
-● Rename the billing flags                     2m  ████████████████ 1.2M used
-● Fix the flaky checkout test                  1m
-● Draft the release notes                      3m  ── M O D E L   ·   E F F O R T ──────────────────
-                                                   MODEL   ▄ Haiku 4.5 ▄▄ Sonnet 5.5 ███ Opus 5.5
-── C A C H E ────────────────────────────────────          ▄▄▄▄ Fable 5.1
-● cache 52:10 ▰▰▰▰▰▰▰▰▰▱                           EFFORT  ▄ Low ▄▄ Medium ▄▄▄ High ████ XHigh
-182k cached · hit 94% · 1h          w: Keep warm           ▄▄▄▄▄ Max ▄▄▄▄▄▄▄ Ultracode
+── M O D E L   ·   E F F O R T ───────  ── C A C H E ─────────────────────────  ── C O N T E X T ──────── t: details ─
+ Haiku    Sonnet    Opus    Fable       ● cache 52:10 ▰▰▰▰▰▰▰▰▰▱                ▕███▍      ▏ 34%               of 200k
+▔▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔▔ ████████ ▔▔▔▔▔▔▔▔     182k cached · hit 94% · 1h              1.2M used
+ Low   Med  High  XHigh  Max  Ultra                              w: Keep warm
+▔▔▔▔▔ ▔▔▔▔▔ ▔▔▔▔▔ ██████ ▔▔▔▔▔ ▔▔▔▔▔
 
-── C H E C K   M Y   G U E S S E S ──── +1 more ─  ── N E X T   S T E P S ──────────────────────────
-✓ ✗  The tests run with npm test, from the repo …  ✦ 1: Run the tests
-✓ ✗  "Done" means merged, not only approved        ✦ 2: Commit this and open a PR
-✓ ✗  Keep the old endpoint until its callers move  ✦ 3: Add a test for the empty case
-
-── H A N D O F F ────────────────────────────────
-✦ h: Write   ◆ r: Read   newest · 2h ago
-⚙ s: Settings                                                                       ▐▛▜▌ user-hud ▾
+── S E S S I O N S ─────── e: expand ─  ── CHECK MY GUESSES ──────── +1 more ─  ── N E X T   S T E P S ───────────────
+● 1 needs you  ● 2 working  ✓ 3 done    ✓ ✗  The tests run with npm test, fr…  ✦ 1: Run the tests
+● Rename the billing flags          2m  ✓ ✗  "Done" means merged, not only a…  ✦ 2: Commit this and open a PR
+● Fix the flaky checkout test       1m  ✓ ✗  Keep the old endpoint until its…  ✦ 3: Add a test for the empty case
+● Draft the release notes           3m
+⚙ s: Settings   ✦ h: Write handoff   ◆ r: Read   newest · 2h ago                                           ❖ user-hud ▾
 ```
 
-- The cards sit in one, two or three columns, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. Each card goes into the shortest column, a blank row under it. They come in this order, each only while its module is on: sessions, context, model and effort, cache, guesses, next steps, handoff. The guesses and next steps cards show only when they hold something.
-- When the band is short (the desktop shows 12 rows), every card folds to one row, all but a card brought to the front, which stays in full where it fits:
+- The cards are tiles of one size: one, two or three across, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. Every tile is as tall as the tallest, so the tiles in a row line up and each card keeps the same space whatever it holds, with blank rows where its content is short. The guesses and next steps cards stay on show when empty (`nothing to check`, `suggested after each reply`). They come left to right, then the next row, in this order unless you change it with `/hud order`, each only while its module is on: model and effort, cache, context, sessions, guesses, next steps.
+- Handoff is not a card: **✦ h: Write handoff** and **◆ r: Read** sit in the bottom bar, beside the settings. As the bar narrows, the note goes first, then the word `handoff`, then both buttons (`/handoff` and `/read-handoff` still work).
+- When the band is short (the desktop shows 12 rows), whole rows of tiles fold to one row a tile, from the last row up, until the rest fit in full. The model and effort pickers' row never folds while anything else can give way, and neither does the row of a card brought to the front (so guesses can still be marked). Folded rows sit one under another with no blank row between them. Which rows fold depends only on the rows and the order, never on what the cards hold:
 
 ```
-SESSIONS                        ●1 ●2 ✓3 1 asleep  CONTEXT ▕███▍      ▏ 34%                     1.2M
+── M O D E L   ·   E F F O R T ──────────────────  ── C A C H E ────────────────────────────────────
+ Haiku 4.5  Sonnet 5.5   Opus 5.5    Fable 5.1     ● cache 52:10 ▰▰▰▰▰▰▰▰▰▱
+▔▔▔▔▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔▔▔▔▔ ███████████ ▔▔▔▔▔▔▔▔▔▔▔    182k cached · hit 94% · 1h          w: Keep warm
+  Low   Medium   High    XHigh    Max    Ultra
+▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔ ███████ ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔
 
-MODEL Opus 5.5 · XHigh                    m: pick  ● 52:10 ▰▰▰▰▰▰▰▰▰▱                  w: Keep warm
-
+CONTEXT ▕███▍      ▏ 34%                     1.2M  SESSIONS                        ●1 ●2 ✓3 1 asleep
 ? 4 to check                            a: review  ✦ 1: Run the tests                            2 3
-
-✦ h: Write   ◆ r: Read   newest · 2h ago
-⚙ s: Settings                                                                       ▐▛▜▌ user-hud ▾
+⚙ s: Settings   ✦ h: Write handoff   ◆ r: Read   newest · 2h ago                       ❖ user-hud ▾
 ```
 
-- When even the folded cards need more rows than there are, the last ones go and **+N more** in the bottom bar says how many; press it and they come first.
+- When even that needs more rows than there are, the last other cards go and **+N more** in the bottom bar says how many; press it and they come first. Only a band too short to hold the pickers in full at all (under about 6 rows) folds them to their one row, `MODEL Opus 5.5 · XHigh  m: pick`.
 - **⚙ s: Settings** turns the panel to the settings, and **⚙ s: Back** turns it back to the cards. When the rows are too few for them, the settings fold onto one line of pills.
 
 ```
@@ -90,13 +87,13 @@ MODEL Opus 5.5 · XHigh                    m: pick  ● 52:10 ▰▰▰▰▰▰
 ● Mac alert        Keep warm button, closes in 7s                  ● On
 ◇ Alert at         time left when the alert fires                  2:00
 ◇ Picker style     Rail, Ladder or Meter                           Rail
-⚙ s: Back                                               ▐▛▜▌ user-hud ▾
+⚙ s: Back                                                  ❖ user-hud ▾
 ```
 
 - **Model** runs `/model haiku|sonnet|opus|fable`. Switching models starts the prompt cache over, and the countdown says so.
 - **Effort** runs `/effort <level>`. The highlight follows the effort your requests actually carry, so a level the model caps shows the one in use. It shows once the first request has gone out.
 - **Ultracode** runs `/effort ultracode on`: the effort level stays and Claude may run multi-agent workflows. Picking a level turns it off again, as `/effort <level>` does. It needs dynamic workflows on (see `/config`); where they are off the picker stays on the level and a toast says why. `/effort` typed at the prompt moves the picker too.
-- **Settings** write the same rows as `/config`, so the two never disagree. A row your organization's policy owns stays put, with a toast saying why. The other settings (show the band, automatic pings per idle stretch, handoff note location, the modules) stay in `/config`.
+- **Settings** write the same rows as `/config`, so the two never disagree. A row your organization's policy owns stays put, with a toast saying why. The other settings (show the band, automatic pings per idle stretch, handoff note location, the modules and their order) stay in `/config`.
 - The whole band, the closed row and the open panel, is one grid of cells the plugin lays out itself and paints in a `Client` region, and so are its panes: no native buttons and no text in the app's own font, so the terminal and Claude Desktop draw the same cells (the tests require the two drawings identical). Click any button in it; or click into it, then use its hotkeys, or the arrow keys and Return. VS Code and mobile, which draw no `Client`, get the same rows as text with plain buttons beneath.
 - When the band is narrow, for example beside a pane docked in the terminal, the cards stack in one column, the section titles lose their letter spacing, and the closed row sheds its pieces as above. A row that still does not fit is cut on the right, ending in `…`; the band never runs off its left edge.
 - To put the panel away, use the tab. The `[-]` (× on the desktop) at the band's right end is Claude Code's own control for collapsing the whole band; a plugin cannot remove it.
@@ -152,12 +149,12 @@ THIS SESSION · 1
 
 ## Tokens
 
-The **CONTEXT** card shows how full the context window is now, as the battery (`▕███▍      ▏ 34%`, with the window's size, `of 200k`), and under it one stacked bar of where this session's tokens went, with the total. The closed row shows the battery too. **Details** (`t`), or `/tokens`, opens the Tokens pane, a grid of cells like the band (**Refresh** `r`, **Reset** `x`): the API's own totals (cache read, cache write, new input, output, and the cost where Claude Code keeps one), then each group with its share, what it used, what it holds in the context now, and its calls. Press a group (▸) to open it (▾): its sub-items, most used first, each with the tokens it used, its share of the group, and what it holds in the context now.
+The **CONTEXT** card shows how full the context window is now, as the battery (`▕███▍      ▏ 34%`, with the window's size, `of 200k`), and under it the session's token total. The closed row shows the battery too. **Details** (`t`), or `/tokens`, opens the Tokens pane, a grid of cells like the band (**Refresh** `r`, **Reset** `x`): the API's own totals (cache read, cache write, new input, output, and the cost where Claude Code keeps one), then each group with its share, what it used, what it holds in the context now, and its calls. Press a group (▸) to open it (▾): its sub-items, most used first, each with the tokens it used, its share of the group, and what it holds in the context now.
 
 ```
 ── C O N T E X T ─────────────────── t: details ─
 ▕███▍      ▏ 34%                          of 200k
-████████████████ 1.2M used
+1.2M used
 ```
 
 ```
@@ -215,7 +212,7 @@ user-hud gives Claude an `assumption` tool, and a line in the system prompt sayi
 - `✗` marks it wrong and puts `Not quite: "<guess>". ` in the prompt box, for you to finish with what is right and send. If the box already holds a draft, the draft stays and a toast asks you to send or clear it first.
 - Up to five guesses a call, 140 characters each. The card shows three; `+N more` in its title counts the rest.
 - With the panel closed, **? 4 to check** beside the tab says they are waiting. Click it, or **a: review** in the folded card, to open the panel with the guesses first. On a short band they then stay in full while the other cards fold, so you can mark them; where even that does not fit (one column, 12 rows), the card stays folded.
-- Your next prompt clears them, marked or not.
+- Your next prompt clears them, marked or not. With none left the card stays, reading `nothing to check`.
 - `/hud assume off` takes the tool and the system prompt line away.
 
 ## Next steps
@@ -238,7 +235,7 @@ After each reply, up to three follow-up prompts show in the panel, under **NEXT 
 
 ## Handoff
 
-- **Write handoff** (`h`) runs your `/handoff` command. Without one, it asks Claude to write a note to `.claude/handoffs/<date>-<time>.md`.
+- **Write handoff** (`h`), in the panel's bottom bar, runs your `/handoff` command. Without one, it asks Claude to write a note to `.claude/handoffs/<date>-<time>.md`.
 - **Read handoff** (`r`, or `/read-handoff`) opens the newest note with **Continue from this** (`c`), **Older** (`o`), **Newer** (`n`) and **Rescan** (`r`). The note is drawn as text in the pane's grid of cells: headings bold, code dim, list items wrapped under their text.
 - Notes are found in `HANDOFF.md`, `.claude/`, `.claude/handoffs/`, `handoffs/` and `docs/`. If yours live elsewhere, set **Handoff note location** in `/config`.
 
