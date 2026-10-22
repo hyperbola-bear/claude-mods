@@ -10,7 +10,7 @@ import { ageOf } from './sessions.ts'
 /** Wide enough to say where each session runs, `cli` or `app`. */
 export const ENTRY_MIN_WIDTH = 52
 
-const CARD_SESSIONS = 3
+export const CARD_SESSIONS = 3
 
 type Kind = SessionGroup | 'self'
 

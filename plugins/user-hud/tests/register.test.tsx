@@ -686,7 +686,7 @@ test('the band keeps what other plugins draw above the prompt', { plugins: [othe
     await openPanel(band)
     expect(await band.find({ type: 'Text', text: 'OTHER BAND' })).toBeTruthy()
     expect(await has(band, 'handoff')).toBe(true)
-    expect(await shows(band, /● 5:00/)).toBe(true)
+    expect(await shows(band, /● (cache )?5:00/)).toBe(true)
     await act(band, 'panel')
     await band.unmount()
   }
@@ -698,11 +698,11 @@ test('the corner tab opens and closes the panel, and /hud does the same', async 
   await request($, w, 50_000)
   for (const surface of SURFACES) {
     const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
-    expect((await labelOf(band, 'panel'))).toBe('▐▛▜▌ user-hud ▴')
+    expect((await labelOf(band, 'panel'))).toBe('❖ user-hud ▴')
     expect(await has(band, 'handoff')).toBe(false)
     expect(await band.find({ type: 'Client', key: 'pickers' })).toBe(undefined)
     await act(band, 'panel')
-    expect((await labelOf(band, 'panel'))).toBe('▐▛▜▌ user-hud ▾')
+    expect((await labelOf(band, 'panel'))).toBe('❖ user-hud ▾')
     for (const key of ['handoff', 'tokens', 'sessions', 'keepwarm', 'settings']) {
       expect(await has(band, key), key).toBe(true)
     }
@@ -711,7 +711,7 @@ test('the corner tab opens and closes the panel, and /hud does the same', async 
     }
     // Open, the status moves into the panel rather than showing twice.
     expect(await shows(band, '● 5:00')).toBe(false)
-    expect(await shows(band, /^⚙ s: Settings +▐▛▜▌ user-hud ▾ $/)).toBe(true)
+    expect(await shows(band, /^⚙ s: Settings +❖ user-hud ▾ $/)).toBe(true)
     await act(band, 'settings')
     expect(await shows(band, /^── S E T T I N G S ─+$/)).toBe(true)
     for (const key of ['set:autoKeepWarm', 'set:warnSeconds', 'set:selectorStyle']) expect(await has(band, key), key).toBe(true)
@@ -823,7 +823,7 @@ test('a surface with no Client (VS Code) gets the same rows as text, and its act
   await start($)
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'vscode', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
   expect(await band.find({ type: 'Client', key: 'hud' })).toBe(undefined)
-  expect((await band.find({ type: 'Button', key: 'panel' }))?.props.label).toBe('▐▛▜▌ user-hud ▴')
+  expect((await band.find({ type: 'Button', key: 'panel' }))?.props.label).toBe('❖ user-hud ▴')
   await band.press({ key: 'panel' })
   expect(await band.find({ type: 'Text', text: /Haiku/ })).toBeTruthy()
   expect((await band.find({ type: 'Button', key: 'handoff' }))?.props.hotkey).toBe('h')
@@ -1152,7 +1152,13 @@ test('the CONTEXT card shows the battery and the split, and opens the Tokens pan
     // The stacked bar: a run of cells per group in its colour, 16 cells in all, before the CONTEXT card's total.
     const g = (await cellsOf(band))!
     const y = plain(g).findIndex(l => l.includes('77k used'))
-    const segments = cut(g.rows[y]!, plain(g)[y]!.indexOf('77k used')).filter(r => r.bg.startsWith('#'))
+    // Only the cells right before the total, the bar and its gap: a card in the column beside may draw colour too.
+    const x = plain(g)[y]!.indexOf('77k used')
+    let at = 0
+    const segments = cut(g.rows[y]!, x).filter(r => {
+      at += r.text.length
+      return r.bg.startsWith('#') && at - r.text.length >= x - 17
+    })
     expect(segments.length).toBeGreaterThan(3)
     expect(segments.reduce((n, r) => n + r.text.length, 0)).toBe(16)
     expect(segments.map(r => r.bg)).toContain('#3987e5')
@@ -1307,7 +1313,7 @@ test('a module switched off leaves its part out of the panel, its commands unreg
   for (const surface of SURFACES) {
     const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
     // Closed: the countdown and the tab, no tokens, sessions or model.
-    expect(await linesOf(band)).toEqual(['● 5:00   ▐▛▜▌ user-hud ▴ '])
+    expect(await linesOf(band)).toEqual(['● 5:00   ❖ user-hud ▴ '])
     await act(band, 'panel')
     expect(await shows(band, /cache 5:00/)).toBe(true)
     for (const key of ['keepwarm', 'settings']) expect(await has(band, key), key).toBe(true)
@@ -1338,7 +1344,7 @@ test('with the cache module off nothing counts down, alerts or pings', { options
   expect(w.argv).toEqual([])
   expect(w.forks).toEqual([])
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
-  expect(await shows(band, '▐▛▜▌')).toBe(true) // the tab
+  expect(await shows(band, '❖')).toBe(true) // the tab
   expect(await shows(band, /cache|5:00/)).toBe(false)
   await act(band, 'panel')
   expect(await shows(band, /C A C H E|keep warm/i)).toBe(false)
@@ -1395,7 +1401,7 @@ test('next steps: after a reply a short Haiku call suggests follow-ups; 1 to 3 o
   for (const surface of SURFACES) {
     const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 40 } })
     // Closed, a chip beside the tab says they are there, and opens the panel like the tab.
-    expect(await linesOf(band)).toEqual([expect.stringMatching(/✦ 3 next .* ▐▛▜▌ user-hud ▴ $/)])
+    expect(await linesOf(band)).toEqual([expect.stringMatching(/✦ 3 next .* ❖ user-hud ▴ $/)])
     await openPanel(band)
     expect(await shows(band, /✦ 1: Run the tests/)).toBe(true)
     expect(await shows(band, /✦ 3: Add a test for the empty/)).toBe(true)
@@ -1450,7 +1456,7 @@ test('in a narrow column, beside a docked pane, the band never draws wider than 
         expect(lines.filter(l => l.length > bodyColumns)).toEqual([])
         // Whole names, cut on the right if at all: nothing lost off the left edge.
         if (isOpen) expect(lines).toContainEqual(expect.stringMatching(/^EFFORT *$/))
-        expect(lines.at(-1)).toMatch(/^.*▐▛▜▌/)
+        expect(lines.at(-1)).toMatch(/^.*❖/)
       }
       await act(band, 'panel')
       await band.unmount()
@@ -1503,9 +1509,9 @@ test('sessions: filed by what they need from you, this one apart, dead ones drop
   expect(sh[0]!.slice(3)).toEqual(['sh', `${HOME}/.claude/projects`, SELF_ID, 'aaaa-0002', 'aaaa-0003', 'aaaa-0004', 'aaaa-0005'])
   for (const surface of SURFACES) {
     const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: 100 } })
-    expect(await linesOf(band)).toEqual([expect.stringMatching(/^● 1 needs you {2}● 1 working · ✓ 1 done .* ▐▛▜▌ user-hud ▴ $/)])
-    // A session waits on you: Clawd's eyes are yellow.
-    expect((await cellsOf(band))!.rows[0]!.find(r => r.text === '▛▜')?.bg).toBe('warning')
+    expect(await linesOf(band)).toEqual([expect.stringMatching(/^● 1 needs you {2}● 1 working · ✓ 1 done .* ❖ user-hud ▴ $/)])
+    // A session waits on you: the four diamonds are yellow.
+    expect((await cellsOf(band))!.rows[0]!.find(r => r.text === '❖')?.color).toBe('warning')
     await openPanel(band)
     const lines = (await linesOf(band)).join('\n')
     expect(lines).toMatch(/● 1 needs you {2}● 1 working {2}✓ 1 done +1 asleep/)
@@ -1571,7 +1577,7 @@ test('sessions: read again every 5 seconds, their titles at most once a minute',
   await w.clock.advance(5_000)
   expect(await shows(band, 'needs you')).toBe(false)
   expect(await shows(band, '● 2 working · ✓ 1 done')).toBe(true)
-  expect((await cellsOf(band))!.rows[0]!.find(r => r.text.includes('▛▜'))?.bg).toBe('claude')
+  expect((await cellsOf(band))!.rows[0]!.find(r => r.text === '❖')?.color).toBe('#fff3ec')
   expect(w.argv.filter(a => a[0] === 'ps')).toHaveLength(2)
   expect(w.argv.filter(a => a[0] === 'sh')).toHaveLength(1)
   await w.clock.advance(60_000)
@@ -1640,7 +1646,8 @@ test('guesses: a call adds rows; ✓ marks one right; ✗ drafts the correction 
   w.draft = ''
   await act(band, `assume:wrong:${second}`)
   expect(w.fills).toEqual(['Not quite: "The tab and the countdown both lose the diamond". '])
-  expect(await shows(band, /C H E C K|both lose the diamond/)).toBe(false)
+  expect(await shows(band, 'both lose the diamond')).toBe(false)
+  expect(await shows(band, 'nothing to check')).toBe(true)
   await act(band, 'panel')
   expect(await shows(band, 'to check')).toBe(false)
   await $.tool.call({ tool: ASSUME, guesses: ['The panel opens on the guesses'] } as never)

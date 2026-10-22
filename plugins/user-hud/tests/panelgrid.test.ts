@@ -97,28 +97,29 @@ const OFF: Record<string, Partial<BandView>> = {
 
 const closed = (columns: number, more: Partial<BandView> = {}) => plain(bandGrid({ ...VIEW, isOpen: false, columns, ...more }))[0]
 
-test('the closed row: the least needed piece shortens, then goes, until it fits; last the tab shrinks to its face', () => {
-  expect(closed(160)).toBe('● 1 needs you  ● 52:10  context ▕███▍      ▏ 34%  ● 2 working · ✓ 3 done  ? 4 to check  ✦ 3 next  Opus 5.5 · XHigh  1.2M tokens   ▐▛▜▌ user-hud ▴ ')
+test('the closed row: the least needed piece shortens, then goes, until it fits; last the tab shrinks to its mark', () => {
+  expect(closed(160)).toBe('● 1 needs you  ● 52:10  context ▕███▍      ▏ 34%  ● 2 working · ✓ 3 done  ? 4 to check  ✦ 3 next  Opus 5.5 · XHigh  1.2M tokens   ❖ user-hud ▴ ')
   // Tokens go, the model shortens and goes, next steps shorten and go, the guesses shorten.
-  expect(closed(100)).toBe('● 1 needs you  ● 52:10  context ▕███▍      ▏ 34%  ● 2 working · ✓ 3 done  ?4   ▐▛▜▌ user-hud ▴ ')
+  expect(closed(100)).toBe('● 1 needs you  ● 52:10  context ▕███▍      ▏ 34%  ● 2 working · ✓ 3 done  ?4   ❖ user-hud ▴ ')
   // The guesses go, the sessions shorten and go, the context drops its label.
-  expect(closed(60)).toBe('● 1 needs you  ● 52:10  ▕███▍      ▏ 34%   ▐▛▜▌ user-hud ▴ ')
+  expect(closed(60)).toBe('● 1 needs you  ● 52:10  ▕███▍      ▏ 34%   ❖ user-hud ▴ ')
   // The context goes to its percentage, then goes; the countdown goes.
-  expect(closed(46)).toBe('● 1 needs you  ● 52:10  34%   ▐▛▜▌ user-hud ▴ ')
-  expect(closed(40)).toBe('● 1 needs you   ▐▛▜▌ user-hud ▴ ')
+  expect(closed(46)).toBe('● 1 needs you  ● 52:10  34%   ❖ user-hud ▴ ')
+  expect(closed(40)).toBe('● 1 needs you  ● 52:10   ❖ user-hud ▴ ')
+  expect(closed(36)).toBe('● 1 needs you   ❖ user-hud ▴ ')
   // Who needs you is the last piece to go.
-  expect(closed(24)).toBe('●1   ▐▛▜▌ user-hud ▴ ')
-  expect(closed(20)).toBe(' ▐▛▜▌ user-hud ▴ ')
-  expect(closed(10)).toBe(' ▐▛▜▌ ')
-  expect(closed(4)).toBe(' ▐▛…')
+  expect(closed(20)).toBe('●1   ❖ user-hud ▴ ')
+  expect(closed(16)).toBe(' ❖ user-hud ▴ ')
+  expect(closed(10)).toBe(' ❖ ')
+  expect(closed(2)).toBe(' …')
 })
 
 test('the closed row: keep warm, overage and New chat stand between the context and the countdown', () => {
   const urged = { keepWarm: 'urged' as const, overage: '5-hour limit 103%' }
-  expect(closed(87, urged)).toBe('● 1 needs you  ● 52:10  ⚠ overage   New chat   34%   w: Keep warm    ▐▛▜▌ user-hud ▴ ')
-  expect(closed(82, urged)).toBe('● 1 needs you  ● 52:10  ⚠ overage   New chat    w: Keep warm    ▐▛▜▌ user-hud ▴ ')
-  expect(closed(70, urged)).toBe('● 1 needs you  ● 52:10  ⚠ overage   w: Keep warm    ▐▛▜▌ user-hud ▴ ')
-  const g = bandGrid({ ...VIEW, isOpen: false, columns: 82, ...urged })
+  expect(closed(82, urged)).toBe('● 1 needs you  ● 52:10  ⚠ overage   New chat   34%   w: Keep warm    ❖ user-hud ▴ ')
+  expect(closed(79, urged)).toBe('● 1 needs you  ● 52:10  ⚠ overage   New chat    w: Keep warm    ❖ user-hud ▴ ')
+  expect(closed(70, urged)).toBe('● 1 needs you  ● 52:10  ⚠ overage   w: Keep warm    ❖ user-hud ▴ ')
+  const g = bandGrid({ ...VIEW, isOpen: false, columns: 79, ...urged })
   expect(g.keys).toMatchObject({ w: 'keepwarm', e: 'sessions' })
   expect(textOf(g, 'newchat')).toBe(' New chat ')
   // Quiet, Keep warm stays in the panel; the closed row only offers it once the cache is cooling.
@@ -129,19 +130,17 @@ test('the closed row: who needs you opens the Sessions pane, the guesses the pan
   const g = bandGrid({ ...VIEW, isOpen: false, columns: 160 })
   expect(textOf(g, 'sessions')).toBe('● 1 needs you')
   expect(textOf(g, 'assume:review')).toBe('? 4 to check')
-  expect(g.hits.filter(h => h.id === 'panel').map(h => textOf({ ...g, hits: [h] }, 'panel'))).toEqual(['✦ 3 next', ' ▐▛▜▌ user-hud ▴ '])
+  expect(g.hits.filter(h => h.id === 'panel').map(h => textOf({ ...g, hits: [h] }, 'panel'))).toEqual(['✦ 3 next', ' ❖ user-hud ▴ '])
   expect(g.keys).toEqual({ e: 'sessions', a: 'assume:review' })
 })
 
-test('the tab is Clawd’s face: its eyes take the warning ground only while another session needs you', () => {
-  const eyes = (v: BandView) => bandGrid(v).rows.flat().find(r => r.text.includes('▛▜'))
-  expect(eyes({ ...VIEW, isOpen: false })).toMatchObject({ color: '#fff3ec', bg: 'warning' })
-  expect(eyes(VIEW)).toMatchObject({ bg: 'warning' })
+test('the tab’s four diamonds turn yellow only while another session needs you', () => {
+  const mark = (v: BandView) => bandGrid(v).rows.flat().find(r => r.text === '❖')
+  expect(mark({ ...VIEW, isOpen: false })).toMatchObject({ color: 'warning', bg: 'claude' })
+  expect(mark(VIEW)).toMatchObject({ color: 'warning' })
   const calm = { ...SESSIONS, byGroup: { ...SESSIONS.byGroup, needs: [] } }
-  expect(eyes({ ...VIEW, isOpen: false, sessions: { list: calm, now: NOW } })).toMatchObject({ color: '#fff3ec', bg: 'claude' })
-  expect(eyes({ ...VIEW, sessions: null })).toMatchObject({ bg: 'claude' })
-  const face = bandGrid({ ...VIEW, isOpen: false }).rows[0]!.filter(r => /[▐▛▜▌]/.test(r.text))
-  expect(face.map(r => [r.text, r.bg])).toEqual([['▐', 'claude'], ['▛▜', 'warning'], ['▌', 'claude']])
+  expect(mark({ ...VIEW, isOpen: false, sessions: { list: calm, now: NOW } })).toMatchObject({ color: '#fff3ec', bg: 'claude' })
+  expect(mark({ ...VIEW, sessions: null })).toMatchObject({ color: '#fff3ec' })
 })
 
 /** Where each card's title rule starts: one x per column. */
@@ -163,20 +162,29 @@ test('the cards: one column at 60 cells, two at 100, three at 150, two cells bet
   for (const columns of [60, 100, 150]) for (const l of plain(bandGrid({ ...VIEW, columns }))) expect(l.length).toBe(Math.min(columns, 132))
 })
 
-test('the cards in full at 24 rows, each folded to one row at 12', () => {
+test('the cards in full at 24 rows; at 12 they fold to one row each from the last card up', () => {
   const full = plain(bandGrid({ ...VIEW, columns: 100, maxRows: 24 }))
   expect(full.length).toBeLessThanOrEqual(24)
   for (const title of ['S E S S I O N S', 'C O N T E X T', 'M O D E L', 'C A C H E', 'C H E C K', 'N E X T', 'H A N D O F F']) expect(full.some(l => l.includes(title)), title).toBe(true)
-  expect(full).toContainEqual(expect.stringMatching(/^── S E S S I O N S ─+ e: expand ─ /))
-  expect(full).toContainEqual(expect.stringMatching(/^● 1 needs you {2}● 2 working {2}✓ 3 done +1 asleep {2}/))
-  expect(full).toContainEqual(expect.stringMatching(/^● Settle-1804 exploration +2m {2}/))
+  // Down the first column, then the second: model, cache, context | sessions, guesses, next steps, handoff.
+  expect(full[0]).toMatch(/^── M O D E L {3}· {3}E F F O R T ─+ {2}── S E S S I O N S ─+ e: expand ─$/)
+  expect(full).toContainEqual(expect.stringMatching(/ {2}● 1 needs you {2}● 2 working {2}✓ 3 done +1 asleep$/))
+  expect(full).toContainEqual(expect.stringMatching(/ {2}● Settle-1804 exploration +2m$/))
+  expect(full).toContainEqual(expect.stringMatching(/^── C A C H E ─+ {2}── C H E C K /))
+  expect(full.findIndex(l => l.startsWith('── C O N T E X T'))).toBeGreaterThan(full.findIndex(l => l.startsWith('── C A C H E')))
+  expect(full.findIndex(l => l.includes('── H A N D O F F'))).toBeGreaterThan(full.findIndex(l => l.includes('── N E X T')))
   const folded = plain(bandGrid({ ...VIEW, columns: 100, maxRows: 12 }))
   expect(folded.length).toBeLessThanOrEqual(12)
-  expect(folded.some(l => l.includes('── '))).toBe(false)
-  expect(folded[0]).toMatch(/^SESSIONS +●1 ●2 ✓3 1 asleep {2}CONTEXT ▕███▍ {6}▏ 34% +1\.2M$/)
-  expect(folded[2]).toMatch(/^MODEL Opus 5\.5 · XHigh +m: pick {2}● 52:10 ▰▰▰▰▰▰▰▰▰▱ +w: Keep warm $/)
-  expect(folded[4]).toMatch(/^\? 4 to check +a: review {2}✦ 1: Run the tests +2 3$/)
-  expect(folded[6]).toMatch(/^✦ h: Write {3}◆ r: Read {3}newest · 2h ago +$/)
+  // Model, cache and context stay in full; sessions, guesses, next steps and handoff fold, one row each, no gap.
+  expect(folded[0]).toMatch(/^── M O D E L .*── C O N T E X T ─+ t: details ─$/)
+  expect(folded.some(l => l.includes('── C A C H E'))).toBe(true)
+  expect(folded.some(l => /S E S S I O N S|C H E C K|N E X T|H A N D O F F/.test(l))).toBe(false)
+  const at = folded.findIndex(l => / {2}SESSIONS +●1 ●2 ✓3 1 asleep$/.test(l))
+  expect(folded.slice(at + 1, at + 4)).toEqual([
+    expect.stringMatching(/ {2}\? 4 to check +a: review$/),
+    expect.stringMatching(/ {2}✦ 1: Run the tests +2 3$/),
+    expect.stringMatching(/ {2}✦ h: Write {3}◆ r: Read {3}newest · 2h ago +$/),
+  ])
   // Bold where the person is needed.
   const g = bandGrid({ ...VIEW, columns: 100, maxRows: 24 })
   expect(g.rows.flat().find(r => r.text === 'Settle-1804 exploration')?.isBold).toBe(true)
@@ -186,23 +194,30 @@ test('rows too few for every folded card: the last ones go behind +N more, which
   const g = bandGrid({ ...VIEW, columns: 60, maxRows: 6 })
   const rows = plain(g)
   expect(rows).toHaveLength(6)
-  expect(rows.filter(l => /^(SESSIONS|CONTEXT|MODEL) /.test(l))).toHaveLength(3)
-  expect(textOf(g, 'more:cache')).toBe(' +4 more ')
-  expect(rows.at(-1)).toMatch(/^⚙ s: Settings {2}\+4 more +▐▛▜▌ user-hud ▾ $/)
-  const rotated = plain(bandGrid({ ...VIEW, columns: 60, maxRows: 6, lead: 'cache' }))
-  expect(rotated[0]).toMatch(/^● 52:10 ▰▰▰▰▰▰▰▰▰▱ +w: Keep warm $/)
-  expect(rotated.join('\n')).toMatch(/\? 4 to check/)
-  expect(bandGrid({ ...VIEW, columns: 60, maxRows: 6, lead: 'cache' }).hits.map(h => h.id)).toContain('more:handoff')
+  expect(rows.slice(0, 5)).toEqual([
+    expect.stringMatching(/^MODEL /),
+    expect.stringMatching(/^● 52:10/),
+    expect.stringMatching(/^CONTEXT /),
+    expect.stringMatching(/^SESSIONS /),
+    expect.stringMatching(/^\? 4 to check/),
+  ])
+  expect(textOf(g, 'more:next')).toBe(' +2 more ')
+  expect(rows.at(-1)).toMatch(/^⚙ s: Settings {2}\+2 more +❖ user-hud ▾ $/)
+  const rotated = plain(bandGrid({ ...VIEW, columns: 60, maxRows: 6, lead: 'next' }))
+  expect(rotated[0]).toMatch(/^✦ 1: Run the tests +2 3$/)
+  expect(rotated.join('\n')).toMatch(/✦ h: Write/)
+  expect(bandGrid({ ...VIEW, columns: 60, maxRows: 6, lead: 'next' }).hits.map(h => h.id)).toContain('more:sessions')
   expect(bandGrid({ ...VIEW, columns: 150, maxRows: 24 }).hits.some(h => h.id.startsWith('more:'))).toBe(false)
-  expect(cardsOf({ ...VIEW, lead: 'next' }, 42).map(c => c.id)).toEqual(['next', 'handoff', 'sessions', 'context', 'model', 'cache', 'assume'])
+  expect(cardsOf(VIEW, 42).map(c => c.id)).toEqual(['model', 'cache', 'context', 'sessions', 'assume', 'next', 'handoff'])
+  expect(cardsOf({ ...VIEW, lead: 'next' }, 42).map(c => c.id)).toEqual(['next', 'handoff', 'model', 'cache', 'context', 'sessions', 'assume'])
 })
 
 test('pressed to the front, the guesses stay in full while the rest fold, so a 12-row band can still mark them', () => {
   const g = bandGrid({ ...VIEW, columns: 100, maxRows: 12, lead: 'assume' })
   const rows = plain(g)
   expect(rows.length).toBeLessThanOrEqual(12)
-  expect(rows[0]).toMatch(/^── C H E C K {3}M Y {3}G U E S S E S ─+ \+1 more ─ {2}✦ 1: Run the tests +2 3$/)
-  expect(rows[1]).toMatch(/^✓ ✗ {2}"Terminal name" = the title Claude gives th… +$/)
+  expect(rows[0]).toMatch(/^── C H E C K {3}M Y {3}G U E S S E S ─+ \+1 more ─ {2}── H A N D O F F ─+$/)
+  expect(rows[1]).toMatch(/^✓ ✗ {2}"Terminal name" = the title Claude gives th… {2}✦ h: Write/)
   expect(g.hits.map(h => h.id)).toEqual(expect.arrayContaining(['assume:right:g1', 'assume:wrong:g1', 'assume:right:g3', 'assume:wrong:g3']))
   expect(rows.filter(l => /SESSIONS +●1|CONTEXT ▕|MODEL Opus|● 52:10|✦ h: Write/.test(l))).toHaveLength(5)
   expect(bandGrid({ ...VIEW, columns: 100, maxRows: 12 }).hits.some(h => h.id.startsWith('assume:right'))).toBe(false)
@@ -230,20 +245,39 @@ test('the guesses card: each guess with ✓ and ✗ before it, three at most', (
   expect(textOf(g, 'assume:wrong:g2')).toBe('✗')
   expect(g.rows[1]!.find(r => r.text === '✓')?.color).toBe('success')
   expect(g.rows[1]!.find(r => r.text === '✗')?.color).toBe('error')
-  expect(cardsOf({ ...VIEW, guesses: [] }, 60).some(c => c.id === 'assume')).toBe(false)
+  // With none to check the card keeps its place and its rows, and says so; only the module off takes it away.
+  const none = cardsOf({ ...VIEW, guesses: [] }, 60).find(c => c.id === 'assume')!
+  expect(plain(none.full)).toEqual([expect.stringMatching(/^── C H E C K /), expect.stringMatching(/^nothing to check +$/), ' '.repeat(0), ' '.repeat(0)])
+  expect(plain(none.folded)).toEqual([expect.stringMatching(/^GUESSES nothing to check +$/)])
+  expect(cardsOf({ ...VIEW, guesses: null }, 60).some(c => c.id === 'assume')).toBe(false)
+})
+
+test('each card keeps its own rows whatever it holds, so filling one moves no other', () => {
+  const heights = (v: BandView) => Object.fromEntries(cardsOf(v, 49).map(c => [c.id, c.full.rows.length]))
+  const empty: BandView = { ...VIEW, guesses: [], next: { items: [], note: null }, cache: { ...VIEW.cache!, detail: null, bar: [] }, handoff: { hasNewest: false, note: 'no notes yet' } }
+  const one = { ...SESSIONS, byGroup: { ...SESSIONS.byGroup, needs: [], working: SESSIONS.byGroup.working.slice(0, 1), done: [] } }
+  expect(heights({ ...empty, sessions: { list: one, now: NOW } })).toEqual(heights(VIEW))
+  expect(heights(VIEW)).toEqual({ model: 5, cache: 3, context: 3, sessions: 5, assume: 4, next: 4, handoff: 2 })
+  const a = plain(bandGrid({ ...VIEW, columns: 100, maxRows: 30 }))
+  const b = plain(bandGrid({ ...empty, columns: 100, maxRows: 30 }))
+  // Where each card's title rule starts, row by row.
+  const titles = (rows: string[]) => rows.map(l => [...l.matchAll(/(?<=^| {2})── /g)].map(m => m.index))
+  expect(b.length).toBe(a.length)
+  expect(titles(b)).toEqual(titles(a))
 })
 
 test('s: the settings in place of the cards, a row each, folded into pills when short; s again goes back', () => {
   const g = bandGrid({ ...VIEW, view: 'settings' })
   expect(plain(g)).toContainEqual(expect.stringMatching(/^── S E T T I N G S ─+$/))
   expect(plain(g)).toContainEqual(expect.stringMatching(/^● Alert sound +Glass at the warning +● On $/))
-  expect(plain(g).at(-1)).toMatch(/^⚙ s: Back +▐▛▜▌ user-hud ▾ $/)
+  expect(plain(g).at(-1)).toMatch(/^⚙ s: Back +❖ user-hud ▾ $/)
   expect(g.keys).toEqual({ s: 'settings' })
   const short = plain(bandGrid({ ...VIEW, view: 'settings', maxRows: 3 }))
   expect(short).toHaveLength(2)
   expect(short[0]).toMatch(/^ ● Alert sound {3}2:00 +$/)
   expect(bandGrid(VIEW).keys).toEqual({ s: 'settings', e: 'sessions', t: 'tokens', w: 'keepwarm', h: 'handoff', r: 'readhandoff', 1: 'next:0', 2: 'next:1', 3: 'next:2' })
-  expect(bandGrid({ ...VIEW, maxRows: 12, columns: 100 }).keys).toMatchObject({ a: 'assume:review', m: 'styles' })
+  expect(bandGrid({ ...VIEW, maxRows: 12, columns: 100 }).keys).toMatchObject({ a: 'assume:review', e: 'sessions' })
+  expect(bandGrid({ ...VIEW, maxRows: 12, columns: 60 }).keys).toMatchObject({ a: 'assume:review', m: 'styles' })
   const none = bandGrid({ ...VIEW, settings: [], view: 'settings' })
   expect(none.keys.s).toBe(undefined)
   expect(plain(none).some(l => l.includes('S E S S I O N S'))).toBe(true)
@@ -262,7 +296,7 @@ test('the layout holds at every width from 28 to 160, with every module on and w
           for (const l of plain(g)) if (l.length > columns) faults.push(`${where}: a row of ${l.length}`)
           for (const h of g.hits) if (h.x1 > columns) faults.push(`${where}: ${h.id} ends at ${h.x1}`)
           if (g.rows.length > (shape.isOpen ? maxRows : 1)) faults.push(`${where}: ${g.rows.length} rows`)
-          if (!plain(g).at(-1)?.includes('▐▛▜▌')) faults.push(`${where}: no face`)
+          if (!plain(g).at(-1)?.includes('❖')) faults.push(`${where}: no face`)
           if (!g.hits.some(h => h.id === 'panel')) faults.push(`${where}: no tab`)
         }
       }
@@ -320,3 +354,4 @@ test('wide: the cards go side by side in fewer rows than one column, every actio
   expect(new Set(wide.hits.map(h => h.id))).toEqual(new Set(one.hits.map(h => h.id)))
   expect(wide.keys).toEqual(one.keys)
 })
+

@@ -29,14 +29,14 @@ Turn a module off and it leaves the panel and the closed row, its commands are n
 Closed, it is one row at the right edge. As the row narrows, the least needed piece shortens, then goes, until it fits:
 
 ```
-● 1 needs you  ● 52:10  context ▕███▍      ▏ 34%  ● 2 working · ✓ 3 done  ? 4 to check  ✦3   ▐▛▜▌ user-hud ▴
-                                                  ● 1 needs you  ● 52:10  ▕███▍      ▏ 34%   ▐▛▜▌ user-hud ▴
-                                                                                        ●1   ▐▛▜▌ user-hud ▴
-                                                                                                        ▐▛▜▌
+   ● 1 needs you  ● 52:10  context ▕███▍      ▏ 34%  ● 2 working · ✓ 3 done  ? 4 to check  ✦3   ❖ user-hud ▴
+                                                     ● 1 needs you  ● 52:10  ▕███▍      ▏ 34%   ❖ user-hud ▴
+                                                                                           ●1   ❖ user-hud ▴
+                                                                                                           ❖
 ```
 
-- The pieces, left to right: who needs you, the cache countdown, the context battery, what your other sessions are doing, guesses to check, next steps waiting, the model and effort (`Opus 5.5 · XHigh`), and the session's token total (`1.2M tokens`). The token total goes first, then the model and effort, next steps, the guesses, the other sessions, the context and the countdown, each shortening before it goes (`Opus · XH`, `✦3`, `?4`, `●2 ✓3`). Who needs you goes last, and then the tab keeps only its face.
-- The tab is Clawd's face, `▐▛▜▌`, in cream on Claude's orange. While another session needs you, its eyes (the two empty quarters) turn yellow, so the corner tells you even with nothing else on show.
+- The pieces, left to right: who needs you, the cache countdown, the context battery, what your other sessions are doing, guesses to check, next steps waiting, the model and effort (`Opus 5.5 · XHigh`), and the session's token total (`1.2M tokens`). The token total goes first, then the model and effort, next steps, the guesses, the other sessions, the context and the countdown, each shortening before it goes (`Opus · XH`, `✦3`, `?4`, `●2 ✓3`). Who needs you goes last, and then the tab keeps only its mark.
+- The tab's mark is four diamonds, `❖`, in cream on Claude's orange. While another session needs you, they turn yellow, so the corner tells you even with nothing else on show.
 - The countdown's dot is a pie of the cache life left: `●` while nearly all of it is, then `◕`, `◑`, `◔`, and `○` near the end and once cold. Its colour follows the cache: green while warm, yellow with 2 minutes or less left, red once cold.
 - The context is a battery: ten cells that fill left to right as the context window does, green up to half, yellow up to three quarters, red past that, then the percentage (the figure the status line reads). Short of room, it drops the word `context`, then the cells, leaving `34%`.
 - The model is drawn in its colour and the effort in its own, letter by letter (the whole rainbow for Ultracode).
@@ -46,40 +46,44 @@ Closed, it is one row at the right edge. As the row narrows, the least needed pi
 Click the tab (or run `/hud`) and the panel opens above it, as cards. Open or closed is remembered across sessions.
 
 ```
-── S E S S I O N S ────────────────── e: expand ─  ── C O N T E X T ─────────────────── t: details ─
-● 1 needs you  ● 2 working  ✓ 3 done     1 asleep  ▕███▍      ▏ 34%                          of 200k
-● Rename the billing flags                     2m  ████████████████ 1.2M used
-● Fix the flaky checkout test                  1m
-● Draft the release notes                      3m  ── M O D E L   ·   E F F O R T ──────────────────
-                                                   MODEL   ▄ Haiku 4.5 ▄▄ Sonnet 5.5 ███ Opus 5.5
-── C A C H E ────────────────────────────────────          ▄▄▄▄ Fable 5.1
-● cache 52:10 ▰▰▰▰▰▰▰▰▰▱                           EFFORT  ▄ Low ▄▄ Medium ▄▄▄ High ████ XHigh
-182k cached · hit 94% · 1h          w: Keep warm           ▄▄▄▄▄ Max ▄▄▄▄▄▄▄ Ultracode
+── M O D E L   ·   E F F O R T ──────────────────  ── S E S S I O N S ────────────────── e: expand ─
+MODEL   ▄ Haiku 4.5 ▄▄ Sonnet 5.5 ███ Opus 5.5     ● 1 needs you  ● 2 working  ✓ 3 done     1 asleep
+        ▄▄▄▄ Fable 5.1                             ● Rename the billing flags                     2m
+EFFORT  ▄ Low ▄▄ Medium ▄▄▄ High ████ XHigh        ● Fix the flaky checkout test                  1m
+        ▄▄▄▄▄ Max ▄▄▄▄▄▄▄ Ultracode                ● Draft the release notes                      3m
 
-── C H E C K   M Y   G U E S S E S ──── +1 more ─  ── N E X T   S T E P S ──────────────────────────
-✓ ✗  The tests run with npm test, from the repo …  ✦ 1: Run the tests
-✓ ✗  "Done" means merged, not only approved        ✦ 2: Commit this and open a PR
-✓ ✗  Keep the old endpoint until its callers move  ✦ 3: Add a test for the empty case
+── C A C H E ────────────────────────────────────  ── C H E C K   M Y   G U E S S E S ──── +1 more ─
+● cache 52:10 ▰▰▰▰▰▰▰▰▰▱                           ✓ ✗  The tests run with npm test, from the repo …
+182k cached · hit 94% · 1h          w: Keep warm   ✓ ✗  "Done" means merged, not only approved
+                                                   ✓ ✗  Keep the old endpoint until its callers move
+── C O N T E X T ─────────────────── t: details ─
+▕███▍      ▏ 34%                          of 200k  ── N E X T   S T E P S ──────────────────────────
+████████████████ 1.2M used                         ✦ 1: Run the tests
+                                                   ✦ 2: Commit this and open a PR
+                                                   ✦ 3: Add a test for the empty case
 
-── H A N D O F F ────────────────────────────────
-✦ h: Write   ◆ r: Read   newest · 2h ago
-⚙ s: Settings                                                                       ▐▛▜▌ user-hud ▾
+                                                   ── H A N D O F F ────────────────────────────────
+                                                   ✦ h: Write   ◆ r: Read   newest · 2h ago
+⚙ s: Settings                                                                          ❖ user-hud ▾
 ```
 
-- The cards sit in one, two or three columns, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. Each card goes into the shortest column, a blank row under it. They come in this order, each only while its module is on: sessions, context, model and effort, cache, guesses, next steps, handoff. The guesses and next steps cards show only when they hold something.
-- When the band is short (the desktop shows 12 rows), every card folds to one row, all but a card brought to the front, which stays in full where it fits:
+- The cards sit in one, two or three columns, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. They come in this order, each only while its module is on: model and effort, cache, context, sessions, guesses, next steps, handoff. They read top to bottom: down the first column, then the next, a blank row between cards, cut where the columns come out most even (the left ones take a card more on a tie).
+- When the band is short (the desktop shows 12 rows), the cards fold to one row each, starting from the last and working up, until the rest fit in full. A card brought to the front goes first, so it folds last. Folded cards sit one under another with no blank row between them:
 
 ```
-SESSIONS                        ●1 ●2 ✓3 1 asleep  CONTEXT ▕███▍      ▏ 34%                     1.2M
-
-MODEL Opus 5.5 · XHigh                    m: pick  ● 52:10 ▰▰▰▰▰▰▰▰▰▱                  w: Keep warm
-
-? 4 to check                            a: review  ✦ 1: Run the tests                            2 3
-
-✦ h: Write   ◆ r: Read   newest · 2h ago
-⚙ s: Settings                                                                       ▐▛▜▌ user-hud ▾
+── M O D E L   ·   E F F O R T ──────────────────  ── C O N T E X T ─────────────────── t: details ─
+ Haiku 4.5  Sonnet 5.5   Opus 5.5    Fable 5.1     ▕███▍      ▏ 34%                          of 200k
+▔▔▔▔▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔▔▔▔▔             ▔▔▔▔▔▔▔▔▔▔▔    ████████████████ 1.2M used
+  Low   Medium   High    XHigh    Max    Ultra
+▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔         ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔    SESSIONS                        ●1 ●2 ✓3 1 asleep
+                                                   ? 4 to check                            a: review
+── C A C H E ────────────────────────────────────  ✦ 1: Run the tests                            2 3
+● cache 52:10 ▰▰▰▰▰▰▰▰▰▱                           ✦ h: Write   ◆ r: Read   newest · 2h ago
+182k cached · hit 94% · 1h          w: Keep warm
+⚙ s: Settings                                                                          ❖ user-hud ▾
 ```
 
+- Each card keeps its own space, whatever it holds: in full, sessions take 5 rows, guesses and next steps 4, the cache and context 3, handoff 2, with blank rows where content is short. The guesses and next steps cards stay on show when empty (`nothing to check`, `suggested after each reply`). So one card filling or emptying never moves another, and which cards fold depends only on the rows and the order, never on what they hold.
 - When even the folded cards need more rows than there are, the last ones go and **+N more** in the bottom bar says how many; press it and they come first.
 - **⚙ s: Settings** turns the panel to the settings, and **⚙ s: Back** turns it back to the cards. When the rows are too few for them, the settings fold onto one line of pills.
 
@@ -90,7 +94,7 @@ MODEL Opus 5.5 · XHigh                    m: pick  ● 52:10 ▰▰▰▰▰▰
 ● Mac alert        Keep warm button, closes in 7s                  ● On
 ◇ Alert at         time left when the alert fires                  2:00
 ◇ Picker style     Rail, Ladder or Meter                           Rail
-⚙ s: Back                                               ▐▛▜▌ user-hud ▾
+⚙ s: Back                                                  ❖ user-hud ▾
 ```
 
 - **Model** runs `/model haiku|sonnet|opus|fable`. Switching models starts the prompt cache over, and the countdown says so.
@@ -215,7 +219,7 @@ user-hud gives Claude an `assumption` tool, and a line in the system prompt sayi
 - `✗` marks it wrong and puts `Not quite: "<guess>". ` in the prompt box, for you to finish with what is right and send. If the box already holds a draft, the draft stays and a toast asks you to send or clear it first.
 - Up to five guesses a call, 140 characters each. The card shows three; `+N more` in its title counts the rest.
 - With the panel closed, **? 4 to check** beside the tab says they are waiting. Click it, or **a: review** in the folded card, to open the panel with the guesses first. On a short band they then stay in full while the other cards fold, so you can mark them; where even that does not fit (one column, 12 rows), the card stays folded.
-- Your next prompt clears them, marked or not.
+- Your next prompt clears them, marked or not. With none left the card stays, reading `nothing to check`.
 - `/hud assume off` takes the tool and the system prompt line away.
 
 ## Next steps

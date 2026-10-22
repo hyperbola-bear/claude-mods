@@ -3,11 +3,11 @@
  *
  * Collapsed, it is one row at the band's right edge: who needs you, the cache
  * countdown, the context battery, what the other sessions do, the guesses to
- * check, next steps, model · effort, and the tab with Clawd's face, whose eyes
+ * check, next steps, model · effort, and the tab with its four diamonds, which
  * turn yellow while another session waits on you. The least needed pieces
  * shorten, then go, when the row is narrow. The tab (or /hud) opens the panel
- * above it: cards in one to three columns (sessions, context, model and effort,
- * cache, guesses, next steps, handoff), and behind `s` the settings toggled most
+ * above it: cards down one to three columns (model and effort, cache, context,
+ * sessions, guesses, next steps, handoff), and behind `s` the settings toggled most
  * (written through /config). Open or closed is remembered.
  *
  * 1. Prompt cache countdown. Every main-thread model request refreshes the

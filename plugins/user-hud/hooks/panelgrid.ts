@@ -7,7 +7,7 @@ import type { Grid, Piece, Run, Span } from './cells.ts'
 import { hintedRule } from './hud.ts'
 import { fittedStyle, layout } from './selectorgrid.ts'
 import type { GridField } from './selectorgrid.ts'
-import { sessionChips, sessionsCard } from './sessionsview.ts'
+import { CARD_SESSIONS, sessionChips, sessionsCard } from './sessionsview.ts'
 
 /** One settings row: a toggle (On/Off) or a choice that cycles through its values. */
 export type Setting = { key: string; label: string; desc: string; kind: 'toggle' | 'choice'; isOn: boolean; value: string }
@@ -58,7 +58,7 @@ export type Band = Grid & { keys: Record<string, string>; width: number }
 /** A card of the open panel, as it draws with rows to spare and as one row. */
 export type Card = { id: CardId; full: Grid; folded: Grid }
 
-export const CARD_ORDER: readonly CardId[] = ['sessions', 'context', 'model', 'cache', 'assume', 'next', 'handoff']
+export const CARD_ORDER: readonly CardId[] = ['model', 'cache', 'context', 'sessions', 'assume', 'next', 'handoff']
 
 export const PANEL_MAX = 132
 
@@ -90,21 +90,19 @@ const HOTKEYS: Record<string, string> = {
 
 const text = (s: string, look = {}): Piece => piece(s, look)
 
-const FACE = '#fff3ec'
+const MARK = '#fff3ec'
 
-/** Clawd's face in four cells, its eyes the empty quadrants: yellow while another session needs you. */
-function face(needsYou: boolean): Run[] {
+/** The four diamonds, `❖`, in cream on Claude's orange: yellow while another session needs you. */
+function mark(needsYou: boolean): Run[] {
   const r: Run[] = []
   put(r, ' ', { bg: 'claude' })
-  put(r, '▐', { color: FACE, bg: 'claude' })
-  put(r, '▛▜', { color: FACE, bg: needsYou ? 'warning' : 'claude' })
-  put(r, '▌', { color: FACE, bg: 'claude' })
+  put(r, '❖', { color: needsYou ? 'warning' : MARK, bg: 'claude', isBold: true })
   return r
 }
 
-function tab(isOpen: boolean, needsYou: boolean, isFaceOnly = false): Piece {
-  const r = face(needsYou)
-  put(r, isFaceOnly ? ' ' : ` user-hud ${isOpen ? '▾' : '▴'} `, { bg: 'claude', isBold: !isFaceOnly })
+function tab(isOpen: boolean, needsYou: boolean, isMarkOnly = false): Piece {
+  const r = mark(needsYou)
+  put(r, isMarkOnly ? ' ' : ` user-hud ${isOpen ? '▾' : '▴'} `, { bg: 'claude', isBold: !isMarkOnly })
   return { runs: r, action: 'panel' }
 }
 
@@ -159,21 +157,21 @@ function closedChips(v: BandView): Chip[] {
 
 const rowWidth = (ps: readonly Piece[]) => spanOf(ps, 2)
 
-/** The closed row: the least needed piece shortens, then goes, until the row fits; last the tab shrinks to its face. */
+/** The closed row: the least needed piece shortens, then goes, until the row fits; last the tab shrinks to its mark. */
 function closedRow(v: BandView): Band {
   const needsYou = needsYouOf(v)
   const chips = closedChips(v)
   // Which form each chip is drawn in; one past its last form, it is left out.
   const form = chips.map(() => 0)
-  let isFaceOnly = false
-  const pieces = () => [...chips.flatMap((c, i) => c.forms.slice(form[i], (form[i] ?? 0) + 1)), tab(false, needsYou, isFaceOnly)]
+  let isMarkOnly = false
+  const pieces = () => [...chips.flatMap((c, i) => c.forms.slice(form[i], (form[i] ?? 0) + 1)), tab(false, needsYou, isMarkOnly)]
   while (rowWidth(pieces()) > v.columns) {
     const lowest = chips
       .map((c, i) => ({ c, i }))
       .filter(({ c, i }) => (form[i] ?? 0) < c.forms.length)
       .sort((a, b) => a.c.priority - b.c.priority)[0]
     if (!lowest) {
-      isFaceOnly = true
+      isMarkOnly = true
       break
     }
     form[lowest.i] = (form[lowest.i] ?? 0) + 1
@@ -247,8 +245,12 @@ function cacheCard(v: BandView, w: number): Card | null {
 const CARD_GUESSES = 3
 
 function guessesCard(v: BandView, w: number): Card | null {
-  const gs = v.guesses ?? []
-  if (gs.length === 0) return null
+  const gs = v.guesses
+  if (!gs) return null
+  if (gs.length === 0) {
+    const none = text('nothing to check', { isDim: true })
+    return { id: 'assume', full: gridOf([hintedRule('CHECK MY GUESSES', w), line(w, [none])]), folded: gridOf([line(w, [text('GUESSES', { isDim: true }), none])]) }
+  }
   const more = gs.length > CARD_GUESSES ? [text(`+${gs.length - CARD_GUESSES} more`, { isDim: true })] : []
   const rows = gs
     .slice(0, CARD_GUESSES)
@@ -260,12 +262,15 @@ function guessesCard(v: BandView, w: number): Card | null {
   }
 }
 
+/** Next steps suggested after a reply, at most. */
+const NEXT_STEPS = 3
+
 function nextCard(v: BandView, w: number): Card | null {
   const nx = v.next
-  if (!nx || (nx.items.length === 0 && !nx.note)) return null
+  if (!nx) return null
   const star = text('✦', { color: 'claude' })
   if (nx.items.length === 0) {
-    const note = line(w, [star, text(nx.note ?? '', { isDim: true })])
+    const note = line(w, [star, text(nx.note ?? 'suggested after each reply', { isDim: true })])
     return { id: 'next', full: gridOf([hintedRule('NEXT STEPS', w), note]), folded: gridOf([note]) }
   }
   const rest = nx.items.slice(1).map((_, i) => piece(`${i + 2}`, { color: 'claude', isBold: true }, `next:${i + 1}`))
@@ -300,22 +305,86 @@ const CARDS: Record<CardId, (v: BandView, w: number) => Card | null> = {
   handoff: handoffCard,
 }
 
-/** The cards whose modules are on and have something to show, in order from the lead card round. */
+/** A sample of the longest cache detail, to know at a width whether Keep warm takes a row of its own. */
+const CACHE_DETAIL_SAMPLE = '1.2M cached · hit 100% · 1h'
+
+/**
+ * Rows each card takes in full, whatever it holds right now: a card short of content keeps blank rows, so no card
+ * moves when another fills or empties. More content than this (the overage rows) still grows a card.
+ */
+function spaceOf(id: CardId, w: number): number {
+  switch (id) {
+    case 'sessions':
+      return 2 + CARD_SESSIONS
+    case 'assume':
+      return 1 + CARD_GUESSES
+    case 'next':
+      return 1 + NEXT_STEPS
+    case 'context':
+      return 3
+    case 'cache':
+      return fits(w, [text(CACHE_DETAIL_SAMPLE)], [pill('w: Keep warm', 'keepwarm', 'subtle')]) ? 3 : 4
+    case 'handoff':
+      return 2
+    case 'model':
+      return 0
+  }
+}
+
+/** The grid with blank rows under it, up to `rows`. */
+function padded(g: Grid, rows: number): Grid {
+  if (g.rows.length >= rows) return g
+  const b = builder()
+  b.append(g)
+  while (b.grid.rows.length < rows) b.add([])
+  return b.grid
+}
+
+/** The cards whose modules are on, each in its own space, in order from the lead card round. */
 export function cardsOf(v: BandView, w: number): Card[] {
-  const list = CARD_ORDER.map(id => CARDS[id](v, w)).filter((c): c is Card => c !== null)
+  const list = CARD_ORDER.map(id => CARDS[id](v, w))
+    .filter((c): c is Card => c !== null)
+    .map(c => ({ ...c, full: padded(c.full, spaceOf(c.id, w)) }))
   const i = v.lead ? list.findIndex(c => c.id === v.lead) : -1
   return i > 0 ? [...list.slice(i), ...list.slice(0, i)] : list
 }
 
-/** Each card into the shortest column, a blank row between cards in a column. */
+/** A blank row between two cards in a column, unless both are folded to one row. */
+const gapBefore = (cards: readonly Grid[], i: number) => (i > 0 && (cards[i]!.rows.length > 1 || cards[i - 1]!.rows.length > 1) ? 1 : 0)
+
+/** A column's rows: its cards and the blank rows between them. */
+const stackHeight = (cards: readonly Grid[]) => cards.reduce((n, c, i) => n + c.rows.length + gapBefore(cards, i), 0)
+
+/** Every way to cut the cards, in order, into `count` runs of at least one card each. */
+function splits(cards: readonly Grid[], count: number): Grid[][][] {
+  if (count <= 1) return [[[...cards]]]
+  const out: Grid[][][] = []
+  for (let i = 1; i <= cards.length - count + 1; i += 1) for (const rest of splits(cards.slice(i), count - 1)) out.push([cards.slice(0, i), ...rest])
+  return out
+}
+
+/**
+ * The cards down the columns in order, top to bottom and then left to right, cut where the tallest column is
+ * shortest; on a tie the left columns take more, so the order reads down the first column first.
+ */
 function place(cards: readonly Grid[], count: number): { columns: Grid[]; height: number } {
-  const cols = Array.from({ length: count }, () => builder())
-  for (const c of cards) {
-    const shortest = cols.reduce((best, col) => (col.grid.rows.length < best.grid.rows.length ? col : best), cols[0]!)
-    if (shortest.grid.rows.length > 0) shortest.add([])
-    shortest.append(c)
-  }
-  return { columns: cols.map(c => c.grid), height: Math.max(0, ...cols.map(c => c.grid.rows.length)) }
+  const options = splits(cards, Math.max(1, Math.min(count, cards.length)))
+  const tallest = (s: Grid[][]) => Math.max(0, ...s.map(stackHeight))
+  const best = options.reduce((a, b) => {
+    const d = tallest(b) - tallest(a)
+    if (d !== 0) return d < 0 ? b : a
+    for (let i = 0; i < a.length; i += 1) if (stackHeight(a[i]!) !== stackHeight(b[i]!)) return stackHeight(b[i]!) > stackHeight(a[i]!) ? b : a
+    return a
+  })
+  const columns = best.map(run => {
+    const col = builder()
+    run.forEach((c, i) => {
+      if (gapBefore(run, i)) col.add([])
+      col.append(c)
+    })
+    return col.grid
+  })
+  return { columns, height: tallest(best) }
 }
 
 /** The columns side by side, each row cut to the card width. */
@@ -345,16 +414,16 @@ function bottomBar(v: BandView, width: number, left: readonly Piece[]): Line {
 const gear = text('⚙', { isDim: true })
 
 /**
- * The cards in full if they fit; else the card pressed to the front in full and the rest folded, since a folded
- * guesses card cannot be marked; else each folded to one row; else the last ones go, behind `+N more`.
+ * The cards in full if they fit; else they fold to one row each from the last card up, so the first ones (the
+ * card pressed to the front among them, since a folded guesses card cannot be marked) stay in full longest; else
+ * the last ones go, behind `+N more`. Which cards fold hangs on their order and the rows, never on what they hold.
  */
 function cardsPanel(v: BandView): Band {
   const { width, count, card } = cardLayout(v.columns)
   const all = cardsOf(v, card)
   const budget = v.maxRows - 1
-  const folded = all.map(c => c.folded)
-  const leadFull = all[0] && all[0].id === v.lead ? [all[0].full, ...folded.slice(1)] : null
-  let shown = [all.map(c => c.full), leadFull].find((g): g is Grid[] => g !== null && place(g, count).height <= budget) ?? folded
+  let shown = all.map(c => c.full)
+  for (let i = all.length - 1; i >= 0 && place(shown, count).height > budget; i -= 1) shown = shown.with(i, all[i]!.folded)
   let placed = place(shown, count)
   while (placed.height > budget && shown.length > 0) {
     shown = shown.slice(0, -1)

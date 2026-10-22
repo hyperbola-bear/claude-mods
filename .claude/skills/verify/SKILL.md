@@ -23,7 +23,7 @@ Check every capture against these. Each one has a test in the plugins. A live fa
 - Nothing is lost off the left edge. The band sits against the right edge, so an overwide row would lose its start.
 - The band is never taller than the rows the surface gives it. The desktop gives 12.
 - Colours are theme keys (`claude`, `success`, `warning`, `error`, `suggestion`, `subtle`) or the fixed hex sets the mods define (model ramp, effort ramp, battery, characters). Check each capture in a light and a dark theme.
-- Glyphs come from Box Drawing, Block Elements, Geometric Shapes and the few marks the mods already use (`✦ ✓ ✗ ⚙ ◷ ▸ ▾ ▴`). No emoji: a fallback face draws them two cells wide and shifts the row.
+- Glyphs come from Box Drawing, Block Elements, Geometric Shapes and the few marks the mods already use (`✦ ✓ ✗ ⚙ ◷ ▸ ▾ ▴ ❖`). No emoji: a fallback face draws them two cells wide and shifts the row.
 - VS Code and mobile draw no `Client`. They get the same rows as text with plain buttons. Check that the fallback appears; it doesn't need to match.
 
 ## Launch
