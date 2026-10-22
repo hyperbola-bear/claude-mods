@@ -384,30 +384,61 @@ function handoffForms(v: BandView): Piece[][] {
   ]
 }
 
+/** The tiles laid in rows: their tile height, the rows (each in full or folded), and whether they fit. */
+type Fitted = { cards: Card[]; height: number; rows: TileRow[]; fits: boolean }
+
+/**
+ * `cards` in rows of `count`, every tile as tall as the tallest, the rows folding from the last up until they
+ * fit in `budget` rows; a row holding a `kept` card stays in full.
+ */
+function fitted(cards: Card[], count: number, budget: number, kept: readonly CardId[]): Fitted {
+  const height = Math.max(0, ...cards.map(c => c.full.rows.length))
+  let rows = rowsOf(cards, count, false)
+  for (let i = rows.length - 1; i >= 0 && heightOf(rows, height) > budget; i -= 1) {
+    if (rows[i]!.tiles.some(t => kept.includes(t.id))) continue
+    rows = rows.with(i, { ...rows[i]!, isFolded: true })
+  }
+  return { cards, height, rows, fits: heightOf(rows, height) <= budget }
+}
+
+/**
+ * The tiles that fit. The model and effort pickers, and the card pressed to the front (a folded guesses card
+ * cannot be marked), stay in full while anything else can give way: the other rows fold, then the last other
+ * cards go. Short of that the card pressed to the front folds, and only where the band cannot hold the pickers
+ * in full at all do they fold too, then go like the rest.
+ */
+function fitTiles(all: readonly Card[], count: number, budget: number, lead: CardId | null): Fitted {
+  const keeps: CardId[][] = [lead && lead !== 'model' ? ['model', lead] : ['model'], ['model'], []]
+  for (const kept of keeps) {
+    let cards = [...all]
+    while (cards.length > 0) {
+      const f = fitted(cards, count, budget, kept)
+      if (f.fits) return f
+      const last = cards.findLastIndex(c => !kept.includes(c.id))
+      if (last < 0) break
+      cards = cards.toSpliced(last, 1)
+    }
+  }
+  return { cards: [], height: 0, rows: [], fits: true }
+}
+
 /**
  * The cards as tiles of one size, in rows that line up: every tile as tall as the tallest, so each keeps the
  * same space whatever it holds. Short of rows, the rows fold to one row a tile from the last up, so the first
- * (the card pressed to the front among them, since a folded guesses card cannot be marked) stay in full longest;
- * then the last tiles go, behind `+N more`. Which fold hangs on their order and the rows, never on what they hold.
+ * (the card pressed to the front among them, since a folded guesses card cannot be marked) stay in full longest,
+ * and the model and effort pickers' row stays in full while anything else can give way; then the last tiles go,
+ * behind `+N more`. Which fold hangs on their order and the rows, never on what they hold.
  */
 function cardsPanel(v: BandView): Band {
   const { width, count, card } = cardLayout(v.columns)
   const all = cardsOf(v, card)
-  const height = Math.max(0, ...all.map(c => c.full.rows.length))
-  const budget = v.maxRows - 1
-  let rows = rowsOf(all, count, false)
-  for (let i = rows.length - 1; i >= 0 && heightOf(rows, height) > budget; i -= 1) rows = rows.with(i, { ...rows[i]!, isFolded: true })
-  let shown = all.length
-  while (heightOf(rows, height) > budget && shown > 0) {
-    shown -= 1
-    rows = rowsOf(all.slice(0, shown), count, true)
-  }
+  const { cards, height, rows } = fitTiles(all, count, v.maxRows - 1, v.lead)
   const b = builder()
   rows.forEach((r, i) => {
     if (gapBefore(rows, i)) b.add(runs(' '.repeat(width)))
     b.append(sideBySide(r.tiles.map(t => (r.isFolded ? t.folded : padded(t.full, height))), r.isFolded ? 1 : height, card, width))
   })
-  const hidden = all.slice(shown)
+  const hidden = all.filter(c => !cards.includes(c))
   const left: Piece[] = v.settings.length > 0 ? [gear, keyed('s', 'Settings', 'settings')] : []
   if (hidden[0]) left.push(pill(`+${hidden.length} more`, `more:${hidden[0].id}`, 'subtle'))
   const tabPiece = [tab(true, needsYouOf(v))]

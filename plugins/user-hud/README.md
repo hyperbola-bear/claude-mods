@@ -63,7 +63,7 @@ Click the tab (or run `/hud`) and the panel opens above it, as cards. Open or cl
 
 - The cards are tiles of one size: one, two or three across, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. Every tile is as tall as the tallest, so the tiles in a row line up and each card keeps the same space whatever it holds, with blank rows where its content is short. The guesses and next steps cards stay on show when empty (`nothing to check`, `suggested after each reply`). They come left to right, then the next row, in this order unless you change it with `/hud order`, each only while its module is on: model and effort, cache, context, sessions, guesses, next steps.
 - Handoff is not a card: **✦ h: Write handoff** and **◆ r: Read** sit in the bottom bar, beside the settings. As the bar narrows, the note goes first, then the word `handoff`, then both buttons (`/handoff` and `/read-handoff` still work).
-- When the band is short (the desktop shows 12 rows), whole rows of tiles fold to one row a tile, from the last row up, until the rest fit in full. A card brought to the front goes first, so its row folds last. Folded rows sit one under another with no blank row between them. Which rows fold depends only on the rows and the order, never on what the cards hold:
+- When the band is short (the desktop shows 12 rows), whole rows of tiles fold to one row a tile, from the last row up, until the rest fit in full. The model and effort pickers' row never folds while anything else can give way, and neither does the row of a card brought to the front (so guesses can still be marked). Folded rows sit one under another with no blank row between them. Which rows fold depends only on the rows and the order, never on what the cards hold:
 
 ```
 ── M O D E L   ·   E F F O R T ──────────────────  ── C A C H E ────────────────────────────────────
@@ -77,7 +77,7 @@ CONTEXT ▕███▍      ▏ 34%                     1.2M  SESSIONS         
 ⚙ s: Settings   ✦ h: Write handoff   ◆ r: Read   newest · 2h ago                       ❖ user-hud ▾
 ```
 
-- When even the folded cards need more rows than there are, the last ones go and **+N more** in the bottom bar says how many; press it and they come first.
+- When even that needs more rows than there are, the last other cards go and **+N more** in the bottom bar says how many; press it and they come first. Only a band too short to hold the pickers in full at all (under about 6 rows) folds them to their one row, `MODEL Opus 5.5 · XHigh  m: pick`.
 - **⚙ s: Settings** turns the panel to the settings, and **⚙ s: Back** turns it back to the cards. When the rows are too few for them, the settings fold onto one line of pills.
 
 ```
