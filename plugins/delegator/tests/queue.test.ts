@@ -1,27 +1,26 @@
 import { expect, test } from 'claude-code/testing'
 
 import { plain } from '../hooks/cells.ts'
+import { TASK_ROWS, paneGrid, taskRows } from '../hooks/pane.ts'
 import {
   APPROVE,
   APPROVE_ALL,
   CHANGE_MODEL,
   EMPTY,
   REFUSE,
-  TASK_ROWS,
   decided,
   makePending,
   modelName,
   optionsOf,
-  paneGrid,
   parseMain,
   parseModel,
   question,
   settle,
   suggestModel,
   taskOf,
-  taskRows,
 } from '../hooks/queue.ts'
 import type { SpawnFacts } from '../hooks/queue.ts'
+import { NO_TRACKING } from '../hooks/runs.ts'
 
 const spawn = (over: Partial<SpawnFacts> = {}): SpawnFacts => ({
   description: 'inspect cache tests',
@@ -113,18 +112,19 @@ test('the pane: on or off, the agents waiting, the first one\'s task, the decisi
   const a = makePending(spawn(), 1, true)
   const b = makePending(spawn({ subagentType: 'general-purpose', description: 'implement retry', model: 'sonnet' }), 2, true)
   let s = { ...EMPTY, pending: [a, b] }
-  let lines = plain(paneGrid(s, 70, true)).map(l => l.trimEnd())
-  expect(lines[0]).toMatch(/^DELEGATOR ● on +Turn off$/)
+  let lines = plain(paneGrid(s, NO_TRACKING, 70, true)).map(l => l.trimEnd())
+  expect(lines[0]).toMatch(/^DELEGATOR ● gate on +o: Turn off$/)
   expect(lines).toContain('▸ #1 Explore · inspect cache tests · Haiku')
   expect(lines).toContain('  #2 general-purpose · implement retry · Sonnet')
   expect(lines.some(l => /^── T A S K +# 1 ─/.test(l))).toBe(true)
   expect(lines).toContain('Find where the cache tests live and list them.')
   s = settle(s, 1, decided(a, 'approved', 'claude-haiku-4-5', 0))
   s = settle(s, 2, decided(b, 'refused', null, 0, 'refused'))
-  lines = plain(paneGrid(s, 70, false)).map(l => l.trimEnd())
-  expect(lines[0]).toMatch(/^DELEGATOR ○ off +Turn on$/)
-  expect(lines).toContain('Off: agents launch without asking.')
-  expect(lines).toContain('✗ #2 general-purpose · implement retry · refused')
-  expect(lines).toContain('✓ #1 Explore · inspect cache tests · approved on Haiku 4.5')
-  expect(paneGrid(s, 70, true).hits.map(h => h.id)).toEqual(['toggle'])
+  lines = plain(paneGrid(s, NO_TRACKING, 70, false)).map(l => l.trimEnd())
+  expect(lines[0]).toMatch(/^DELEGATOR ○ gate off +o: Turn on$/)
+  expect(lines.some(l => /^✗ #2 general-purpose · implement retry +refused$/.test(l))).toBe(true)
+  // An approved agent shows as it runs, from what is tracked of it, not as a decision.
+  expect(lines.some(l => l.includes('#1 Explore'))).toBe(false)
+  expect(plain(paneGrid(EMPTY, NO_TRACKING, 70, false))).toContain('Off: agents launch without asking.')
+  expect(paneGrid(s, NO_TRACKING, 70, true).hits.map(h => h.id)).toEqual(['toggle', 'done'])
 })

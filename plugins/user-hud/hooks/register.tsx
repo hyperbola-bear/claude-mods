@@ -1,11 +1,14 @@
 /**
  * user-hud: a corner panel above the Claude Code prompt.
  *
- * Collapsed, it is one row at the band's right edge: the cache countdown,
- * model · effort, Keep warm once the cache is cooling, and the ◆ user-hud tab.
- * The tab (or /hud) opens the panel above it: model and effort pickers (they
- * run /model and /effort), the cache, the settings toggled most (written
- * through /config), and the handoff buttons. Open or closed is remembered.
+ * Collapsed, it is one row at the band's right edge: who needs you, the cache
+ * countdown, the context battery, what the other sessions do, the guesses to
+ * check, next steps, model · effort, and the tab with Clawd's face, whose eyes
+ * turn yellow while another session waits on you. The least needed pieces
+ * shorten, then go, when the row is narrow. The tab (or /hud) opens the panel
+ * above it: cards in one to three columns (sessions, context, model and effort,
+ * cache, guesses, next steps, handoff), and behind `s` the settings toggled most
+ * (written through /config). Open or closed is remembered.
  *
  * 1. Prompt cache countdown. Every main-thread model request refreshes the
  *    prompt cache, so the time since the last request says how long the cache
@@ -41,27 +44,35 @@
  *    whole conversation) suggests up to three follow-up prompts; 1, 2 or 3 (or a click) puts one in the
  *    prompt box as a draft to edit or send. A new turn clears them.
  *
- * Each of the five (cache, pickers, tokens, handoff, next) is a module with its own /config row
- * (`cacheModule`, ...), on by default; `/hud <module> on|off` writes it. A module switched off draws
- * nothing, registers none of its commands and does none of its work (no countdown or alerts, no counting,
- * no handoff scan).
+ * 6. Sessions. Every 5 seconds the status files of `~/.claude/sessions/` say which other sessions wait on
+ *    you, run a turn, or finished; `ps` says which are still alive, and their transcripts their titles.
+ *
+ * 7. Guesses. Claude reports the guesses it acts on through an `assumption` tool; each shows as a row the
+ *    person marks right (✓) or wrong (✗, which drafts the correction in the prompt box).
+ *
+ * Each of the seven (cache, pickers, tokens, handoff, next, sessions, assume) is a module with its own
+ * /config row (`cacheModule`, ...), on by default; `/hud <module> on|off` writes it. A module switched off
+ * draws nothing, registers none of its commands or tools and does none of its work (no countdown or alerts,
+ * no counting, no handoff scan, no session files read).
  *
  * The band draws whatever other plugins put above the prompt first (it calls
  * `next`), so it sits beside pr-review-ui's band rather than replacing it.
  *
- * Reaches: model.fork (keep-warm pings), model.complete (next steps, on Haiku), process.run (osascript, afplay),
- * fs reads (handoff notes, the alert's logo), store (the panel's open state),
- * settings read (the effort level, promptCacheTtl), env read
- * (CLAUDE_CODE_PROMPT_CACHE_TTL), session usage (the plan windows, the context
- * breakdown, the cost), agent list (a subagent's type), config set (the panel's
- * toggles), command run (/model, /effort, /handoff, /clear) and prompt submit
- * on button presses, and prompt fill when a next step is picked. It reads the conversation's rows and every model call to
- * count tokens, and changes none of them. Writes no files.
+ * Reaches: model.fork (keep-warm pings), model.complete (next steps, on Haiku), process.run (osascript, afplay;
+ * ps and a grep of the transcripts for the sessions), fs reads (handoff notes, the alert's logo, the session
+ * status files), store (the panel's open state), settings read (the effort level, promptCacheTtl), env read
+ * (CLAUDE_CODE_PROMPT_CACHE_TTL, HOME, CLAUDE_CONFIG_DIR), session usage (the plan windows, the context
+ * breakdown, the cost), session id (this session among the others), agent list (a subagent's type), config set
+ * (the panel's toggles), command run (/model, /effort, /handoff, /clear) and prompt submit on button presses,
+ * prompt read and fill when a next step is picked or a guess marked wrong, tool register (`assumption`) and one
+ * system prompt section saying it is there. It reads the conversation's rows and every model call to count
+ * tokens, and changes none of them. Writes no files.
  */
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ModelForkResult, Register } from 'claude-code'
 
-import type { CacheState, CacheTtl, GroupId, HandoffFile, HandoffState, HudState, NextState, PlanLimit, SelectorStyle, TtlInfo } from '../types'
+import type { CacheState, CacheTtl, Guess, GroupId, HandoffFile, HandoffState, HudState, NextState, PlanLimit, SelectorStyle, SessionInfo, TtlInfo } from '../types'
+import { ASSUME_SECTION, ASSUME_SPEC, ASSUME_TOOL_ID, added, correction, marked, openGuesses, parseGuesses, shownText } from './assume.ts'
 import {
   EMPTY_CACHE,
   KEEP_WARM_PROMPT,
@@ -84,19 +95,22 @@ import {
 } from './cache.ts'
 import type { Level } from './cache.ts'
 import { HANDOFF_DIRS, age, handoffPrompt, handoffTarget, isHandoffName, joinPath, newest, resumePrompt } from './handoff.ts'
-import { MODELS, MODULES, asEffort, lifeBar, modelAlias, modelLabel, modulesFrom, modulesText, nextWarn, parseHudArgs } from './hud.ts'
+import { MODELS, MODULES, asEffort, lifeBar, modelAlias, modelLabel, modulesFrom, modulesText, nextWarn, parseHudArgs, pieOf } from './hud.ts'
 import type { ModuleId, Modules } from './hud.ts'
-import { EFFORT_COLORS, EFFORT_STEPS, MODEL_COLORS, SELECTOR_STYLES, asStyle, effortStep, nextStyle, parseEffortArgs, spread, styleLabel, ultracodeTook } from './selector.ts'
+import { EFFORT_COLORS, EFFORT_SHORT_LABELS, EFFORT_STEPS, MODEL_COLORS, SELECTOR_STYLES, asStyle, effortStep, nextStyle, parseEffortArgs, spread, styleLabel, ultracodeTook } from './selector.ts'
 import type { EffortStep } from './selector.ts'
 import { builder, line, order, piece, put, runs, textOf, wrap } from './cells.ts'
 import type { CellsProps, Run } from './cells.ts'
-import { bandGrid } from './panelgrid.ts'
+import { CARD_ORDER, bandGrid, cardLayout, clipped, tokenBarCells } from './panelgrid.ts'
 import type { Band, Setting } from './panelgrid.ts'
-import { fittedStyle, layout, parsePick } from './selectorgrid.ts'
+import { layout, parsePick } from './selectorgrid.ts'
 import type { GridField } from './selectorgrid.ts'
 import type { Ui } from './ui.ts'
 import { handoffPaneGrid } from './handoffview.ts'
 import { NEXT_MODEL, NEXT_SYSTEM, nextRequest, parseNext } from './next.ts'
+import { EMPTY_SESSIONS, TITLES_SCRIPT, grouped, livePids, parseSessionFile, parseTitles, titleOf } from './sessions.ts'
+import type { SessionFile, Titles } from './sessions.ts'
+import { sessionsPaneGrid } from './sessionsview.ts'
 import { parseGroupAction, tokensPaneGrid } from './tokenview.ts'
 import {
   addShares,
@@ -128,11 +142,11 @@ const STORE_OPEN = 'panelOpen'
 const HANDOFF_PANE = 'handoff'
 const TOKENS_PANE = 'tokens'
 const STYLES_PANE = 'styles'
+const SESSIONS_PANE = 'sessions'
 /** The width the styles pane asks for: Rail's and Meter's columns, beside the field names. */
 const STYLES_PANE_COLUMNS = 76
-const PANEL_WIDTH = 72
-/** Cells of the TOKENS row's stacked bar. */
-const TOKEN_BAR_CELLS = 16
+const SESSIONS_EVERY_MS = 5_000
+const TITLES_EVERY_MS = 60_000
 /** The context breakdown is asked for at most this often, after a turn. */
 const STANDING_EVERY_MS = 20_000
 /** Tool calls remembered by id, so their results land in the same group. */
@@ -150,10 +164,16 @@ const EMPTY_NEXT: NextState = { items: [], isThinking: false, error: null }
 const cacheA = atom({ plugin: 'user-hud', key: 'cache' } as const, EMPTY_CACHE)
 const ttlA = atom({ plugin: 'user-hud', key: 'ttl' } as const, { ttl: '1h', source: 'default' } as TtlInfo)
 const handoffA = atom({ plugin: 'user-hud', key: 'handoff' } as const, EMPTY_HANDOFF)
-const hudA = atom({ plugin: 'user-hud', key: 'hud' } as const, { isOpen: false, model: null, effort: null, ultracode: false, overage: null, contextPercent: null } as HudState)
+const hudA = atom(
+  { plugin: 'user-hud', key: 'hud' } as const,
+  { isOpen: false, model: null, effort: null, ultracode: false, overage: null, contextPercent: null, contextWindow: null, view: 'cards', lead: null } as HudState,
+)
 const tokensA = atom({ plugin: 'user-hud', key: 'tokens' } as const, emptyTokens(null))
 const nextA = atom({ plugin: 'user-hud', key: 'next' } as const, EMPTY_NEXT)
 const tokensOpenA = atom({ plugin: 'user-hud', key: 'tokensOpen' } as const, [] as GroupId[])
+const sessionsA = atom({ plugin: 'user-hud', key: 'sessions' } as const, EMPTY_SESSIONS)
+const asleepA = atom({ plugin: 'user-hud', key: 'asleepShown' } as const, false)
+const guessesA = atom({ plugin: 'user-hud', key: 'guesses' } as const, [] as Guess[])
 
 type Cfg = {
   warnMs: number
@@ -204,6 +224,11 @@ let requestsSinceMeasure = 0
 let lastPrompt = ''
 /** Counts asks for next steps: an answer that lands after a newer ask (or a new turn) is dropped. */
 let nextAsks = 0
+/** Each session's transcript titles, by session id. */
+const titles = new Map<string, Titles>()
+let titlesAt = 0
+/** True while the status files are being read, so a slow read is not started twice. */
+let isReadingSessions = false
 
 // ---------- prompt cache ----------
 
@@ -390,8 +415,18 @@ function gridFields(hud: HudState): GridField[] {
   const alias = modelAlias(hud.model)
   const step = effortStep(hud.effort, hud.ultracode)
   return [
-    { kind: 'model', name: 'MODEL', options: MODELS.map(m => ({ id: m.alias, label: m.label, colors: [MODEL_COLORS[m.alias] ?? '#888888'], isOn: alias === m.alias })) },
-    { kind: 'effort', name: 'EFFORT', options: EFFORT_STEPS.map(f => ({ id: f.step, label: f.label, colors: [...EFFORT_COLORS[f.step]], isOn: step === f.step })) },
+    {
+      kind: 'model',
+      name: 'MODEL',
+      options: MODELS.map(m => ({ id: m.alias, label: m.label, colors: [MODEL_COLORS[m.alias] ?? '#888888'], isOn: alias === m.alias })),
+      shorter: [MODELS.map(m => m.family)],
+    },
+    {
+      kind: 'effort',
+      name: 'EFFORT',
+      options: EFFORT_STEPS.map(f => ({ id: f.step, label: f.label, colors: [...EFFORT_COLORS[f.step]], isOn: step === f.step })),
+      shorter: EFFORT_SHORT_LABELS,
+    },
   ]
 }
 
@@ -460,6 +495,16 @@ async function runAction($: EngineInterface, action: unknown) {
   }
   if (action.startsWith('handoff:')) return pressHandoff($, action.slice('handoff:'.length))
   if (action.startsWith('next:')) return pickNext($, Number(action.slice('next:'.length)))
+  if (action === 'settings') return update($, hudA, (s): HudState => ({ ...s, view: s.view === 'settings' ? 'cards' : 'settings' }))
+  const lead = action.startsWith('more:') ? CARD_ORDER.find(id => id === action.slice('more:'.length)) : undefined
+  if (lead) return update($, hudA, s => ({ ...s, lead }))
+  if (action === 'styles') return void (await $.ui.open({ id: STYLES_PANE, title: 'Picker styles', columns: STYLES_PANE_COLUMNS }).catch(() => {}))
+  if (action === 'sessions') return openSessionsPane($)
+  if (action === 'sessions:close') return void (await $.ui.close({ id: SESSIONS_PANE }).catch(() => {}))
+  if (action === 'sessions:asleep') return update($, asleepA, isShown => !isShown)
+  if (action === 'assume:review') return reviewGuesses($)
+  if (action.startsWith('assume:right:')) return update($, guessesA, gs => marked(gs, action.slice('assume:right:'.length), 'right'))
+  if (action.startsWith('assume:wrong:')) return correctGuess($, action.slice('assume:wrong:'.length))
 }
 
 /** The Handoff pane's actions: continue from the note shown, step to an older or newer one, look again. */
@@ -511,42 +556,53 @@ function cellsElement(ui: Ui, surface: string, key: string, band: Band, onAction
 }
 
 /** The cache chip beside the tab: warm, cooling, cold, live, or pinging. */
-function chipRuns(c: CacheState, lv: Level, rem: number | null): Run[] {
-  if (c.isPinging) return runs('◆ pinging…', { isDim: true })
-  if (lv === 'live') return runs('◆ cache live', { color: 'success' })
-  if (lv === 'warm') return runs(`◆ ${fmtClock(rem ?? 0)}`, { color: 'success' })
-  if (lv === 'cooling') return runs(`◆ ${fmtClock(rem ?? 0)} left`, { color: 'warning', isBold: true })
-  if (lv === 'cold') return runs('◇ cache cold', { color: 'error' })
+function chipRuns(c: CacheState, ttl: CacheTtl, lv: Level, rem: number | null): Run[] {
+  const pie = lv === 'live' ? '●' : pieOf(rem ?? 0, TTL_MS[ttl])
+  if (c.isPinging) return runs(`${pie} pinging…`, { isDim: true })
+  if (lv === 'live') return runs('● cache live', { color: 'success' })
+  if (lv === 'warm') return runs(`${pie} ${fmtClock(rem ?? 0)}`, { color: 'success' })
+  if (lv === 'cooling') return runs(`${pie} ${fmtClock(rem ?? 0)} left`, { color: 'warning', isBold: true })
+  if (lv === 'cold') return runs('○ cache cold', { color: 'error' })
   return []
 }
 
-/** The panel's cache line: the countdown, its life bar, and what is cached. */
-function cacheRuns(c: CacheState, ttl: CacheTtl, lv: Level, rem: number | null): Run[] {
-  const r: Run[] = []
-  if (lv === 'none') put(r, c.resetReason ? `◇ cache reset (${c.resetReason}): the next prompt writes a new one` : '◇ nothing cached yet: send a first prompt', { isDim: true })
-  if (lv === 'live') put(r, '◆ cache live', { color: 'success' })
-  if (lv === 'warm') put(r, `◆ cache ${fmtClock(rem ?? 0)}`, { color: 'success' })
-  if (lv === 'cooling') put(r, `◆ cache ${fmtClock(rem ?? 0)} left`, { color: 'warning', isBold: true })
-  if (lv === 'cold') put(r, `◇ cache cold · next prompt re-writes ${fmtTokens(promptTokens(c))}`, { color: 'error' })
+/** The cache card: the countdown behind its pie, the life bar, and what is cached. */
+function cacheView(c: CacheState, ttl: CacheTtl, lv: Level, rem: number | null): { status: Run[]; bar: Run[]; detail: string | null } {
+  const pie = pieOf(rem ?? 0, TTL_MS[ttl])
+  const status =
+    lv === 'none'
+      ? runs(c.resetReason ? `○ cache reset (${c.resetReason}): the next prompt writes a new one` : '○ nothing cached yet: send a first prompt', { isDim: true })
+      : lv === 'live'
+        ? runs('● cache live', { color: 'success' })
+        : lv === 'warm'
+          ? runs(`${pie} cache ${fmtClock(rem ?? 0)}`, { color: 'success' })
+          : lv === 'cooling'
+            ? runs(`${pie} cache ${fmtClock(rem ?? 0)} left`, { color: 'warning', isBold: true })
+            : runs(`○ cache cold · next prompt re-writes ${fmtTokens(promptTokens(c))}`, { color: 'error' })
+  const bar: Run[] = []
   if (lv === 'warm' || lv === 'cooling') {
-    const bar = lifeBar(rem ?? 0, TTL_MS[ttl])
-    put(r, ' ')
-    put(r, bar.on, { color: lv === 'cooling' ? 'warning' : 'success' })
-    put(r, bar.off, { isDim: true })
+    const life = lifeBar(rem ?? 0, TTL_MS[ttl])
+    put(bar, life.on, { color: lv === 'cooling' ? 'warning' : 'success' })
+    put(bar, life.off, { isDim: true })
   }
-  if (lv === 'live' || lv === 'warm' || lv === 'cooling') {
-    const hit = hitRate(c)
-    put(r, ` ${fmtTokens(cachedTokens(c))} cached${hit !== null ? ` · hit ${hit}%` : ''} · ${ttl}`, { isDim: true })
-  }
-  return r
+  const hit = hitRate(c)
+  const detail = lv === 'live' || lv === 'warm' || lv === 'cooling' ? `${fmtTokens(cachedTokens(c))} cached${hit !== null ? ` · hit ${hit}%` : ''} · ${ttl}` : null
+  return { status, bar, detail }
 }
 
-/** The model in its colour on the blue-to-orange ramp, then the effort in its own, letter by letter. */
-function setupRuns(hud: HudState): Run[] {
+/** The effort as the closed row's shortest model piece names it: `Opus · XH`. */
+const SHORT_EFFORTS: Record<EffortStep, string> = { low: 'Lo', medium: 'Med', high: 'Hi', xhigh: 'XH', max: 'Max', ultracode: 'UC' }
+
+/**
+ * The model in its colour on the blue-to-orange ramp, then the effort in its own, letter by letter; shortened,
+ * the model's first word and the effort's letters (`Opus · XH`).
+ */
+function setupRuns(hud: HudState, isShort = false): Run[] {
   const alias = modelAlias(hud.model)
-  const name = modelLabel(hud.model)
+  const label = modelLabel(hud.model)
+  const name = isShort && label ? (label.split(' ')[0] ?? label) : label
   const step = effortStep(hud.effort, hud.ultracode)
-  const stepLabel = EFFORT_STEPS.find(f => f.step === step)?.label
+  const stepLabel = step ? (isShort ? SHORT_EFFORTS[step] : EFFORT_STEPS.find(f => f.step === step)?.label) : undefined
   const r: Run[] = []
   if (name) put(r, name, alias ? { color: MODEL_COLORS[alias] ?? '' } : { isDim: true })
   if (name && stepLabel) put(r, ' · ', { isDim: true })
@@ -697,6 +753,85 @@ async function setModule($: EngineInterface, id: ModuleId, isOn: boolean): Promi
   return cfg.modules[id] === isOn ? `The ${id} module is ${isOn ? 'on' : 'off'}.` : `The ${id} module stays ${isOn ? 'off' : 'on'}.`
 }
 
+// ---------- guesses ----------
+
+/** `a: review`: the panel opens on its cards, the guesses first. */
+async function reviewGuesses($: EngineInterface) {
+  await setPanelOpen($, true)
+  await update($, hudA, (s): HudState => ({ ...s, view: 'cards', lead: 'assume' }))
+}
+
+/** ✗: the start of a correction goes in the prompt box for the person to finish; a draft already there is left alone. */
+async function correctGuess($: EngineInterface, id: string) {
+  const guess = (await read($, guessesA)).find(g => g.id === id && g.status === 'open')
+  if (!guess) return
+  const box = await $.prompt.read().catch(() => ({ text: '' }))
+  if (box.text.trim()) return void $.ui.toast('The prompt box holds a draft: send or clear it, then press ✗ again.')
+  const r = await $.prompt.fill({ text: correction(guess), mode: 'replace' }).catch(() => null)
+  if (!r?.isFilled) return void $.ui.toast(r?.refusal === 'dialog' ? 'Close the dialog first, then press ✗ again.' : 'Could not put the correction in the prompt box.')
+  await update($, guessesA, gs => marked(gs, id, 'wrong'))
+}
+
+// ---------- sessions ----------
+
+/** The folder Claude Code keeps its sessions and transcripts in. */
+async function configDir($: EngineInterface): Promise<string | null> {
+  const dir = await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)
+  if (dir) return dir.replace(/\/$/, '')
+  const home = await $.env.get('HOME').catch(() => undefined)
+  return home ? `${home.replace(/\/$/, '')}/.claude` : null
+}
+
+/** Each live session's status file, read; one unreadable is passed over. */
+async function sessionFiles($: EngineInterface, dir: string): Promise<SessionFile[]> {
+  const entries = await $.fs.list(`${dir}/sessions`).catch(() => [])
+  const files: SessionFile[] = []
+  for (const f of entries) {
+    if (f.kind !== 'file' || !f.name.endsWith('.json')) continue
+    const text = await $.fs.read(`${dir}/sessions/${f.name}`).catch(() => null)
+    const parsed = typeof text === 'string' ? parseSessionFile(text) : null
+    if (parsed) files.push(parsed)
+  }
+  if (files.length === 0) return files
+  // A status file outlives a session that crashed: the pid says whether it still runs.
+  const ps = await $.process.run(['ps', '-o', 'pid=', '-p', files.map(f => f.pid).join(',')], { timeoutMs: 5000 }).catch(() => null)
+  if (!ps) return files
+  const live = livePids(ps.stdout)
+  return files.filter(f => live.has(f.pid))
+}
+
+async function refreshTitles($: EngineInterface, dir: string, ids: readonly string[]) {
+  const now = await $.clock.now()
+  if (ids.length === 0 || now - titlesAt < TITLES_EVERY_MS) return
+  titlesAt = now
+  const r = await $.process.run(['sh', '-c', TITLES_SCRIPT, 'sh', `${dir}/projects`, ...ids], { timeoutMs: 20_000 }).catch(() => null)
+  if (!r) return
+  for (const [id, t] of parseTitles(r.stdout)) titles.set(id, t)
+}
+
+/** Reads every session's status, files them by what they need from the person, and stores them for the band. */
+async function refreshSessions($: EngineInterface) {
+  if (!cfg.modules.sessions || isReadingSessions) return
+  isReadingSessions = true
+  try {
+    const dir = await configDir($)
+    if (!dir) return
+    const files = await sessionFiles($, dir)
+    await refreshTitles($, dir, files.map(f => f.sessionId))
+    const list: SessionInfo[] = files.map(f => ({ sessionId: f.sessionId, pid: f.pid, status: f.status, title: titleOf(f, titles.get(f.sessionId)), entry: f.entry, statusAt: f.statusAt }))
+    const selfId = await $.session.id().catch(() => null)
+    const now = await $.clock.now()
+    await update($, sessionsA, () => grouped(list, selfId, now))
+  } finally {
+    isReadingSessions = false
+  }
+}
+
+async function openSessionsPane($: EngineInterface) {
+  await refreshSessions($).catch(() => {})
+  await $.ui.open({ id: SESSIONS_PANE, title: 'Sessions' }).catch(() => {})
+}
+
 // ---------- handoff ----------
 
 /** The project root, absolute; paths shown and handed to Claude stay relative to it. */
@@ -778,18 +913,22 @@ export const register: Register = (on, given) => {
   requestsSinceMeasure = 0
   lastPrompt = ''
   nextAsks = 0
+  titles.clear()
+  titlesAt = 0
+  isReadingSessions = false
 
   // ---------- lifecycle ----------
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    const { cache, pickers, tokens, handoff } = cfg.modules
+    const { cache, pickers, tokens, handoff, sessions, assume } = cfg.modules
     await $.command.register({ name: 'hud', description: 'Open or close the user-hud panel; /hud modules lists its modules, /hud <module> on|off switches one', argumentHint: '[modules | <module> on|off]' })
     if (cache) await $.command.register({ name: 'cache', description: 'Prompt cache status: time left, size, hit rate and lifetime' })
     if (cache) await $.command.register({ name: 'keepwarm', description: 'Refresh the prompt cache now with a one-line ping (adds nothing to the chat)' })
     if (handoff) await $.command.register({ name: 'read-handoff', description: 'Show the newest handoff note, with a button to continue from it' })
     if (pickers) await $.command.register({ name: 'hud-styles', description: 'The three picker styles side by side (Rail, Ladder, Meter), with a button to use each' })
     if (tokens) await $.command.register({ name: 'tokens', description: 'Where this session’s tokens went: files, chat, MCP, shell, skills and plugins, subagents and more' })
+    if (assume) await $.tool.register(ASSUME_SPEC)
 
     const isOpen = (await $.store.get(STORE_OPEN).catch(() => undefined)) === true
     const model = await $.session.model().catch(() => null)
@@ -814,18 +953,39 @@ export const register: Register = (on, given) => {
       const now = await $.clock.now()
       await update($, tokensA, s => (s.since === null ? { ...s, since: now } : s))
       const usage = await $.session.usage().catch(() => null)
-      await update($, hudA, s => ({ ...s, contextPercent: usage?.context.percent ?? null }))
+      await update($, hudA, s => ({ ...s, contextPercent: usage?.context.percent ?? null, contextWindow: usage?.context.window ?? null }))
       // A resumed conversation, or a reload mid-chat: what is already in the context.
       await measureContext($, 'replace').catch(() => {})
       await refreshStanding($, true).catch(() => {})
     }
 
     $.clock.every(1000, () => void tick($))
+    if (sessions) {
+      void refreshSessions($).catch(() => {})
+      $.clock.every(SESSIONS_EVERY_MS, () => void refreshSessions($).catch(() => {}))
+    }
     return started
   })
 
+  on('tool.call', { tool: 'mcp__user-hud__assumption' }, async ($, e, next) => {
+    if (!cfg.modules.assume) return next(e)
+    const parsed = parseGuesses(e)
+    if ('refusal' in parsed) return { deny: parsed.refusal }
+    const at = await $.clock.now()
+    await update($, guessesA, gs => added(gs, parsed.guesses, at))
+    return { result: [{ type: 'text', text: shownText(parsed.guesses.length) }] }
+  }).catch(($, e, next) => (next.called ? next(e) : { deny: 'user-hud could not show these guesses; carry on without them.' }))
+
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    if (!cfg.modules.assume || !e.tools.includes(ASSUME_TOOL_ID)) return composed
+    return { sections: [...composed.sections, ASSUME_SECTION] }
+  }).catch(($, e, next) => next(e))
+
   on('turn.start', async ($, e, next) => {
     await update($, cacheA, s => ({ ...s, isWorking: true, autoPings: 0 }))
+    // The person's next prompt answers the guesses made before it, or moves past them.
+    if (cfg.modules.assume && e.agentId === undefined && e.text) await update($, guessesA, (): Guess[] => []).catch(() => {})
     if (cfg.modules.next) {
       // What the person sent: the next steps follow on from it, and the old ones no longer do.
       lastPrompt = e.text
@@ -931,7 +1091,9 @@ export const register: Register = (on, given) => {
     if (cfg.modules.cache && e.changed.includes('rateLimits')) await trackOverage($, e.rateLimits).catch(() => {})
     const cost = e.cost
     if (cfg.modules.tokens && e.changed.includes('cost') && cost) await update($, tokensA, s => ({ ...s, costUsd: cost.usd })).catch(() => {})
-    if (cfg.modules.tokens && e.changed.includes('context')) await update($, hudA, s => ({ ...s, contextPercent: e.context.percent ?? null })).catch(() => {})
+    if (cfg.modules.tokens && e.changed.includes('context')) {
+      await update($, hudA, s => ({ ...s, contextPercent: e.context.percent ?? null, contextWindow: e.context.window ?? s.contextWindow })).catch(() => {})
+    }
     return next(e)
   })
 
@@ -1020,39 +1182,45 @@ export const register: Register = (on, given) => {
     const handoff = await read($, handoffA)
     const tokens = await read($, tokensA)
     const nx = await read($, nextA)
+    const sessions = await read($, sessionsA)
+    const guesses = await read($, guessesA)
     const ui: Ui = $.ui.resolve(e)
     const { Box } = ui
     const now = await $.clock.now()
     const rem = remainingMs(c.lastHitAt, t.ttl, now)
     const lv = level(rem, cfg.warnMs, e.props.isWorking || c.isWorking)
     // No floor: a band wider than its column would lose its left end against the right edge.
-    const width = Math.max(1, Math.min(PANEL_WIDTH, e.props.bodyColumns))
+    const columns = Math.max(1, e.props.bodyColumns)
     const used = totalUsed(tokens)
-    const fields = gridFields(hud)
     const newestNote = handoff.files[0]
     const band = bandGrid({
       isOpen: hud.isOpen,
-      width,
-      maxWidth: Math.max(1, e.props.bodyColumns),
+      view: hud.view,
+      columns,
       maxRows: e.props.maxRows,
-      chip: mods.cache ? chipRuns(c, lv, rem) : [],
+      lead: hud.lead,
+      chip: mods.cache ? chipRuns(c, t.ttl, lv, rem) : [],
       overage: mods.cache && hud.overage ? limitLabel(hud.overage) : null,
       usedTokens: mods.tokens && used > 0 ? `${fmtTokens(Math.round(used))} tokens` : null,
       setup: mods.pickers ? setupRuns(hud) : [],
+      setupShort: mods.pickers ? setupRuns(hud, true) : [],
       keepWarm: !mods.cache || c.isPinging ? 'none' : lv === 'cooling' ? 'urged' : lv === 'warm' ? 'quiet' : 'none',
       isPinging: mods.cache && c.isPinging,
-      pickers: mods.pickers ? { style: fittedStyle(cfg.selectorStyle, width, fields), width, fields } : null,
+      pickers: mods.pickers ? { style: cfg.selectorStyle, fields: gridFields(hud) } : null,
       tokens: mods.tokens
         ? {
-            segments: used > 0 ? stack(tokens, TOKEN_BAR_CELLS).map(sg => ({ color: groupOf(sg.id).color, cells: sg.cells })) : [],
+            segments: used > 0 ? stack(tokens, tokenBarCells(cardLayout(columns).card)).map(sg => ({ color: groupOf(sg.id).color, cells: sg.cells })) : [],
             total: fmtTokens(Math.round(used)),
           }
         : null,
       context: mods.tokens ? (hud.contextPercent ?? null) : null,
-      cache: mods.cache ? cacheRuns(c, t.ttl, lv, rem) : null,
+      contextWindow: mods.tokens && hud.contextWindow ? fmtTokens(hud.contextWindow) : null,
+      cache: mods.cache ? cacheView(c, t.ttl, lv, rem) : null,
       settings: settingsView(c),
       next: mods.next ? { items: nx.items, note: nx.isThinking ? 'thinking of next steps…' : nx.error } : null,
       handoff: mods.handoff ? { hasNewest: newestNote !== undefined, note: newestNote ? `newest · ${age(newestNote.mtimeMs, now)}` : 'no notes yet' } : null,
+      sessions: mods.sessions ? { list: sessions, now } : null,
+      guesses: mods.assume ? openGuesses(guesses).map(g => ({ id: g.id, text: g.text })) : null,
     })
     // flexGrow: the desktop sets the tree beside its own collapse control in a row, where an ungrown
     // tree shrinks to its content and the tab lands on the left.
@@ -1109,6 +1277,15 @@ export const register: Register = (on, given) => {
     const ui: Ui = $.ui.resolve(e)
     const grid = tokensPaneGrid(await read($, tokensA), Math.max(20, e.props.bodyColumns), await read($, tokensOpenA))
     return cellsElement(ui, e.surface, 'tokens', grid, a => void runAction($, a))
+  })
+
+  // ---------- sessions pane ----------
+
+  on('ui.render', { component: 'Pane', requestId: SESSIONS_PANE }, async ($, e) => {
+    const ui: Ui = $.ui.resolve(e)
+    const width = Math.max(20, e.props.bodyColumns)
+    const grid = sessionsPaneGrid(await read($, sessionsA), await $.clock.now(), width, await read($, asleepA))
+    return cellsElement(ui, e.surface, 'sessions', clipped(grid, width), a => void runAction($, a))
   })
 
   // ---------- handoff pane ----------

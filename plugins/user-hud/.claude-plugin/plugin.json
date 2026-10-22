@@ -1,10 +1,10 @@
 {
   "name": "user-hud",
-  "version": "1.10.0",
+  "version": "2.0.0",
   "author": {
     "name": "Polar"
   },
-  "description": "A control panel tucked into the corner above the Claude Code prompt, in five modules you turn on or off: where your tokens go (files, chat, MCP, shell, skills and plugins, subagents and more), model and effort pickers in three styles, prompt-cache countdown with a 2-minute keep-warm alert, handoff buttons, and next steps (follow-up prompts after each reply, one key to put in the prompt box).",
+  "description": "A control panel tucked into the corner above the Claude Code prompt, as cards in seven modules you turn on or off: your other sessions (which need you, which are working), a context battery and where your tokens go (files, chat, MCP, shell, skills and plugins, subagents and more), model and effort pickers in three styles, prompt-cache countdown with a 2-minute keep-warm alert, the guesses Claude acts on for you to mark right or wrong, handoff buttons, and next steps (follow-up prompts after each reply, one key to put in the prompt box).",
   "types": "./types/index.d.ts",
   "license": "MIT",
   "keywords": [
@@ -14,7 +14,9 @@
     "usage",
     "handoff",
     "mod",
-    "next-steps"
+    "next-steps",
+    "sessions",
+    "assumptions"
   ],
   "userConfig": {
     "cacheModule": {
@@ -32,7 +34,7 @@
     "tokensModule": {
       "type": "boolean",
       "title": "Module: tokens",
-      "description": "Where the session's tokens go: the TOKENS row, the Tokens pane and /tokens. Off, nothing is counted.",
+      "description": "How full the context is and where the session's tokens go: the context battery, the CONTEXT card, the Tokens pane and /tokens. Off, nothing is counted.",
       "default": true
     },
     "handoffModule": {
@@ -45,6 +47,18 @@
       "type": "boolean",
       "title": "Module: next steps",
       "description": "After each reply, up to three follow-up prompts in the panel; 1, 2 or 3 puts one in the prompt box to edit or send. Each reply costs one short Haiku call on the last prompt and reply, not the whole conversation.",
+      "default": true
+    },
+    "sessionsModule": {
+      "type": "boolean",
+      "title": "Module: sessions",
+      "description": "Your other sessions on this machine: which need you, which are working, which finished lately. The SESSIONS card, the counts on the closed row and the Sessions pane, read from ~/.claude/sessions every 5 seconds. Off, nothing is read.",
+      "default": true
+    },
+    "assumeModule": {
+      "type": "boolean",
+      "title": "Module: guesses",
+      "description": "An assumption tool Claude calls with the guesses it acts on, and the CHECK MY GUESSES card where you mark each right or wrong. Off, the tool is not registered.",
       "default": true
     },
     "warnSeconds": {
@@ -92,7 +106,7 @@
     "showBand": {
       "type": "boolean",
       "title": "Show the corner panel above the prompt",
-      "description": "The ◆ user-hud tab and its panel (cache, model, effort, settings, handoff) above the prompt.",
+      "description": "The user-hud tab and its panel of cards (sessions, context, model and effort, cache, guesses, next steps, handoff, settings) above the prompt.",
       "default": true
     },
     "handoffPath": {

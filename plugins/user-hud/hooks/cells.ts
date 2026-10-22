@@ -17,6 +17,9 @@ export type CellsProps = { rows: Run[][]; hits: Hit[]; keys: Record<string, stri
 /** A stretch of a row: its runs, and the action it runs when pressed, if any. */
 export type Piece = { runs: Run[]; action: string | null }
 
+/** Where an action sits on a row being built: its cells from `x0` up to, not including, `x1`. */
+export type Span = { action: string; x0: number; x1: number }
+
 const PLAIN: Omit<Run, 'text'> = { color: '', bg: '', isDim: false, isBold: false, isUnderline: false }
 
 const sameLook = (a: Omit<Run, 'text'>, b: Omit<Run, 'text'>) =>
@@ -39,6 +42,13 @@ export const runs = (text: string, look: Look = {}): Run[] => {
 
 export const widthOf = (row: readonly Run[]) => row.reduce((n, r) => n + r.text.length, 0)
 
+/** The cells pieces take side by side, `gap` cells between them. */
+export const spanOf = (pieces: readonly Piece[], gap = 1) => pieces.reduce((n, p) => n + widthOf(p.runs), 0) + gap * Math.max(0, pieces.length - 1)
+
+/** Whether `line(width, left, right, gap)` holds every piece whole. */
+export const fits = (width: number, left: readonly Piece[], right: readonly Piece[] = [], gap = 1) =>
+  spanOf(left, gap) + spanOf(right, gap) + (left.length > 0 && right.length > 0 ? gap : 0) <= width
+
 /** The row cut to `n` cells, its last cell `…` when anything was cut. */
 export function cut(row: readonly Run[], n: number): Run[] {
   if (widthOf(row) <= n) return row.map(r => ({ ...r }))
@@ -57,14 +67,25 @@ export const pad = (s: string, n: number) => (s.length >= n ? s.slice(0, n) : s 
 
 export const piece = (text: string, look: Look = {}, action: string | null = null): Piece => ({ runs: runs(text, look), action })
 
+/** A button drawn in cells: its label on a filled ground. */
+export const pill = (label: string, action: string, bg: string, isDim = false): Piece => piece(` ${label} `, { bg, isDim }, action)
+
+/** An action drawn as text, its hotkey first in the accent colour: `h: Write handoff`. */
+export function keyed(key: string, label: string, action: string): Piece {
+  const r: Run[] = []
+  put(r, key, { color: 'claude', isBold: true })
+  put(r, `: ${label}`)
+  return { runs: r, action }
+}
+
 /**
  * One row `width` cells across: the left pieces from the left edge, the right pieces against the right
  * edge, `gap` cells between pieces. The left side gives way first: its last pieces are cut to fit.
  */
-export function line(width: number, left: readonly Piece[], right: readonly Piece[] = [], gap = 1): { row: Run[]; spans: { action: string; x0: number; x1: number }[] } {
+export function line(width: number, left: readonly Piece[], right: readonly Piece[] = [], gap = 1): { row: Run[]; spans: Span[] } {
   const join = (pieces: readonly Piece[]) => {
     const row: Run[] = []
-    const spans: { action: string; x0: number; x1: number }[] = []
+    const spans: Span[] = []
     pieces.forEach((p, i) => {
       if (i > 0) put(row, ' '.repeat(gap))
       const x0 = widthOf(row)
@@ -92,7 +113,7 @@ export function builder() {
   return {
     grid: g,
     /** Adds a row and the actions on it. */
-    add(row: Run[], spans: readonly { action: string; x0: number; x1: number }[] = []) {
+    add(row: Run[], spans: readonly Span[] = []) {
       const y = g.rows.length
       g.rows.push(row)
       for (const s of spans) g.hits.push({ id: s.action, y, x0: s.x0, x1: s.x1 })

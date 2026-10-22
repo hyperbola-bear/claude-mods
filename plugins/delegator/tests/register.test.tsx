@@ -31,6 +31,7 @@ function world(on: On): World {
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__delegator__${e.name}` } }))
   on('ui.open', ($, e) => {
     w.opens.push(e.id)
     return { value: { isPlaced: true as const } }
@@ -79,7 +80,7 @@ async function paneLines($: Engine, surface: 'terminal' | 'desktop') {
   return { pane, props, lines: plain(props ?? { rows: [] }).map(l => l.trimEnd()) }
 }
 
-test('Approve launches the agent on the model its task suggests, the task as it was', { options: {} }, async ($, on) => {
+test('Approve launches the agent on the model its task suggests, the task as it was', { options: { askForSteps: false } }, async ($, on) => {
   const w = world(on)
   await start($)
   w.replies.push('Approve')
@@ -93,8 +94,8 @@ test('Approve launches the agent on the model its task suggests, the task as it 
   expect(w.opens).toContain('delegator')
   for (const surface of ['terminal', 'desktop'] as const) {
     const { pane, lines } = await paneLines($, surface)
-    expect(lines).toContain('✓ #1 Explore · inspect cache tests · approved on Haiku 4.5')
-    expect(lines.some(l => l.startsWith('No agent waiting.'))).toBe(true)
+    expect(lines.some(l => / #1 Explore · inspect cache tests +Haiku 4\.5$/.test(l))).toBe(true)
+    expect(lines.some(l => l.includes('W A I T I N G'))).toBe(false)
     await pane.unmount()
   }
 })
@@ -110,7 +111,7 @@ test('each option says what it does, with no preview, so the typed answer row st
   expect(options[3]?.description).toBe('Do not launch it; the caller is told you refused.')
 })
 
-test('Change model and a typed note reach the agent exactly as chosen', { options: {} }, async ($, on) => {
+test('Change model and a typed note reach the agent exactly as chosen', { options: { askForSteps: false } }, async ($, on) => {
   const w = world(on)
   await start($)
   w.replies.push('Change model', 'Opus', 'only touch api.ts', 'Approve')
@@ -138,7 +139,7 @@ test('Refuse starts nothing and tells the caller', { options: {} }, async ($, on
   expect(w.launched).toHaveLength(0)
   expect(r.deny).toContain('The person did not approve this agent (refused), so it was not started.')
   const { lines } = await paneLines($, 'terminal')
-  expect(lines).toContain('✗ #1 general-purpose · implement retry · refused')
+  expect(lines.some(l => /^✗ #1 general-purpose · implement retry +refused$/.test(l))).toBe(true)
 })
 
 test('no answer never launches: a dismissed dialog, and one that closed by itself while the person was away', { options: {} }, async ($, on) => {
@@ -171,7 +172,7 @@ test('Approve all covers the agents waiting and those after, until the main turn
   expect(w.launched[2]).toMatchObject({ model: 'sonnet' })
   const shown = await paneLines($, 'terminal')
   expect(shown.lines).toContain('Approve all is on until this turn ends.')
-  expect(shown.lines).toContain('◆ #3 general-purpose · implement retry · auto-approved on Sonnet 5.5')
+  expect(shown.lines.some(l => / #3 general-purpose · implement retry +Sonnet 5\.5$/.test(l))).toBe(true)
   await shown.pane.unmount()
   // A subagent's turn ending is not the main turn's.
   await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 's1', reason: 'answer', agentId: 'agent-1' })
@@ -211,7 +212,7 @@ test('the pane shows the agent waiting and its whole task while its dialog is op
   await w.clock.settle()
   for (const surface of ['terminal', 'desktop'] as const) {
     const { pane, lines } = await paneLines($, surface)
-    expect(lines[0]).toMatch(/^DELEGATOR ● on +Turn off$/)
+    expect(lines[0]).toMatch(/^DELEGATOR ● gate on +o: Turn off$/)
     expect(lines).toContain('▸ #1 general-purpose · implement retry · Sonnet')
     expect(lines).toContain(BUILDER.prompt)
     await pane.unmount()
@@ -220,14 +221,14 @@ test('the pane shows the agent waiting and its whole task while its dialog is op
   await held
 })
 
-test('off, agents launch without asking; the pane, /delegator and /config turn it back on', { options: { approveAgents: false } }, async ($, on) => {
+test('off, agents launch without asking; the pane, /delegator and /config turn it back on', { options: { approveAgents: false, askForSteps: false } }, async ($, on) => {
   const w = world(on)
   await start($)
   await spawn($, { ...BUILDER, model: 'haiku' })
   expect(w.asked).toHaveLength(0)
   expect(w.launched[0]).toMatchObject({ model: 'haiku', prompt: BUILDER.prompt })
   const { pane, lines } = await paneLines($, 'terminal')
-  expect(lines).toContain('Off: agents launch without asking.')
+  expect(lines[0]).toMatch(/^DELEGATOR ○ gate off +o: Turn on$/)
   await pane.key({ key: 'o', in: 'delegator' })
   expect(w.configSets).toEqual([['delegator.approveAgents', true]])
   expect(w.toasts.at(-1)).toBe('Delegator on: every agent Claude starts waits for your approval.')
@@ -257,7 +258,7 @@ test('/clear empties the queue and the decisions', { options: {} }, async ($, on
   await spawn($, EXPLORE)
   await $.session.end({ reason: 'clear', sessionId: 's1' } as never)
   const { lines } = await paneLines($, 'terminal')
-  expect(lines.some(l => l.includes('R E C E N T'))).toBe(false)
+  expect(lines.some(l => l.includes('D O N E'))).toBe(false)
 })
 
 test('Approve all also ends when the person sends another prompt', { options: {} }, async ($, on) => {

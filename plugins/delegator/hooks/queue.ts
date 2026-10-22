@@ -1,8 +1,6 @@
 // Pure delegator logic: no `$`, so tests call it directly. Which model a task suggests, how an agent is
-// asked about, what an answer means, and the pane's grid.
+// asked about, and what an answer means.
 import type { AgentKind, Decision, DelegatorState, ModelAlias, Pending, Suggestion } from '../types'
-import { builder, line, piece, runs, wrap } from './cells.ts'
-import type { Grid, Run } from './cells.ts'
 
 export const EMPTY: DelegatorState = { pending: [], recent: [], approveAllTurn: false }
 
@@ -11,9 +9,6 @@ export const RECENT_KEPT = 8
 
 /** The chip beside every question the delegator asks: how its own dialogs are told apart. */
 export const HEADER = 'Delegator'
-
-/** Rows of a task the pane shows before it says how many more there are. */
-export const TASK_ROWS = 40
 
 export const MODELS: readonly { alias: ModelAlias; label: string }[] = [
   { alias: 'haiku', label: 'Haiku' },
@@ -64,6 +59,7 @@ export type SpawnFacts = {
   fork: boolean
   isTeammate?: true
   workflow?: unknown
+  resume?: unknown
 }
 
 export function kindOf(e: Pick<SpawnFacts, 'fork' | 'isTeammate' | 'workflow'>): AgentKind {
@@ -105,6 +101,20 @@ export function makePending(e: SpawnFacts, n: number, suggests: boolean): Pendin
 export function taskOf(p: Pick<Pending, 'prompt' | 'notes'>): string {
   if (p.notes.length === 0) return p.prompt
   return `${p.prompt}\n\nNotes from the person who approved this agent:\n${p.notes.map(n => `- ${n}`).join('\n')}`
+}
+
+export const STEP_TOOL = 'mcp__delegator__step'
+
+/** The line added after an agent's task while Ask agents to report their steps is on. */
+export const STEP_ASK = `Report your progress to the person's Delegator pane: call \`${STEP_TOOL}\` with \`total\` (your plan in 3 to 8 steps) and \`done: 0\` before any other work, then again with \`done\` and a few-word \`note\` as each step finishes.`
+
+/**
+ * The task as the agent launches with it: `taskOf`, then the ask to report steps where `asksSteps` and the
+ * task can be added to. A task that already names the step tool is not asked twice.
+ */
+export function launchTask(p: Pick<Pending, 'prompt' | 'notes' | 'kind'>, asksSteps: boolean): string {
+  const task = taskOf(p)
+  return asksSteps && canEditTask(p.kind) && !task.includes(STEP_TOOL) ? `${task}\n\n${STEP_ASK}` : task
 }
 
 /** A model as people say it: `Haiku`, `Opus 5.5` for a full id, the id itself otherwise. */
@@ -198,66 +208,4 @@ export function decided(p: Pending, outcome: Decision['outcome'], model: string 
 /** The state with a decision made on `n`: out of the queue, at the head of the recent ones. */
 export function settle(s: DelegatorState, n: number, d: Decision): DelegatorState {
   return { ...s, pending: s.pending.filter(p => p.n !== n), recent: [d, ...s.recent].slice(0, RECENT_KEPT) }
-}
-
-// ---------- the pane ----------
-
-const divider = (label: string, width: number): Run[] => {
-  const head = `── ${label.split('').join(' ')} `
-  return runs(head + '─'.repeat(Math.max(0, width - head.length)), { isDim: true })
-}
-
-/** The task as rows: its own line breaks kept, each line wrapped, capped at `max` rows. */
-export function taskRows(task: string, width: number, max = TASK_ROWS): Run[][] {
-  const rows: Run[][] = []
-  for (const para of task.split('\n')) {
-    if (para.trim() === '') rows.push([])
-    else rows.push(...wrap(para, width))
-  }
-  if (rows.length <= max) return rows
-  return [...rows.slice(0, max - 1), runs(`… ${rows.length - max + 1} more lines`, { isDim: true })]
-}
-
-const pendingLine = (p: Pending) =>
-  `#${p.n} ${p.subagentType} · ${p.description} · ${p.kind === 'fork' ? 'parent model' : p.model === null ? 'agent default' : modelName(p.model)}`
-
-const OUTCOME: Record<Decision['outcome'], { mark: string; color: string; label: string }> = {
-  approved: { mark: '✓', color: 'success', label: 'approved' },
-  auto: { mark: '◆', color: 'success', label: 'auto-approved' },
-  refused: { mark: '✗', color: 'error', label: 'refused' },
-}
-
-/** The pane: on or off, the agents waiting, the first one's full task, and the decisions made. */
-export function paneGrid(s: DelegatorState, width: number, isOn: boolean): Grid & { keys: Record<string, string> } {
-  const b = builder()
-  const head = line(
-    width,
-    [piece('DELEGATOR', { isBold: true }), isOn ? piece('● on', { color: 'success' }) : piece('○ off', { isDim: true })],
-    [piece(isOn ? ' Turn off ' : ' Turn on ', { bg: 'subtle' }, 'toggle')],
-  )
-  b.add(head.row, head.spans)
-  if (s.approveAllTurn) b.add(runs('Approve all is on until this turn ends.', { color: 'warning' }))
-  b.add(divider('PENDING', width))
-  if (s.pending.length === 0) {
-    const idle = isOn ? 'No agent waiting. Each agent Claude starts waits here for your approval.' : 'Off: agents launch without asking.'
-    for (const row of wrap(idle, width, { isDim: true })) b.add(row)
-  }
-  s.pending.forEach((p, i) => {
-    const row = line(width, [piece(i === 0 ? '▸' : ' ', { color: 'warning' }), piece(pendingLine(p), { isBold: i === 0 })])
-    b.add(row.row)
-  })
-  const first = s.pending[0]
-  if (first) {
-    b.add(divider(`TASK #${first.n}`, width))
-    for (const row of taskRows(taskOf(first), width)) b.add(row)
-  }
-  if (s.recent.length > 0) {
-    b.add(divider('RECENT', width))
-    for (const d of s.recent) {
-      const o = OUTCOME[d.outcome]
-      const what = `#${d.n} ${d.subagentType} · ${d.description} · ${d.outcome === 'refused' ? (d.reason ?? o.label) : `${o.label} on ${d.model ? modelName(d.model) : 'its default'}`}`
-      b.add(line(width, [piece(o.mark, { color: o.color }), piece(what, { isDim: d.outcome === 'refused' })]).row)
-    }
-  }
-  return { ...b.grid, keys: { o: 'toggle' } }
 }

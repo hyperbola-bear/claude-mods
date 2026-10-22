@@ -41,6 +41,14 @@ export const EFFORT_STEPS: readonly { step: EffortStep; label: string }[] = [
   { step: 'ultracode', label: 'Ultracode' },
 ]
 
+/** Shorter label sets for EFFORT_STEPS, longest first, one label per step in its order: for pickers too narrow for the full ones. */
+export const EFFORT_SHORT_LABELS: readonly (readonly string[])[] = [
+  ['Low', 'Medium', 'High', 'XHigh', 'Max', 'Ultra'],
+  ['Low', 'Med', 'High', 'XHigh', 'Max', 'Ultra'],
+  ['Low', 'Med', 'High', 'XHi', 'Max', 'Ult'],
+  ['Low', 'Med', 'Hi', 'XHi', 'Max', 'Ult'],
+]
+
 export const SELECTOR_STYLES: readonly { style: SelectorStyle; label: string; rows: number }[] = [
   { style: 'rail', label: 'Rail', rows: 2 },
   { style: 'ladder', label: 'Ladder', rows: 1 },

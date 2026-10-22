@@ -1,12 +1,14 @@
 // Pure corner-panel logic: no `$`, so tests call it directly.
 import type { Effort } from '../types'
+import { put, widthOf } from './cells.ts'
+import type { Piece, Run, Span } from './cells.ts'
 
-/** The models the panel offers: the `/model` alias it runs, and the name it shows. */
+/** The models the panel offers: the `/model` alias it runs, the name it shows, and that name without its version. */
 export const MODELS = [
-  { alias: 'haiku', label: 'Haiku 4.5' },
-  { alias: 'sonnet', label: 'Sonnet 5.5' },
-  { alias: 'opus', label: 'Opus 5.5' },
-  { alias: 'fable', label: 'Fable 5.1' },
+  { alias: 'haiku', label: 'Haiku 4.5', family: 'Haiku' },
+  { alias: 'sonnet', label: 'Sonnet 5.5', family: 'Sonnet' },
+  { alias: 'opus', label: 'Opus 5.5', family: 'Opus' },
+  { alias: 'fable', label: 'Fable 5.1', family: 'Fable' },
 ] as const
 
 export const EFFORTS: readonly { level: Effort; label: string }[] = [
@@ -27,6 +29,8 @@ export const MODULES = [
   { id: 'tokens', key: 'tokensModule', desc: 'where the tokens go' },
   { id: 'handoff', key: 'handoffModule', desc: 'write and read handoff notes' },
   { id: 'next', key: 'nextModule', desc: 'follow-up prompts after each reply (a short Haiku call)' },
+  { id: 'sessions', key: 'sessionsModule', desc: 'your other sessions: which need you, which are working' },
+  { id: 'assume', key: 'assumeModule', desc: 'the guesses Claude makes, for you to mark right or wrong' },
 ] as const
 
 export type ModuleId = (typeof MODULES)[number]['id']
@@ -86,10 +90,28 @@ export function sectionRule(title: string, width: number): string {
   return head + '─'.repeat(Math.max(2, width - head.length))
 }
 
-/** `──────… user-hud ─`, `width` cells across: the panel's bottom edge. */
-export function footerRule(title: string, width: number): string {
-  const tail = ` ${title} ─`
-  return '─'.repeat(Math.max(2, width - tail.length)) + tail
+/** A section rule with pieces against its right end: `── S E S S I O N S ─────── e: expand ─`, `width` cells across. */
+export function hintedRule(title: string, width: number, hint: readonly Piece[] = []): { row: Run[]; spans: Span[] } {
+  const tail: Run[] = []
+  const tailSpans: Span[] = []
+  for (const p of hint) {
+    put(tail, ' ')
+    const x0 = widthOf(tail)
+    for (const r of p.runs) put(tail, r.text, r)
+    if (p.action) tailSpans.push({ action: p.action, x0, x1: widthOf(tail) })
+  }
+  if (hint.length > 0) put(tail, ' ─', { isDim: true })
+  const row: Run[] = []
+  put(row, sectionRule(title, Math.max(0, width - widthOf(tail))), { isDim: true })
+  const offset = widthOf(row)
+  for (const r of tail) put(row, r.text, r)
+  return { row, spans: tailSpans.map(s => ({ ...s, x0: s.x0 + offset, x1: s.x1 + offset })) }
+}
+
+/** The cache life left as a pie that drains: `●` from 87.5% left, then `◕ ◑ ◔`, and `○` under 12.5%. */
+export function pieOf(remaining: number, total: number): string {
+  const left = total > 0 ? remaining / total : 0
+  return left >= 0.875 ? '●' : left >= 0.625 ? '◕' : left >= 0.375 ? '◑' : left >= 0.125 ? '◔' : '○'
 }
 
 /** Ten cells of cache life: `▰▰▰▰▰▰▱▱▱▱`. */

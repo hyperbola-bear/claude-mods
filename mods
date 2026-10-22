@@ -2,7 +2,8 @@
 """mods: install, update and remove the mods in a Claude Code plugin marketplace from one checklist.
 
     mods              tick the mods you want; it installs, updates, enables and removes to match,
-                      then asks which modules to turn on for any mod that has them (user-hud)
+                      asks which modules to turn on for any mod that has them (user-hud), and offers
+                      to disable another plugin that would do a kept mod's job twice
     mods --list       each mod, what you have and what the marketplace offers
     mods --update     update every mod you have, no questions
     mods --dry-run    show the claude commands instead of running them
@@ -23,6 +24,8 @@ DEFAULT_SOURCE = 'hyperbola-bear/claude-mods'
 RENAMED = {'user-hd': 'user-hud', 'pr-review-ui': 'code-reference'}
 # A mod's modules: its boolean options named like this (user-hud's `cacheModule`, ...).
 MODULE_SUFFIX = 'Module'
+# Plugins from other marketplaces that do a mod's job: left on beside it, the same work runs twice.
+OVERLAPS = {'delegator': {'savvy-progress@claude-kit': 'it tracks subagents in a panel of its own'}}
 
 
 class Mod:
@@ -241,6 +244,18 @@ def module_steps(mods, wanted, market):
     return steps
 
 
+def overlap_steps(mods, wanted):
+    """For each mod you keep, the enabled plugins that duplicate it, offered for disabling (they stay installed)."""
+    enabled = {e['id']: e for e in claude_json('list') if e.get('enabled', True)}
+    steps = []
+    for mod, want in zip(mods, wanted):
+        for pid, why in OVERLAPS.get(mod.name, {}).items() if want else ():
+            if pid in enabled:
+                scope = ['--scope', enabled[pid]['scope']] if enabled[pid].get('scope') else []
+                steps.append((f'disable {pid}: {mod.name} does this now, and {why}', ['disable', pid, *scope]))
+    return steps
+
+
 def run(steps, dry_run):
     failed = 0
     for step in steps:
@@ -298,6 +313,8 @@ def main():
         failed = run(steps, a.dry_run)
         if gone:
             print(f'No longer in {a.marketplace}: {", ".join(gone)}. Run mods to swap or remove them.')
+        for s in overlap_steps([m for m in mods if m.installed], [True] * sum(1 for m in mods if m.installed)):
+            print(f'Also on: {s[1][1]}. Run mods to disable it, or: claude plugin {" ".join(s[1])}')
         if steps and not a.dry_run:
             print('Start a new Claude Code session to load the updates.')
         sys.exit(1 if failed else 0)
@@ -312,7 +329,7 @@ def main():
     if wanted is None:
         print('Nothing changed.')
         return
-    steps = plan_for(mods, wanted, a.marketplace) + module_steps(mods, wanted, a.marketplace)
+    steps = plan_for(mods, wanted, a.marketplace) + module_steps(mods, wanted, a.marketplace) + overlap_steps(mods, wanted)
     if not steps:
         print('Nothing to change: you have what you ticked, up to date.')
         return

@@ -8,7 +8,7 @@
     {
       "name": "user-hud",
       "source": "./plugins/user-hud",
-      "description": "A control panel tucked into the corner above the Claude Code prompt, in five modules you turn on or off: where your tokens go (files, chat, MCP, shell, skills and plugins, subagents and more), model and effort pickers in three styles, prompt-cache countdown with a 2-minute keep-warm alert, handoff buttons, and next steps (follow-up prompts after each reply, one key to put in the prompt box)."
+      "description": "A control panel above the Claude Code prompt, laid out as cards in one to three columns by width, in seven modules you turn on or off: your other sessions (needs you, working, done), the context as a ten-cell battery and where your tokens go, model and effort pickers in three styles, prompt-cache countdown with a 2-minute keep-warm alert, guesses Claude made for you to mark right or wrong, handoff buttons, and next steps."
     },
     {
       "name": "code-reference",
@@ -23,7 +23,7 @@
     {
       "name": "delegator",
       "source": "./plugins/delegator",
-      "description": "Every subagent Claude starts waits for your approval: approve, refuse, approve all for the turn, change its model (suggested by the task's complexity) or add a note to its task. A pane lists the agents waiting, the full task and recent decisions, the same in the terminal and the desktop app."
+      "description": "Every subagent Claude starts waits for your approval: approve, refuse, approve all for the turn, change its model (suggested by the task's complexity) or add a note to its task. The pane then follows each agent as it runs, a pixel character for its role beside its context battery, tokens, estimated cost, time and reported steps, the same in the terminal and the desktop app."
     }
   ]
 }

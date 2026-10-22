@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { asEffort, footerRule, lifeBar, modelAlias, modelLabel, modulesFrom, nextWarn, parseHudArgs, sectionRule } from '../hooks/hud.ts'
+import { asEffort, hintedRule, lifeBar, modelAlias, modelLabel, modulesFrom, nextWarn, parseHudArgs, pieOf, sectionRule } from '../hooks/hud.ts'
+import { keyed, plain } from '../hooks/cells.ts'
 
 test('models are recognised however /model or a request spells them', () => {
   expect(modelAlias('claude-sonnet-5-5')).toBe('sonnet')
@@ -28,10 +29,11 @@ test('the cycling pills step through their values and wrap', () => {
 test('rules fill the panel width exactly', () => {
   expect(sectionRule('CACHE', 20)).toBe('── C A C H E ───────')
   expect(sectionRule('CACHE', 20)).toHaveLength(20)
-  expect(footerRule('user-hud', 20)).toBe('──────────── user-hud ─'.slice(-20))
-  expect(footerRule('user-hud', 20)).toHaveLength(20)
   // Too narrow for the spaced title: the plain one, still as wide as the panel.
   expect(sectionRule('SETTINGS', 20)).toBe('── SETTINGS ────────')
+  const r = hintedRule('SESSIONS', 40, [keyed('e', 'expand', 'sessions')])
+  expect(plain({ rows: [r.row] })).toEqual([`── S E S S I O N S ${'─'.repeat(9)} e: expand ─`])
+  expect(r.spans).toEqual([{ action: 'sessions', x0: 29, x1: 38 }])
 })
 
 test('the life bar fills with the time left', () => {
@@ -50,6 +52,20 @@ test('/hud arguments: nothing toggles the panel, modules lists them, <module> on
 })
 
 test('every module is on unless its /config row says off', () => {
-  expect(modulesFrom({})).toEqual({ cache: true, pickers: true, tokens: true, handoff: true, next: true })
-  expect(modulesFrom({ tokensModule: false, cacheModule: 'false' })).toEqual({ cache: true, pickers: true, tokens: false, handoff: true, next: true })
+  expect(modulesFrom({})).toEqual({ cache: true, pickers: true, tokens: true, handoff: true, next: true, sessions: true, assume: true })
+  expect(modulesFrom({ tokensModule: false, cacheModule: 'false', assumeModule: false })).toEqual({
+    cache: true,
+    pickers: true,
+    tokens: false,
+    handoff: true,
+    next: true,
+    sessions: true,
+    assume: false,
+  })
+})
+
+test('the cache countdown’s pie drains with the time left', () => {
+  const pies = [100, 87.5, 87.4, 62.5, 62.4, 37.5, 37.4, 12.5, 12.4, 0, -20].map(p => pieOf(p, 100))
+  expect(pies).toEqual(['●', '●', '◕', '◕', '◑', '◑', '◔', '◔', '○', '○', '○'])
+  expect(pieOf(5, 0)).toBe('○')
 })

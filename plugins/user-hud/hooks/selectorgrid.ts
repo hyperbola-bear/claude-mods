@@ -10,7 +10,8 @@ export type GridOption = { id: string; label: string; colors: string[]; isOn: bo
 
 export type GridKind = 'model' | 'effort'
 
-export type GridField = { kind: GridKind; name: string; options: GridOption[] }
+/** A picker: its options, and `shorter` label sets for narrow widths, longest first, one label per option in order. */
+export type GridField = { kind: GridKind; name: string; options: GridOption[]; shorter?: readonly (readonly string[])[] }
 
 export type PickerProps = { style: SelectorStyle; width: number; fields: GridField[] }
 
@@ -40,22 +41,22 @@ function bar(row: Run[], o: GridOption, width: number, glyph: string, isFilled: 
 
 type Spans = { action: string; x0: number; x1: number }[]
 
-/** Rail and Meter: a row of labels and a row of bars, one column per step, a cell between. */
-function columns(f: GridField, width: number, isMeter: boolean): Grid {
-  const w = columnWidth(width - NAME_WIDTH, f.options.length, f.options.map(o => o.label))
+/** Rail and Meter: a row of labels and a row of bars, one column per step, a cell between, after `nameWidth` cells of name. */
+function columns(f: GridField, set: readonly string[], nameWidth: number, width: number, isMeter: boolean): Grid {
+  const w = columnWidth(width - nameWidth, f.options.length, set)
   const on = f.options.findIndex(o => o.isOn)
   const labels: Run[] = []
   const bars: Run[] = []
   const spans: Spans = []
-  put(labels, pad(f.name, NAME_WIDTH), { isDim: true })
-  put(bars, ' '.repeat(NAME_WIDTH))
+  put(labels, pad(f.name, nameWidth), { isDim: true })
+  put(bars, ' '.repeat(nameWidth))
   f.options.forEach((o, i) => {
     if (i > 0) {
       put(labels, ' ')
       put(bars, ' ')
     }
-    const x0 = NAME_WIDTH + i * (w + 1)
-    put(labels, center(o.label, w), { isBold: o.isOn })
+    const x0 = nameWidth + i * (w + 1)
+    put(labels, center(set[i]!, w), { isBold: o.isOn })
     // Rail: the chosen segment solid, the others a thin line. Meter: bars rising, lit up to the chosen step.
     if (isMeter) bar(bars, o, w, meterGlyph(i, f.options.length), false, on === -1 || i > on)
     else bar(bars, o, w, '▔', o.isOn, false)
@@ -109,23 +110,39 @@ function ladder(f: GridField, width: number, indent: number): Grid {
   return b.grid
 }
 
-/** Whether Rail's and Meter's columns fit `width`: each at least its longest label, a cell between. */
-export function fitsColumns(width: number, labels: readonly string[]): boolean {
+/** Whether equal columns, each at least the longest of `labels`, a cell between, fit `width`. */
+function fits(labels: readonly string[], width: number): boolean {
   const longest = labels.reduce((m, l) => Math.max(m, l.length), 0)
-  return labels.length * longest + (labels.length - 1) <= width - NAME_WIDTH
+  return labels.length * longest + (labels.length - 1) <= width
 }
 
-/** The style drawn at `width`: where any field's columns do not fit, Rail and Meter give way to the Ladder for every field. */
+const fullLabels = (f: GridField) => f.options.map(o => o.label)
+
+/**
+ * How Rail and Meter draw at `width`: the names' column beside full labels where every field fits them; else no
+ * names, and each field's longest label set that fits. Null where some field fits none: the Ladder draws instead.
+ */
+function columnPlan(width: number, fields: readonly GridField[]): { nameWidth: number; labels: (readonly string[])[] } | null {
+  const full = fields.map(fullLabels)
+  if (full.every(set => fits(set, width - NAME_WIDTH))) return { nameWidth: NAME_WIDTH, labels: full }
+  const labels = fields.map(f => [fullLabels(f), ...(f.shorter ?? [])].find(set => fits(set, width)))
+  return labels.every((set): set is readonly string[] => set !== undefined) ? { nameWidth: 0, labels } : null
+}
+
+/** The style drawn at `width`: where any field fits none of its label sets, Rail and Meter give way to the Ladder for every field. */
 export function fittedStyle(style: SelectorStyle, width: number, fields: readonly GridField[]): SelectorStyle {
-  return style !== 'ladder' && fields.some(f => !fitsColumns(width, f.options.map(o => o.label))) ? 'ladder' : style
+  return style !== 'ladder' && columnPlan(width, fields) === null ? 'ladder' : style
 }
 
-/** Every row and option of the pickers in `style` (already fitted), `width` cells across. */
+/** Every row and option of the pickers in `style`, `width` cells across; Rail and Meter as `columnPlan` fits them, the Ladder where it cannot. */
 export function layout(props: PickerProps): Grid {
   const b = builder()
+  const plan = props.style === 'ladder' ? null : columnPlan(props.width, props.fields)
   // Every field's Ladder keeps the names' column, or none does: too narrow for the widest step beside it.
   const indent = props.fields.every(f => NAME_WIDTH + widestStep(f) <= props.width) ? NAME_WIDTH : 0
-  for (const f of props.fields) b.append(props.style === 'ladder' ? ladder(f, props.width, indent) : columns(f, props.width, props.style === 'meter'))
+  props.fields.forEach((f, i) =>
+    b.append(plan ? columns(f, plan.labels[i]!, plan.nameWidth, props.width, props.style === 'meter') : ladder(f, props.width, indent)),
+  )
   // Every row as wide as the region, so the grid is a clean rectangle on any surface.
   for (const row of b.grid.rows) put(row, ' '.repeat(Math.max(0, props.width - widthOf(row))))
   return b.grid

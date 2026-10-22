@@ -1,15 +1,37 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EFFORT_COLORS, EFFORT_STEPS, MODEL_COLORS } from '../hooks/selector.ts'
+import { EFFORT_COLORS, EFFORT_SHORT_LABELS, EFFORT_STEPS, MODEL_COLORS } from '../hooks/selector.ts'
 import { hitAt, order, plain, underlined } from '../hooks/cells.ts'
-import { fittedStyle, layout } from '../hooks/selectorgrid.ts'
+import type { Grid } from '../hooks/cells.ts'
+import { fittedStyle, layout, pickAction } from '../hooks/selectorgrid.ts'
 import type { GridField } from '../hooks/selectorgrid.ts'
 import { MODELS } from '../hooks/hud.ts'
 
 const FIELDS: GridField[] = [
-  { kind: 'model', name: 'MODEL', options: MODELS.map(m => ({ id: m.alias, label: m.label, colors: [MODEL_COLORS[m.alias]!], isOn: m.alias === 'opus' })) },
-  { kind: 'effort', name: 'EFFORT', options: EFFORT_STEPS.map(f => ({ id: f.step, label: f.label, colors: [...EFFORT_COLORS[f.step]], isOn: f.step === 'xhigh' })) },
+  {
+    kind: 'model',
+    name: 'MODEL',
+    options: MODELS.map(m => ({ id: m.alias, label: m.label, colors: [MODEL_COLORS[m.alias]!], isOn: m.alias === 'opus' })),
+    shorter: [MODELS.map(m => m.family)],
+  },
+  {
+    kind: 'effort',
+    name: 'EFFORT',
+    options: EFFORT_STEPS.map(f => ({ id: f.step, label: f.label, colors: [...EFFORT_COLORS[f.step]], isOn: f.step === 'xhigh' })),
+    shorter: EFFORT_SHORT_LABELS,
+  },
 ]
+
+const ORDER = ['haiku', 'sonnet', 'opus', 'fable', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode']
+
+/** The label each option of a field draws: the letters inside its own cells, on whichever row holds them. */
+const drawnLabels = (g: Grid, f: GridField) =>
+  f.options.map(o =>
+    g.hits
+      .filter(h => h.id === pickAction(f.kind, o.id))
+      .map(h => plain(g)[h.y]!.slice(h.x0, h.x1).trim())
+      .find(t => /\w/.test(t)),
+  )
 
 test('every row is exactly as wide as the cells it holds, and every option sits under its label', () => {
   for (const style of ['rail', 'ladder', 'meter'] as const) {
@@ -52,15 +74,67 @@ test('Ladder too narrow for the names beside it: each name on a row of its own, 
   for (const r of rows) expect(r).toHaveLength(22)
 })
 
-test('Rail and Meter give way to the Ladder where their columns do not fit', () => {
+test('Rail and Meter give way to the Ladder only where a field fits none of its label sets', () => {
   expect(fittedStyle('rail', 72, FIELDS)).toBe('rail')
-  expect(fittedStyle('meter', 66, FIELDS)).toBe('ladder')
+  expect(fittedStyle('meter', 66, FIELDS)).toBe('meter')
   expect(fittedStyle('ladder', 200, FIELDS)).toBe('ladder')
+  for (const style of ['rail', 'meter'] as const) {
+    expect(fittedStyle(style, 27, FIELDS), `${style} at 27`).toBe(style)
+    // The models by family need four columns of 6, a cell between.
+    expect(fittedStyle(style, 26, FIELDS), `${style} at 26`).toBe('ladder')
+    expect(plain(layout({ style, width: 26, fields: FIELDS }))).toEqual(plain(layout({ style: 'ladder', width: 26, fields: FIELDS })))
+  }
+})
+
+const NARROW = [
+  { w: 34, model: ['Haiku', 'Sonnet', 'Opus', 'Fable'], effort: ['Low', 'Med', 'High', 'XHi', 'Max', 'Ult'] },
+  { w: 38, model: ['Haiku', 'Sonnet', 'Opus', 'Fable'], effort: ['Low', 'Med', 'High', 'XHigh', 'Max', 'Ultra'] },
+  { w: 39, model: ['Haiku', 'Sonnet', 'Opus', 'Fable'], effort: ['Low', 'Med', 'High', 'XHigh', 'Max', 'Ultra'] },
+  { w: 42, model: ['Haiku', 'Sonnet', 'Opus', 'Fable'], effort: ['Low', 'Medium', 'High', 'XHigh', 'Max', 'Ultra'] },
+  { w: 49, model: ['Haiku 4.5', 'Sonnet 5.5', 'Opus 5.5', 'Fable 5.1'], effort: ['Low', 'Medium', 'High', 'XHigh', 'Max', 'Ultra'] },
+  { w: 60, model: ['Haiku 4.5', 'Sonnet 5.5', 'Opus 5.5', 'Fable 5.1'], effort: ['Low', 'Medium', 'High', 'XHigh', 'Max', 'Ultracode'] },
+]
+
+test('at every card width Rail and Meter keep their style, each option under the longest labels that fit', () => {
+  for (const { w, model, effort } of NARROW) {
+    for (const style of ['rail', 'meter'] as const) {
+      expect(fittedStyle(style, w, FIELDS), `${style} at ${w}`).toBe(style)
+      const g = layout({ style, width: w, fields: FIELDS })
+      for (const row of plain(g)) expect(row.length, `${style} at ${w}`).toBe(w)
+      expect(drawnLabels(g, FIELDS[0]!), `${style} at ${w}`).toEqual(model)
+      expect(drawnLabels(g, FIELDS[1]!), `${style} at ${w}`).toEqual(effort)
+      expect(order(g).map(a => a.split(':')[2]), `${style} at ${w}`).toEqual(ORDER)
+    }
+  }
+})
+
+test('the names take a column only from 67 cells across, where every field fits its full labels beside them', () => {
+  const rail = (w: number) => plain(layout({ style: 'rail', width: w, fields: FIELDS }))
+  expect(rail(34)[0]!.trim().split(/ +/)).toEqual(['Haiku', 'Sonnet', 'Opus', 'Fable'])
+  expect(rail(34)[2]!.trim().split(/ +/)).toEqual(['Low', 'Med', 'High', 'XHi', 'Max', 'Ult'])
+  expect(rail(42)[0]!.trim().split(/ +/)).toEqual(['Haiku', 'Sonnet', 'Opus', 'Fable'])
+  expect(rail(42)[2]!.trim().split(/ +/)).toEqual(['Low', 'Medium', 'High', 'XHigh', 'Max', 'Ultra'])
+  for (let w = 27; w < 67; w++) {
+    for (const style of ['rail', 'meter'] as const) {
+      expect(plain(layout({ style, width: w, fields: FIELDS })).some(r => /MODEL|EFFORT/.test(r)), `${style} at ${w}`).toBe(false)
+    }
+  }
+  expect(rail(67)[0]).toMatch(/^MODEL {3}.*Haiku 4\.5/)
+  expect(rail(67)[2]).toMatch(/^EFFORT {2}.*Ultracode/)
+})
+
+test('every field’s label sets give one label per option, each set’s longest shorter than the one before', () => {
+  for (const f of FIELDS) {
+    const sets = [f.options.map(o => o.label), ...(f.shorter ?? [])]
+    for (const set of sets) expect(set, f.kind).toHaveLength(f.options.length)
+    const longest = sets.map(set => Math.max(...set.map(l => l.length)))
+    for (let i = 1; i < longest.length; i++) expect(longest[i]!, `${f.kind} set ${i}`).toBeLessThan(longest[i - 1]!)
+  }
 })
 
 test('the arrow keys walk the options in reading order, each once', () => {
   const ids = order(layout({ style: 'meter', width: 72, fields: FIELDS })).map(a => a.split(':')[2])
-  expect(ids).toEqual(['haiku', 'sonnet', 'opus', 'fable', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+  expect(ids).toEqual(ORDER)
 })
 
 test('the option under the pointer or the keys is underlined', () => {

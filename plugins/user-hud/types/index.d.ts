@@ -61,7 +61,48 @@ export type HudState = {
   overage: PlanLimit | null
   /** How full the context window is, a whole percentage, as the engine reports it; null before a response of the live window. */
   contextPercent: number | null
+  /** The context window's size in tokens; null before the engine reported it. */
+  contextWindow: number | null
+  /** What the open panel shows: the cards, or the settings behind `s`. */
+  view: HudView
+  /** The card the open panel starts with (`+N more` and `a: review` move it); null for the usual order. */
+  lead: CardId | null
 }
+
+/** The open panel's cards, in their usual order. */
+export type CardId = 'sessions' | 'context' | 'model' | 'cache' | 'assume' | 'next' | 'handoff'
+
+export type HudView = 'cards' | 'settings'
+
+/** What a session's status file says it is doing. */
+export type SessionStatus = 'busy' | 'waiting' | 'idle'
+
+/** One live Claude Code session on this machine, read from `~/.claude/sessions/<pid>.json`. */
+export type SessionInfo = {
+  sessionId: string
+  pid: number
+  status: SessionStatus
+  /** The name to show, at most 30 characters. */
+  title: string
+  entry: 'cli' | 'app'
+  /** When its status last changed, in ms since the epoch. */
+  statusAt: number
+}
+
+/** Waiting on you, running a turn, idle within the last 8 hours, idle longer. */
+export type SessionGroup = 'needs' | 'working' | 'done' | 'asleep'
+
+export type Sessions = {
+  /** This session; in no group. */
+  self: SessionInfo | null
+  /** The other sessions, each group most recent first. */
+  byGroup: Record<SessionGroup, SessionInfo[]>
+  /** When the status files were last read; 0 before the first read. */
+  readAt: number
+}
+
+/** A guess Claude reported through the `assumption` tool, for the person to mark. */
+export type Guess = { id: string; text: string; status: 'open' | 'right' | 'wrong'; at: number }
 
 /** Where tokens go, one bucket per kind of work. */
 export type GroupId = 'chat' | 'thinking' | 'files' | 'shell' | 'web' | 'mcp' | 'skills' | 'agents' | 'system' | 'other'
@@ -144,6 +185,10 @@ declare module 'claude-code' {
       next: NextState
       /** The groups opened in the Tokens pane. */
       tokensOpen: GroupId[]
+      sessions: Sessions
+      /** Whether the Sessions pane lists the sessions asleep. */
+      asleepShown: boolean
+      guesses: Guess[]
     }
   }
 }
