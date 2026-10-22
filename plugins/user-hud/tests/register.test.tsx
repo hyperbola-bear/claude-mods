@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On, Register, SessionContextBreakdown } from 'claude-code'
 
 import { EFFORT_COLORS, MODEL_COLORS } from '../hooks/selector.ts'
-import { cut, plain, textOf } from '../hooks/cells.ts'
+import { plain, textOf } from '../hooks/cells.ts'
 import type { CellsProps } from '../hooks/cells.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -1176,19 +1176,8 @@ test('the CONTEXT card shows the battery and the split, and opens the Tokens pan
     const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
     expect(await shows(band, '77k tokens')).toBe(true)
     await openPanel(band)
-    // The stacked bar: a run of cells per group in its colour, 16 cells in all, before the CONTEXT card's total.
-    const g = (await cellsOf(band))!
-    const y = plain(g).findIndex(l => l.includes('77k used'))
-    // Only the cells right before the total, the bar and its gap: a card in the column beside may draw colour too.
-    const x = plain(g)[y]!.indexOf('77k used')
-    let at = 0
-    const segments = cut(g.rows[y]!, x).filter(r => {
-      at += r.text.length
-      return r.bg.startsWith('#') && at - r.text.length >= x - 17
-    })
-    expect(segments.length).toBeGreaterThan(3)
-    expect(segments.reduce((n, r) => n + r.text.length, 0)).toBe(16)
-    expect(segments.map(r => r.bg)).toContain('#3987e5')
+    // The total alone under the battery, no bar of groups before it.
+    expect(await shows(band, /(^| {2})77k used( |$)/)).toBe(true)
     await $.session.measure({ context: { window: 200_000, tokens: 68_000, percent: 34 }, rateLimits: [], changed: ['context'] })
     expect(await shows(band, /▕███▍ {6}▏ 34% +of 200k/)).toBe(true)
     expect(await shows(band, 'context 34%')).toBe(false)

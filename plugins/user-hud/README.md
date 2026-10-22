@@ -39,7 +39,7 @@ Closed, it is one row at the right edge. As the row narrows, the least needed pi
 - The pieces, left to right: who needs you, the cache countdown, the context battery, what your other sessions are doing, guesses to check, next steps waiting, the model and effort (`Opus 5.5 · XHigh`), and the session's token total (`1.2M tokens`). The token total goes first, then the model and effort, next steps, the guesses, the other sessions, the context and the countdown, each shortening before it goes (`Opus · XH`, `✦3`, `?4`, `●2 ✓3`). Who needs you goes last, and then the tab keeps only its mark.
 - The tab's mark is four diamonds, `❖`, in cream on Claude's orange. While another session needs you, they turn yellow, so the corner tells you even with nothing else on show.
 - The countdown's dot is a pie of the cache life left: `●` while nearly all of it is, then `◕`, `◑`, `◔`, and `○` near the end and once cold. Its colour follows the cache: green while warm, yellow with 2 minutes or less left, red once cold.
-- The context is a battery: ten cells that fill left to right as the context window does, green up to half, yellow up to three quarters, red past that, then the percentage (the figure the status line reads). Short of room, it drops the word `context`, then the cells, leaving `34%`.
+- The context is a battery: ten cells that fill left to right as the context window does, in the cache countdown's green up to half, its yellow up to three quarters, red past that, then the percentage (the figure the status line reads). Short of room, it drops the word `context`, then the cells, leaving `34%`.
 - The model is drawn in its colour and the effort in its own, letter by letter (the whole rainbow for Ultracode).
 - When 2 minutes or less are left, **Keep warm** comes out next to the tab, so it is one press away with the panel closed. On overage, **⚠ overage** and **New chat** come out beside the countdown.
 - Click **● 1 needs you** or the session counts to open the Sessions pane, **? 4 to check** to open the panel with the guesses first, and **✦ 3 next** to open the panel.
@@ -49,7 +49,7 @@ Click the tab (or run `/hud`) and the panel opens above it, as cards. Open or cl
 ```
 ── M O D E L   ·   E F F O R T ───────  ── C A C H E ─────────────────────────  ── C O N T E X T ──────── t: details ─
  Haiku    Sonnet    Opus    Fable       ● cache 52:10 ▰▰▰▰▰▰▰▰▰▱                ▕███▍      ▏ 34%               of 200k
-▔▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔▔ ████████ ▔▔▔▔▔▔▔▔     182k cached · hit 94% · 1h              ████████████████ 1.2M used
+▔▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔▔ ████████ ▔▔▔▔▔▔▔▔     182k cached · hit 94% · 1h              1.2M used
  Low   Med  High  XHigh  Max  Ultra                              w: Keep warm
 ▔▔▔▔▔ ▔▔▔▔▔ ▔▔▔▔▔ ██████ ▔▔▔▔▔ ▔▔▔▔▔
 
@@ -149,12 +149,12 @@ THIS SESSION · 1
 
 ## Tokens
 
-The **CONTEXT** card shows how full the context window is now, as the battery (`▕███▍      ▏ 34%`, with the window's size, `of 200k`), and under it one stacked bar of where this session's tokens went, with the total. The closed row shows the battery too. **Details** (`t`), or `/tokens`, opens the Tokens pane, a grid of cells like the band (**Refresh** `r`, **Reset** `x`): the API's own totals (cache read, cache write, new input, output, and the cost where Claude Code keeps one), then each group with its share, what it used, what it holds in the context now, and its calls. Press a group (▸) to open it (▾): its sub-items, most used first, each with the tokens it used, its share of the group, and what it holds in the context now.
+The **CONTEXT** card shows how full the context window is now, as the battery (`▕███▍      ▏ 34%`, with the window's size, `of 200k`), and under it the session's token total. The closed row shows the battery too. **Details** (`t`), or `/tokens`, opens the Tokens pane, a grid of cells like the band (**Refresh** `r`, **Reset** `x`): the API's own totals (cache read, cache write, new input, output, and the cost where Claude Code keeps one), then each group with its share, what it used, what it holds in the context now, and its calls. Press a group (▸) to open it (▾): its sub-items, most used first, each with the tokens it used, its share of the group, and what it holds in the context now.
 
 ```
 ── C O N T E X T ─────────────────── t: details ─
 ▕███▍      ▏ 34%                          of 200k
-████████████████ 1.2M used
+1.2M used
 ```
 
 ```

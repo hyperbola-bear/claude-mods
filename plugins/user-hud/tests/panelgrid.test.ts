@@ -66,7 +66,7 @@ const VIEW: BandView = {
   keepWarm: 'quiet',
   isPinging: false,
   pickers: { style: 'rail', fields: FIELDS },
-  tokens: { segments: [{ color: '#3987e5', cells: 10 }, { color: '#d95926', cells: 6 }], total: '1.2M' },
+  tokens: { total: '1.2M' },
   context: 34,
   contextWindow: '200k',
   cache: { status: runs('● cache 52:10', { color: 'success' }), bar: runs('▰▰▰▰▰▰▰▰▰▱'), detail: '182k cached · hit 94% · 1h' },
@@ -330,12 +330,12 @@ test('every card folds to exactly one row', () => {
   for (const w of [28, 42, 49, 60]) for (const c of cardsOf(VIEW, w)) expect(c.folded.rows, `${c.id} at ${w}`).toHaveLength(1)
 })
 
-test('the context card: the battery and the window, the token bar and the total', () => {
+test('the context card: the battery and the window, then the total', () => {
   const g = cardsOf(VIEW, 42).find(c => c.id === 'context')!
   expect(plain(g.full)).toEqual([
     expect.stringMatching(/^── C O N T E X T ─+ t: details ─$/),
     expect.stringMatching(/^▕███▍ {6}▏ 34% +of 200k$/),
-    expect.stringMatching(/^ {16} 1\.2M used +$/),
+    expect.stringMatching(/^1\.2M used +$/),
   ])
   expect(g.full.rows[1]![1]).toMatchObject(batteryRuns(34)[1]!)
   expect(plain(cardsOf({ ...VIEW, context: null }, 42).find(c => c.id === 'context')!.full)[1]).toMatch(/^known after a reply/)

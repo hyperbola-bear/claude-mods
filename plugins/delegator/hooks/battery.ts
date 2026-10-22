@@ -9,8 +9,8 @@ export type BatteryLevel = 'low' | 'mid' | 'high'
 
 export const levelOf = (percent: number): BatteryLevel => (percent <= 50 ? 'low' : percent <= 75 ? 'mid' : 'high')
 
-/** Darker than the theme's own green, yellow and red, so the battery sits behind what needs attention. */
-export const BATTERY_COLORS: Record<BatteryLevel, string> = { low: '#3f7d4d', mid: '#9a7d2c', high: '#9a4640' }
+/** The theme's own green, yellow and red, as the cache countdown draws them. */
+export const BATTERY_COLORS: Record<BatteryLevel, string> = { low: 'success', mid: 'warning', high: 'error' }
 
 const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
 

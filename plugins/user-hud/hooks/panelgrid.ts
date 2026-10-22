@@ -38,8 +38,8 @@ export type BandView = {
   isPinging: boolean
   /** Each part of the panel, null where its module is off: the panel leaves its card out. */
   pickers: { style: SelectorStyle; fields: GridField[] } | null
-  /** The context card's token bar, `tokenBarCells` of the card's width, and the total. */
-  tokens: { segments: { color: string; cells: number }[]; total: string } | null
+  /** The context card's total, `1.2M`; null before anything was counted. */
+  tokens: { total: string | null } | null
   /** How full the context window is, a whole percentage; null before a response reported it, or with tokens off. */
   context: number | null
   /** The context window's size, worded (`200k`); null while unknown. */
@@ -73,8 +73,6 @@ export function cardLayout(columns: number): { width: number; count: number; car
   return { width, count, card: Math.floor((width - COLUMN_GAP * (count - 1)) / count) }
 }
 
-/** Cells of the context card's token bar at a card width, with room left for the total beside it. */
-export const tokenBarCells = (card: number) => Math.max(0, Math.min(16, card - 12))
 
 const HOTKEYS: Record<string, string> = {
   sessions: 'e',
@@ -199,10 +197,8 @@ function gridOf(lines: readonly (Line | Grid)[]): Grid {
 function contextCard(v: BandView, w: number): Card | null {
   if (!v.tokens) return null
   const fill = v.context === null ? text('known after a reply', { isDim: true }) : { runs: batteryRuns(v.context), action: null }
-  const counted = v.tokens.segments.length > 0
-  const bar: Run[] = []
-  for (const s of v.tokens.segments) put(bar, ' '.repeat(s.cells), { bg: s.color })
-  const usage = counted ? [{ runs: bar, action: null }, text(`${v.tokens.total} used`, { isDim: true })] : [text('counting from the next request', { isDim: true })]
+  const total = v.tokens.total
+  const usage = [text(total ? `${total} used` : 'counting from the next request', { isDim: true })]
   return {
     id: 'context',
     full: gridOf([
@@ -210,7 +206,7 @@ function contextCard(v: BandView, w: number): Card | null {
       line(w, [fill], v.contextWindow ? [text(`of ${v.contextWindow}`, { isDim: true })] : []),
       line(w, usage),
     ]),
-    folded: gridOf([line(w, [piece('CONTEXT', { isDim: true }, 'tokens'), v.context === null ? text('—', { isDim: true }) : fill], counted ? [text(v.tokens.total, { isDim: true })] : [])]),
+    folded: gridOf([line(w, [piece('CONTEXT', { isDim: true }, 'tokens'), v.context === null ? text('—', { isDim: true }) : fill], total ? [text(total, { isDim: true })] : [])]),
   }
 }
 

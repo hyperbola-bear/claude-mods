@@ -101,7 +101,7 @@ import { EFFORT_COLORS, EFFORT_SHORT_LABELS, EFFORT_STEPS, MODEL_COLORS, SELECTO
 import type { EffortStep } from './selector.ts'
 import { builder, line, order, piece, put, runs, textOf, wrap } from './cells.ts'
 import type { CellsProps, Run } from './cells.ts'
-import { CARD_ORDER, bandGrid, cardLayout, clipped, tokenBarCells } from './panelgrid.ts'
+import { CARD_ORDER, bandGrid, clipped } from './panelgrid.ts'
 import type { Band, Setting } from './panelgrid.ts'
 import { layout, parsePick } from './selectorgrid.ts'
 import type { GridField } from './selectorgrid.ts'
@@ -123,12 +123,10 @@ import {
   contextWeights,
   emptyTokens,
   GROUP_IDS,
-  groupOf,
   heldOf,
   lineWeights,
   mcpSchemas,
   restarted,
-  stack,
   standingFrom,
   standingLinesFrom,
   summary,
@@ -1231,12 +1229,7 @@ export const register: Register = (on, given) => {
       keepWarm: !mods.cache || c.isPinging ? 'none' : lv === 'cooling' ? 'urged' : lv === 'warm' ? 'quiet' : 'none',
       isPinging: mods.cache && c.isPinging,
       pickers: mods.pickers ? { style: cfg.selectorStyle, fields: gridFields(hud) } : null,
-      tokens: mods.tokens
-        ? {
-            segments: used > 0 ? stack(tokens, tokenBarCells(cardLayout(columns).card)).map(sg => ({ color: groupOf(sg.id).color, cells: sg.cells })) : [],
-            total: fmtTokens(Math.round(used)),
-          }
-        : null,
+      tokens: mods.tokens ? { total: used > 0 ? fmtTokens(Math.round(used)) : null } : null,
       context: mods.tokens ? (hud.contextPercent ?? null) : null,
       contextWindow: mods.tokens && hud.contextWindow ? fmtTokens(hud.contextWindow) : null,
       cache: mods.cache ? cacheView(c, t.ttl, lv, rem) : null,
