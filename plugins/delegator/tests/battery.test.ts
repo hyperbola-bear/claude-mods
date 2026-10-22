@@ -22,7 +22,8 @@ test('it fills in eighths of a cell', () => {
 
 test('the fill and the percentage share the level colour; the track is the subtle ground', () => {
   const at = (p: number) => batteryRuns(p)
-  expect(at(34).find(r => r.text.startsWith('█'))?.color).toBe(BATTERY_COLORS.low)
+  // The fill is its colour on its colour's ground, so it fills the whole cell as the track does.
+  expect(at(34).find(r => r.text.startsWith('█'))).toMatchObject({ color: BATTERY_COLORS.low, bg: BATTERY_COLORS.low })
   expect(at(68).at(-1)).toMatchObject({ text: ' 68%', color: BATTERY_COLORS.mid })
   expect(at(92).at(-1)).toMatchObject({ text: ' 92%', color: BATTERY_COLORS.high })
   expect(at(34).filter(r => r.text.trim() === '').every(r => r.bg === 'subtle')).toBe(true)

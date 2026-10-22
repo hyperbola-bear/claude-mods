@@ -23,7 +23,9 @@ export function batteryRuns(percent: number, withPercent = true): Run[] {
   const eighths = Math.floor((filled - full) * 8)
   const row: Run[] = []
   put(row, '▕', { isDim: true })
-  put(row, '█'.repeat(full), { color })
+  // The fill's own colour as its ground too: the desktop draws a block glyph shorter than its cell but a
+  // ground the whole cell high, so a glyph alone would sit thinner than the track beside it.
+  put(row, '█'.repeat(full), { color, bg: color })
   if (eighths > 0) put(row, EIGHTHS[eighths]!, { color, bg: 'subtle' })
   put(row, ' '.repeat(BATTERY_CELLS - full - (eighths > 0 ? 1 : 0)), { bg: 'subtle' })
   put(row, '▏', { isDim: true })
