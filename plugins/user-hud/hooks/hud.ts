@@ -41,7 +41,7 @@ export function modulesFrom(o: Record<string, unknown>): Modules {
   return Object.fromEntries(MODULES.map(m => [m.id, o[m.key] !== false])) as Modules
 }
 
-/** The card each module draws in the open panel. */
+/** The card each module draws in the open panel; handoff draws its buttons in the panel's bottom bar instead. */
 export const MODULE_CARD = {
   pickers: 'model',
   cache: 'cache',
@@ -49,8 +49,8 @@ export const MODULE_CARD = {
   sessions: 'sessions',
   assume: 'assume',
   next: 'next',
-  handoff: 'handoff',
-} as const satisfies Record<ModuleId, string>
+  handoff: null,
+} as const satisfies Record<ModuleId, string | null>
 
 /** The cards' order, top to bottom, unless the Module order row says otherwise. */
 export const DEFAULT_ORDER: readonly ModuleId[] = ['pickers', 'cache', 'tokens', 'sessions', 'assume', 'next', 'handoff']

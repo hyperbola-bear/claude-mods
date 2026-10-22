@@ -6,8 +6,8 @@
  * check, next steps, model · effort, and the tab with its four diamonds, which
  * turn yellow while another session waits on you. The least needed pieces
  * shorten, then go, when the row is narrow. The tab (or /hud) opens the panel
- * above it: cards down one to three columns (model and effort, cache, context,
- * sessions, guesses, next steps, handoff), and behind `s` the settings toggled most
+ * above it: cards as tiles of one size, one to three across (model and effort,
+ * cache, context, sessions, guesses, next steps), handoff in its bottom bar, and behind `s` the settings toggled most
  * (written through /config). Open or closed is remembered.
  *
  * 1. Prompt cache countdown. Every main-thread model request refreshes the
@@ -1207,7 +1207,7 @@ export const register: Register = (on, given) => {
       columns,
       maxRows: e.props.maxRows,
       lead: hud.lead,
-      order: cfg.order.map(id => MODULE_CARD[id]),
+      order: cfg.order.flatMap(id => MODULE_CARD[id] ?? []),
       chip: mods.cache ? chipRuns(c, t.ttl, lv, rem) : [],
       overage: mods.cache && hud.overage ? limitLabel(hud.overage) : null,
       usedTokens: mods.tokens && used > 0 ? `${fmtTokens(Math.round(used))} tokens` : null,

@@ -60,7 +60,7 @@ export type Band = Grid & { keys: Record<string, string>; width: number }
 /** A card of the open panel, as it draws with rows to spare and as one row. */
 export type Card = { id: CardId; full: Grid; folded: Grid }
 
-export const CARD_ORDER: readonly CardId[] = DEFAULT_ORDER.map(id => MODULE_CARD[id])
+export const CARD_ORDER: readonly CardId[] = DEFAULT_ORDER.flatMap(id => MODULE_CARD[id] ?? [])
 
 export const PANEL_MAX = 132
 
@@ -283,20 +283,6 @@ function nextCard(v: BandView, w: number): Card | null {
   }
 }
 
-function handoffCard(v: BandView, w: number): Card | null {
-  const ho = v.handoff
-  if (!ho) return null
-  const gap = text(' ')
-  const row = line(w, [
-    text('✦', { color: 'claude' }),
-    keyed('h', 'Write', 'handoff'),
-    gap,
-    ...(ho.hasNewest ? [text('◆', { color: 'suggestion' }), keyed('r', 'Read', 'readhandoff'), gap] : []),
-    text(ho.note, { isDim: true }),
-  ])
-  return { id: 'handoff', full: gridOf([hintedRule('HANDOFF', w), row]), folded: gridOf([row]) }
-}
-
 const CARDS: Record<CardId, (v: BandView, w: number) => Card | null> = {
   sessions: (v, w) => (v.sessions ? { id: 'sessions', ...sessionsCard(v.sessions.list, v.sessions.now, w) } : null),
   context: contextCard,
@@ -304,7 +290,6 @@ const CARDS: Record<CardId, (v: BandView, w: number) => Card | null> = {
   cache: cacheCard,
   assume: guessesCard,
   next: nextCard,
-  handoff: handoffCard,
 }
 
 /** A sample of the longest cache detail, to know at a width whether Keep warm takes a row of its own. */
@@ -326,8 +311,6 @@ function spaceOf(id: CardId, w: number): number {
       return 3
     case 'cache':
       return fits(w, [text(CACHE_DETAIL_SAMPLE)], [pill('w: Keep warm', 'keepwarm', 'subtle')]) ? 3 : 4
-    case 'handoff':
-      return 2
     case 'model':
       return 0
   }
@@ -351,43 +334,17 @@ export function cardsOf(v: BandView, w: number): Card[] {
   return i > 0 ? [...list.slice(i), ...list.slice(0, i)] : list
 }
 
-/** A blank row between two cards in a column, unless both are folded to one row. */
-const gapBefore = (cards: readonly Grid[], i: number) => (i > 0 && (cards[i]!.rows.length > 1 || cards[i - 1]!.rows.length > 1) ? 1 : 0)
+/** The tiles in rows of `count`, left to right, each row in full or folded to one row a tile. */
+type TileRow = { tiles: Card[]; isFolded: boolean }
 
-/** A column's rows: its cards and the blank rows between them. */
-const stackHeight = (cards: readonly Grid[]) => cards.reduce((n, c, i) => n + c.rows.length + gapBefore(cards, i), 0)
+const rowsOf = (cards: readonly Card[], count: number, isFolded: boolean): TileRow[] =>
+  Array.from({ length: Math.ceil(cards.length / count) }, (_, i) => ({ tiles: cards.slice(i * count, (i + 1) * count), isFolded }))
 
-/** Every way to cut the cards, in order, into `count` runs of at least one card each. */
-function splits(cards: readonly Grid[], count: number): Grid[][][] {
-  if (count <= 1) return [[[...cards]]]
-  const out: Grid[][][] = []
-  for (let i = 1; i <= cards.length - count + 1; i += 1) for (const rest of splits(cards.slice(i), count - 1)) out.push([cards.slice(0, i), ...rest])
-  return out
-}
+/** A blank row between two rows of tiles, unless both are folded. */
+const gapBefore = (rows: readonly TileRow[], i: number) => (i > 0 && !(rows[i]!.isFolded && rows[i - 1]!.isFolded) ? 1 : 0)
 
-/**
- * The cards down the columns in order, top to bottom and then left to right, cut where the tallest column is
- * shortest; on a tie the left columns take more, so the order reads down the first column first.
- */
-function place(cards: readonly Grid[], count: number): { columns: Grid[]; height: number } {
-  const options = splits(cards, Math.max(1, Math.min(count, cards.length)))
-  const tallest = (s: Grid[][]) => Math.max(0, ...s.map(stackHeight))
-  const best = options.reduce((a, b) => {
-    const d = tallest(b) - tallest(a)
-    if (d !== 0) return d < 0 ? b : a
-    for (let i = 0; i < a.length; i += 1) if (stackHeight(a[i]!) !== stackHeight(b[i]!)) return stackHeight(b[i]!) > stackHeight(a[i]!) ? b : a
-    return a
-  })
-  const columns = best.map(run => {
-    const col = builder()
-    run.forEach((c, i) => {
-      if (gapBefore(run, i)) col.add([])
-      col.append(c)
-    })
-    return col.grid
-  })
-  return { columns, height: tallest(best) }
-}
+/** Rows the tile rows take: `height` a row in full, one a row folded, and the blank rows between them. */
+const heightOf = (rows: readonly TileRow[], height: number) => rows.reduce((n, r, i) => n + (r.isFolded ? 1 : height) + gapBefore(rows, i), 0)
 
 /** The columns side by side, each row cut to the card width. */
 function sideBySide(columns: readonly Grid[], height: number, w: number, width: number): Grid {
@@ -414,27 +371,52 @@ function bottomBar(v: BandView, width: number, left: readonly Piece[]): Line {
 }
 
 const gear = text('⚙', { isDim: true })
+const spacer = text(' ')
+
+/** Write and Read handoff for the bottom bar, longest first: the note goes, then the word handoff, then both buttons. */
+function handoffForms(v: BandView): Piece[][] {
+  const ho = v.handoff
+  if (!ho) return [[]]
+  const write = (label: string) => [text('✦', { color: 'claude' }), keyed('h', label, 'handoff')]
+  const read = ho.hasNewest ? [spacer, text('◆', { color: 'suggestion' }), keyed('r', 'Read', 'readhandoff')] : []
+  const note = [text(ho.note, { isDim: true })]
+  return [
+    [spacer, ...write('Write handoff'), ...read, spacer, ...note],
+    [spacer, ...write('Write handoff'), ...read],
+    [spacer, ...write('Write'), ...read],
+    [],
+  ]
+}
 
 /**
- * The cards in full if they fit; else they fold to one row each from the last card up, so the first ones (the
- * card pressed to the front among them, since a folded guesses card cannot be marked) stay in full longest; else
- * the last ones go, behind `+N more`. Which cards fold hangs on their order and the rows, never on what they hold.
+ * The cards as tiles of one size, in rows that line up: every tile as tall as the tallest, so each keeps the
+ * same space whatever it holds. Short of rows, the rows fold to one row a tile from the last up, so the first
+ * (the card pressed to the front among them, since a folded guesses card cannot be marked) stay in full longest;
+ * then the last tiles go, behind `+N more`. Which fold hangs on their order and the rows, never on what they hold.
  */
 function cardsPanel(v: BandView): Band {
   const { width, count, card } = cardLayout(v.columns)
   const all = cardsOf(v, card)
+  const height = Math.max(0, ...all.map(c => c.full.rows.length))
   const budget = v.maxRows - 1
-  let shown = all.map(c => c.full)
-  for (let i = all.length - 1; i >= 0 && place(shown, count).height > budget; i -= 1) shown = shown.with(i, all[i]!.folded)
-  let placed = place(shown, count)
-  while (placed.height > budget && shown.length > 0) {
-    shown = shown.slice(0, -1)
-    placed = place(shown, count)
+  let rows = rowsOf(all, count, false)
+  for (let i = rows.length - 1; i >= 0 && heightOf(rows, height) > budget; i -= 1) rows = rows.with(i, { ...rows[i]!, isFolded: true })
+  let shown = all.length
+  while (heightOf(rows, height) > budget && shown > 0) {
+    shown -= 1
+    rows = rowsOf(all.slice(0, shown), count, true)
   }
-  const hidden = all.slice(shown.length)
+  const b = builder()
+  rows.forEach((r, i) => {
+    if (gapBefore(rows, i)) b.add(runs(' '.repeat(width)))
+    b.append(sideBySide(r.tiles.map(t => (r.isFolded ? t.folded : padded(t.full, height))), r.isFolded ? 1 : height, card, width))
+  })
+  const hidden = all.slice(shown)
   const left: Piece[] = v.settings.length > 0 ? [gear, keyed('s', 'Settings', 'settings')] : []
   if (hidden[0]) left.push(pill(`+${hidden.length} more`, `more:${hidden[0].id}`, 'subtle'))
-  return finish(gridOf([sideBySide(placed.columns, placed.height, card, width), bottomBar(v, width, left)]), width)
+  const tabPiece = [tab(true, needsYouOf(v))]
+  const handoff = handoffForms(v).find(f => fits(width, [...left, ...f], tabPiece)) ?? []
+  return finish(gridOf([b.grid, bottomBar(v, width, [...left, ...handoff])]), width)
 }
 
 function settingRow(s: Setting, width: number): Line {

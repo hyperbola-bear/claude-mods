@@ -47,44 +47,36 @@ Closed, it is one row at the right edge. As the row narrows, the least needed pi
 Click the tab (or run `/hud`) and the panel opens above it, as cards. Open or closed is remembered across sessions.
 
 ```
-── M O D E L   ·   E F F O R T ──────────────────  ── S E S S I O N S ────────────────── e: expand ─
-MODEL   ▄ Haiku 4.5 ▄▄ Sonnet 5.5 ███ Opus 5.5     ● 1 needs you  ● 2 working  ✓ 3 done     1 asleep
-        ▄▄▄▄ Fable 5.1                             ● Rename the billing flags                     2m
-EFFORT  ▄ Low ▄▄ Medium ▄▄▄ High ████ XHigh        ● Fix the flaky checkout test                  1m
-        ▄▄▄▄▄ Max ▄▄▄▄▄▄▄ Ultracode                ● Draft the release notes                      3m
+── M O D E L   ·   E F F O R T ───────  ── C A C H E ─────────────────────────  ── C O N T E X T ──────── t: details ─
+ Haiku    Sonnet    Opus    Fable       ● cache 52:10 ▰▰▰▰▰▰▰▰▰▱                ▕███▍      ▏ 34%               of 200k
+▔▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔▔ ████████ ▔▔▔▔▔▔▔▔     182k cached · hit 94% · 1h              ████████████████ 1.2M used
+ Low   Med  High  XHigh  Max  Ultra                              w: Keep warm
+▔▔▔▔▔ ▔▔▔▔▔ ▔▔▔▔▔ ██████ ▔▔▔▔▔ ▔▔▔▔▔
 
-── C A C H E ────────────────────────────────────  ── C H E C K   M Y   G U E S S E S ──── +1 more ─
-● cache 52:10 ▰▰▰▰▰▰▰▰▰▱                           ✓ ✗  The tests run with npm test, from the repo …
-182k cached · hit 94% · 1h          w: Keep warm   ✓ ✗  "Done" means merged, not only approved
-                                                   ✓ ✗  Keep the old endpoint until its callers move
-── C O N T E X T ─────────────────── t: details ─
-▕███▍      ▏ 34%                          of 200k  ── N E X T   S T E P S ──────────────────────────
-████████████████ 1.2M used                         ✦ 1: Run the tests
-                                                   ✦ 2: Commit this and open a PR
-                                                   ✦ 3: Add a test for the empty case
-
-                                                   ── H A N D O F F ────────────────────────────────
-                                                   ✦ h: Write   ◆ r: Read   newest · 2h ago
-⚙ s: Settings                                                                          ❖ user-hud ▾
+── S E S S I O N S ─────── e: expand ─  ── CHECK MY GUESSES ──────── +1 more ─  ── N E X T   S T E P S ───────────────
+● 1 needs you  ● 2 working  ✓ 3 done    ✓ ✗  The tests run with npm test, fr…  ✦ 1: Run the tests
+● Rename the billing flags          2m  ✓ ✗  "Done" means merged, not only a…  ✦ 2: Commit this and open a PR
+● Fix the flaky checkout test       1m  ✓ ✗  Keep the old endpoint until its…  ✦ 3: Add a test for the empty case
+● Draft the release notes           3m
+⚙ s: Settings   ✦ h: Write handoff   ◆ r: Read   newest · 2h ago                                           ❖ user-hud ▾
 ```
 
-- The cards sit in one, two or three columns, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. They come in this order unless you change it with `/hud order`, each only while its module is on: model and effort, cache, context, sessions, guesses, next steps, handoff. They read top to bottom: down the first column, then the next, a blank row between cards, cut where the columns come out most even (the left ones take a card more on a tie).
-- When the band is short (the desktop shows 12 rows), the cards fold to one row each, starting from the last and working up, until the rest fit in full. A card brought to the front goes first, so it folds last. Folded cards sit one under another with no blank row between them:
+- The cards are tiles of one size: one, two or three across, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. Every tile is as tall as the tallest, so the tiles in a row line up and each card keeps the same space whatever it holds, with blank rows where its content is short. The guesses and next steps cards stay on show when empty (`nothing to check`, `suggested after each reply`). They come left to right, then the next row, in this order unless you change it with `/hud order`, each only while its module is on: model and effort, cache, context, sessions, guesses, next steps.
+- Handoff is not a card: **✦ h: Write handoff** and **◆ r: Read** sit in the bottom bar, beside the settings. As the bar narrows, the note goes first, then the word `handoff`, then both buttons (`/handoff` and `/read-handoff` still work).
+- When the band is short (the desktop shows 12 rows), whole rows of tiles fold to one row a tile, from the last row up, until the rest fit in full. A card brought to the front goes first, so its row folds last. Folded rows sit one under another with no blank row between them. Which rows fold depends only on the rows and the order, never on what the cards hold:
 
 ```
-── M O D E L   ·   E F F O R T ──────────────────  ── C O N T E X T ─────────────────── t: details ─
- Haiku 4.5  Sonnet 5.5   Opus 5.5    Fable 5.1     ▕███▍      ▏ 34%                          of 200k
-▔▔▔▔▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔▔▔▔▔             ▔▔▔▔▔▔▔▔▔▔▔    ████████████████ 1.2M used
+── M O D E L   ·   E F F O R T ──────────────────  ── C A C H E ────────────────────────────────────
+ Haiku 4.5  Sonnet 5.5   Opus 5.5    Fable 5.1     ● cache 52:10 ▰▰▰▰▰▰▰▰▰▱
+▔▔▔▔▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔▔▔▔▔ ███████████ ▔▔▔▔▔▔▔▔▔▔▔    182k cached · hit 94% · 1h          w: Keep warm
   Low   Medium   High    XHigh    Max    Ultra
-▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔         ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔    SESSIONS                        ●1 ●2 ✓3 1 asleep
-                                                   ? 4 to check                            a: review
-── C A C H E ────────────────────────────────────  ✦ 1: Run the tests                            2 3
-● cache 52:10 ▰▰▰▰▰▰▰▰▰▱                           ✦ h: Write   ◆ r: Read   newest · 2h ago
-182k cached · hit 94% · 1h          w: Keep warm
-⚙ s: Settings                                                                          ❖ user-hud ▾
+▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔ ███████ ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔
+
+CONTEXT ▕███▍      ▏ 34%                     1.2M  SESSIONS                        ●1 ●2 ✓3 1 asleep
+? 4 to check                            a: review  ✦ 1: Run the tests                            2 3
+⚙ s: Settings   ✦ h: Write handoff   ◆ r: Read   newest · 2h ago                       ❖ user-hud ▾
 ```
 
-- Each card keeps its own space, whatever it holds: in full, sessions take 5 rows, guesses and next steps 4, the cache and context 3, handoff 2, with blank rows where content is short. The guesses and next steps cards stay on show when empty (`nothing to check`, `suggested after each reply`). So one card filling or emptying never moves another, and which cards fold depends only on the rows and the order, never on what they hold.
 - When even the folded cards need more rows than there are, the last ones go and **+N more** in the bottom bar says how many; press it and they come first.
 - **⚙ s: Settings** turns the panel to the settings, and **⚙ s: Back** turns it back to the cards. When the rows are too few for them, the settings fold onto one line of pills.
 
@@ -243,7 +235,7 @@ After each reply, up to three follow-up prompts show in the panel, under **NEXT 
 
 ## Handoff
 
-- **Write handoff** (`h`) runs your `/handoff` command. Without one, it asks Claude to write a note to `.claude/handoffs/<date>-<time>.md`.
+- **Write handoff** (`h`), in the panel's bottom bar, runs your `/handoff` command. Without one, it asks Claude to write a note to `.claude/handoffs/<date>-<time>.md`.
 - **Read handoff** (`r`, or `/read-handoff`) opens the newest note with **Continue from this** (`c`), **Older** (`o`), **Newer** (`n`) and **Rescan** (`r`). The note is drawn as text in the pane's grid of cells: headings bold, code dim, list items wrapped under their text.
 - Notes are found in `HANDOFF.md`, `.claude/`, `.claude/handoffs/`, `handoffs/` and `docs/`. If yours live elsewhere, set **Handoff note location** in `/config`.
 

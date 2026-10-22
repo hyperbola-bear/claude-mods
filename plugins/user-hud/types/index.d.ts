@@ -70,7 +70,7 @@ export type HudState = {
 }
 
 /** The open panel's cards, in their usual order. */
-export type CardId = 'sessions' | 'context' | 'model' | 'cache' | 'assume' | 'next' | 'handoff'
+export type CardId = 'sessions' | 'context' | 'model' | 'cache' | 'assume' | 'next'
 
 export type HudView = 'cards' | 'settings'
 

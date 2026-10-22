@@ -650,8 +650,8 @@ test('Read handoff shows the newest note and continues from it', async ($, on) =
   w.files['README.md'] = { text: '# not a handoff', mtimeMs: 99 }
   await start($)
   for (const surface of SURFACES) {
-    // One card a row, wide enough for the note beside the buttons.
-    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), bodyColumns: 60, maxRows: 30 } })
+    // Wide enough for the note beside the buttons in the bottom bar.
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), bodyColumns: 110, maxRows: 30 } })
     await openPanel(band)
     expect(await shows(band, 'newest · ')).toBe(true)
     await act(band, 'readhandoff')
@@ -711,7 +711,7 @@ test('the corner tab opens and closes the panel, and /hud does the same', async 
     }
     // Open, the status moves into the panel rather than showing twice.
     expect(await shows(band, '● 5:00')).toBe(false)
-    expect(await shows(band, /^⚙ s: Settings +❖ user-hud ▾ $/)).toBe(true)
+    expect(await shows(band, /^⚙ s: Settings {3}✦ h: Write handoff {3}no notes yet +❖ user-hud ▾ $/)).toBe(true)
     await act(band, 'settings')
     expect(await shows(band, /^── S E T T I N G S ─+$/)).toBe(true)
     for (const key of ['set:autoKeepWarm', 'set:warnSeconds', 'set:selectorStyle']) expect(await has(band, key), key).toBe(true)
@@ -745,9 +745,11 @@ test('the tree grows to the band width; short of rows each card folds to one row
     expect((await band.find({ type: 'Box' }))?.props.flexGrow).toBe(1)
     await act(band, 'panel')
     expect((await band.find({ type: 'Box' }))?.props.flexGrow).toBe(1)
-    expect(await shows(band, /── /)).toBe(false)
+    // The first row of tiles, the model, stays in full; the rows under it fold.
+    expect(await shows(band, /^── M O D E L/)).toBe(true)
+    expect(await shows(band, /S E S S I O N S|C A C H E|C O N T E X T/)).toBe(false)
     expect((await linesOf(band)).length).toBeLessThanOrEqual(12)
-    for (const key of ['sessions', 'tokens', 'styles', 'keepwarm', 'handoff', 'settings']) expect(await has(band, key), key).toBe(true)
+    for (const key of ['sessions', 'tokens', 'pick:model:opus', 'keepwarm', 'handoff', 'settings']) expect(await has(band, key), key).toBe(true)
     await band.redraw({ ...BAND(), maxRows: 30, bodyColumns: 60 })
     expect(await shows(band, /^── S E S S I O N S/)).toBe(true)
     expect(await shows(band, /── C A C H E/)).toBe(true)
@@ -1388,19 +1390,19 @@ test('/hud order shows the cards’ order and sets it; the modules left out foll
   expect(w.configSets).toHaveLength(1)
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 40, bodyColumns: 60 } })
   await act(band, 'panel')
-  const order = ['N E X T', 'S E S S I O N S', 'M O D E L', 'C A C H E', 'C O N T E X T', 'C H E C K', 'H A N D O F F']
+  const order = ['N E X T', 'S E S S I O N S', 'M O D E L', 'C A C H E', 'C O N T E X T', 'C H E C K']
   const titles = (await linesOf(band)).filter(l => l.startsWith('── ')).map(l => order.find(t => l.startsWith(`── ${t}`)))
   expect(titles).toEqual(order)
   await act(band, 'panel')
 })
 
-test('the Module order row puts the cards in its order', { options: { moduleOrder: 'handoff tokens' } }, async ($, on) => {
+test('the Module order row puts the cards in its order', { options: { moduleOrder: 'assume tokens' } }, async ($, on) => {
   world(on)
   await start($)
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 40, bodyColumns: 60 } })
   await act(band, 'panel')
   const lines = await linesOf(band)
-  expect(lines[0]).toMatch(/^── H A N D O F F/)
+  expect(lines[0]).toMatch(/^── C H E C K/)
   expect(lines.findIndex(l => l.startsWith('── C O N T E X T'))).toBeLessThan(lines.findIndex(l => l.startsWith('── M O D E L')))
   await act(band, 'panel')
 })
