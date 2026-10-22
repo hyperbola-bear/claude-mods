@@ -1,11 +1,11 @@
 # delegator
 
-Every subagent Claude starts waits for your approval first. You see the task, the agent type and the model it would run on, and you approve it, refuse it, change its model, add a note to its task, or approve every agent for the rest of the turn. Once an agent runs, the Delegator pane shows it as a pixel character beside its context, tokens, estimated cost, time and the steps it reports.
+Every subagent Claude starts waits for your approval first. You see the task, the agent type and the model it would run on, and you approve it, refuse it, change its model, add a note to its task, or approve every agent for the rest of the turn. Once an agent runs, the Delegator pane shows it as a pixel character beside its context, tokens, estimated cost, time and the steps it reports. When it finishes it moves to DONE with what it spent (`≈$0.03 · 31k · 38s`), and the DONE rule adds up what the finished agents spent.
 
 ```
 ┌ Delegator ─────────────────────────────────────────────────────────────┐
 │ DELEGATOR ● gate on                                        o: Turn off │
-│ 3 running · ≈$2.31 · 1.1M tokens · 6m 12s                 c: hide done │
+│ 3 running · ≈$2.34 · 1.1M tokens · 6m 12s                 c: hide done │
 │ verify skill · delegate                                                │
 │ ── W A I T I N G  · 1 ──────────────────────────────────────────────── │
 │ ▸ #7 Plan · lay out the verify skill · Opus                            │
@@ -28,8 +28,8 @@ Every subagent Claude starts waits for your approval first. You see the task, th
 │  ▀████▀▄ #6 claude-code-guide · how Client cells paint      Sonnet 5.5 │
 │ ▄█▀██▀█▄ ▕████████  ▏ 81%  650k  ≈$0.45  4m 03s                        │
 │ ▄▀█▀▀█▀▄ no steps reported                                             │
-│ ── D O N E  · 2 ────────────────────────────────────────────────────── │
-│ ✓ #1 Explore · read savvy-progress                           31k · 38s │
+│ ── D O N E  · 2 · ≈$0.03 ───────────────────────────────────────────── │
+│ ✓ #1 Explore · read savvy-progress                  ≈$0.03 · 31k · 38s │
 │ ✗ #2 general-purpose · rewrite the tests                       refused │
 │ ── P L A N N E D  · 1 ──────────────────────────────────────────────── │
 │ ◷ 3. write the polar-mods verify skill                        after #5 │

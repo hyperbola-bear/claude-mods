@@ -26,9 +26,9 @@ const MODEL_COLORS: Record<string, string> = { haiku: '#358fe9', sonnet: '#8a8fd
 
 const modelColor = (model: string): string => MODEL_COLORS[/haiku|sonnet|opus|fable|mythos/i.exec(model)?.[0].toLowerCase() ?? ''] ?? ''
 
-/** `── W A I T I N G  · 2 ────`, the label spaced out while it fits. */
-function divider(label: string, width: number, count?: number): Run[] {
-  const tail = count === undefined ? '' : `  · ${count}`
+/** `── W A I T I N G  · 2 ────`, the label spaced out while it fits; `extra` after the count (`· ≈$0.47`). */
+function divider(label: string, width: number, count?: number, extra?: string): Run[] {
+  const tail = (count === undefined ? '' : `  · ${count}`) + (extra === undefined ? '' : ` · ${extra}`)
   const spaced = `── ${label.split('').join(' ')}${tail} `
   const head = spaced.length + 2 <= width ? spaced : `── ${label}${tail} `
   return runs(head + '─'.repeat(Math.max(2, width - head.length)), { isDim: true })
@@ -123,14 +123,15 @@ export function paneGrid(s: DelegatorState, t: Tracking, width: number, isOn: bo
 
   const doneCount = finished.length + refused.length
   if (doneCount > 0 && !t.isDoneHidden) {
-    b.add(divider('DONE', width, doneCount))
+    // What the finished agents spent stays on show: each row's estimate, and their sum in the rule.
+    b.add(divider('DONE', width, doneCount, `≈${fmtCost(finished.reduce((n, r) => n + r.costUsd, 0))}`))
     const rows = [
       ...finished.map(r => ({
         at: r.endedAt ?? r.startedAt,
         row: line(
           width,
           [piece(r.status === 'done' ? '✓' : '✗', { color: r.status === 'done' ? 'success' : 'error' }), piece(what(r.n, r.type, r.description))],
-          [piece(`${fmtTokens(r.tokens)} · ${fmtTime(elapsed(r, m.at))}`, { isDim: true })],
+          [piece(`≈${fmtCost(r.costUsd)} · ${fmtTokens(r.tokens)} · ${fmtTime(elapsed(r, m.at))}`, { isDim: true })],
         ).row,
       })),
       ...refused.map(d => ({
