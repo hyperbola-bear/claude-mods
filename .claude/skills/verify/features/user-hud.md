@@ -13,7 +13,7 @@ A control panel above the prompt. Closed, it is one row at the right edge that s
 - `hud-battery` draws the context as ten cells, green to 50%, yellow to 75%, red beyond.
 - `hud-sessions` counts and lists other sessions, and the Sessions pane lists them all (`e`, `z`).
 - `hud-session-jump`: pressing another session's row, on the card or in the Sessions pane, brings forward where it runs: the Claude desktop app on it; the exact tab in Orca, Terminal, iTerm2, Ghostty and tmux; the project's window in VS Code, Cursor and the JetBrains IDEs; any other app as a whole.
-- `hud-modules`: the Modules pane switches each module and moves its card a place at a time (`/hud modules`, `/hud order`, Settings → Modules; `d` for the usual order).
+- `hud-modules`: the Modules pane switches each module and moves its card a place at a time (`/hud modules`, `/hud order`; `d` for the usual order). Settings → Modules shows the same rows in the panel, in place of the settings, with `s: Back`; too short for them, one pill a module.
 - `hud-guesses` shows the guesses Claude reports through its `assumption` tool; `✓` clears one, `✗` fills the prompt box.
 - `hud-pickers` runs `/model` and `/effort` from the model card; `/hud-styles` draws Rail, Ladder and Meter.
 - `hud-modules` switches each module with `/hud <module> on|off`.

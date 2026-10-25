@@ -62,7 +62,7 @@
  * Reaches: model.fork (keep-warm pings), model.complete (next steps, on Haiku), process.run (osascript, afplay;
  * ps and a grep of the transcripts for the sessions; to jump to a session: ps for where it runs, then open, osascript
  * (Terminal, iTerm2, Ghostty), orca, tmux or a JetBrains IDE's own executable), fs reads (handoff notes, the alert's logo, the session status files, the
- * workspace folders of an IDE lock file), store (the panel's open state), settings read (the effort level, promptCacheTtl), env read
+ * workspace folders of an IDE lock file), store (the panel's open state and view), settings read (the effort level, promptCacheTtl), env read
  * (CLAUDE_CODE_PROMPT_CACHE_TTL, HOME, CLAUDE_CONFIG_DIR), session usage (the plan windows, the context
  * breakdown, the cost), session id (this session among the others), agent list (a subagent's type), config set
  * (the panel's toggles), command run (/model, /effort, /handoff, /clear) and prompt submit on button presses,
@@ -73,7 +73,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ModelForkResult, Register } from 'claude-code'
 
-import type { CacheState, CacheTtl, Guess, GroupId, HandoffFile, HandoffState, HudState, NextState, PlanLimit, SelectorStyle, SessionInfo, TtlInfo } from '../types'
+import type { CacheState, CacheTtl, Guess, GroupId, HandoffFile, HandoffState, HudState, HudView, NextState, PlanLimit, SelectorStyle, SessionInfo, TtlInfo } from '../types'
 import { ASSUME_SECTION, ASSUME_SPEC, ASSUME_TOOL_ID, added, correction, marked, openGuesses, parseGuesses, shownText } from './assume.ts'
 import {
   EMPTY_CACHE,
@@ -142,6 +142,7 @@ import {
 import type { Attribution, Row, ToolUse } from './tokens.ts'
 
 const STORE_OPEN = 'panelOpen'
+const STORE_VIEW = 'panelView'
 const HANDOFF_PANE = 'handoff'
 const TOKENS_PANE = 'tokens'
 const STYLES_PANE = 'styles'
@@ -218,6 +219,8 @@ let options: Record<string, unknown> = {}
 let cfg: Cfg = readCfg({})
 let isHandoffPending = false
 let isOpenRestored = false
+/** Whether this load has set the panel's view; until then a draw takes it from the store, where the last load left it. */
+let isViewRestored = false
 const toolUses = new Map<string, Attribution>()
 let lastSkill: string | null = null
 const agentTypes = new Map<string, string>()
@@ -385,6 +388,24 @@ async function panelIsOpen($: EngineInterface): Promise<boolean> {
   return isOpenRestored ? (await read($, hudA)).isOpen : storedOpen($)
 }
 
+/**
+ * What the open panel shows: this load's view once it set one, else the view the store kept for this session. A
+ * press in the settings or the modules writes /config, which reloads the plugin; the view so outlives the reload
+ * that the press itself set off, as the open state does.
+ */
+async function panelView($: EngineInterface): Promise<HudView> {
+  if (isViewRestored) return (await read($, hudA)).view
+  const kept = (await $.store.get(STORE_VIEW).catch(() => undefined)) as { session?: unknown; view?: unknown } | undefined
+  const id = await $.session.id().catch(() => null)
+  return kept?.session === id && (kept?.view === 'settings' || kept?.view === 'modules') ? kept.view : 'cards'
+}
+
+async function setView($: EngineInterface, view: HudView) {
+  isViewRestored = true
+  await update($, hudA, s => ({ ...s, view }))
+  await $.store.set(STORE_VIEW, { session: await $.session.id().catch(() => null), view }).catch(() => {})
+}
+
 async function setPanelOpen($: EngineInterface, isOpen: boolean) {
   isOpenRestored = true
   await update($, hudA, s => ({ ...s, isOpen }))
@@ -488,7 +509,8 @@ function settingsView(c: CacheState): Setting[] {
 async function pressSetting($: EngineInterface, key: string) {
   if (key === 'warnSeconds') return setOption($, 'warnSeconds', nextWarn(Math.round(cfg.warnMs / 1000)))
   if (key === 'selectorStyle') return cycleStyle($)
-  if (key === 'modules') return openModulesPane($)
+  // The modules come in place of the settings, in the panel itself.
+  if (key === 'modules') return setView($, 'modules')
   const toggles: Record<string, boolean> = { autoKeepWarm: cfg.autoKeepWarm, sound: cfg.sound, notifyMac: cfg.notifyMac }
   const isOn = toggles[key]
   if (isOn !== undefined) await setOption($, key, !isOn)
@@ -518,7 +540,8 @@ async function runAction($: EngineInterface, action: unknown) {
   }
   if (action.startsWith('handoff:')) return pressHandoff($, action.slice('handoff:'.length))
   if (action.startsWith('next:')) return pickNext($, Number(action.slice('next:'.length)))
-  if (action === 'settings') return update($, hudA, (s): HudState => ({ ...s, view: s.view === 'settings' ? 'cards' : 'settings' }))
+  // `s` opens the settings from the cards, and steps back: from the modules to the settings, from the settings to the cards.
+  if (action === 'settings') return setView($, (await panelView($)) === 'settings' ? 'cards' : 'settings')
   const lead = action.startsWith('more:') ? CARD_ORDER.find(id => id === action.slice('more:'.length)) : undefined
   if (lead) return update($, hudA, s => ({ ...s, lead }))
   if (action === 'styles') return void (await $.ui.open({ id: STYLES_PANE, title: 'Picker styles', columns: STYLES_PANE_COLUMNS }).catch(() => {}))
@@ -790,7 +813,8 @@ async function setModule($: EngineInterface, id: ModuleId, isOn: boolean): Promi
 /** `a: review`: the panel opens on its cards, the guesses first. */
 async function reviewGuesses($: EngineInterface) {
   await setPanelOpen($, true)
-  await update($, hudA, (s): HudState => ({ ...s, view: 'cards', lead: 'assume' }))
+  await setView($, 'cards')
+  await update($, hudA, (s): HudState => ({ ...s, lead: 'assume' }))
 }
 
 /** ✗: the start of a correction goes in the prompt box for the person to finish; a draft already there is left alone. */
@@ -1002,6 +1026,7 @@ export const register: Register = (on, given) => {
   cfg = readCfg(options)
   isHandoffPending = false
   isOpenRestored = false
+  isViewRestored = false
   toolUses.clear()
   lastSkill = null
   agentTypes.clear()
@@ -1031,6 +1056,7 @@ export const register: Register = (on, given) => {
 
     const isOpen = await storedOpen($)
     isOpenRestored = true
+    isViewRestored = true
     const model = await $.session.model().catch(() => null)
     const settings = await $.settings.read().catch(() => ({}) as Record<string, unknown>)
     // `effortLevel: "ultracode"` starts a session at xhigh with ultracode on.
@@ -1068,7 +1094,8 @@ export const register: Register = (on, given) => {
   })
 
   on('tool.call', { tool: 'mcp__user-hud__assumption' }, async ($, e, next) => {
-    if (!cfg.modules.assume) return next(e)
+    // Switched off mid-session, the tool stays registered until the session ends: it answers rather than fail the call.
+    if (!cfg.modules.assume) return { result: [{ type: 'text', text: 'The guesses are switched off in user-hud; carry on without reporting them.' }] }
     const parsed = parseGuesses(e)
     if ('refusal' in parsed) return { deny: parsed.refusal }
     const at = await $.clock.now()
@@ -1304,7 +1331,7 @@ export const register: Register = (on, given) => {
     const newestNote = handoff.files[0]
     const band = bandGrid({
       isOpen: await panelIsOpen($),
-      view: hud.view,
+      view: await panelView($),
       columns,
       maxRows: e.props.maxRows,
       lead: hud.lead,
@@ -1322,6 +1349,7 @@ export const register: Register = (on, given) => {
       contextWindow: mods.tokens && hud.contextWindow ? fmtTokens(hud.contextWindow) : null,
       cache: mods.cache ? cacheView(c, t.ttl, lv, rem) : null,
       settings: settingsView(c),
+      modules: { on: cfg.modules, order: cfg.order },
       next: mods.next ? { items: nx.items, note: nx.isThinking ? 'thinking of next steps…' : nx.error } : null,
       handoff: mods.handoff ? { hasNewest: newestNote !== undefined, note: newestNote ? `newest · ${age(newestNote.mtimeMs, now)}` : 'no notes yet' } : null,
       sessions: mods.sessions ? { list: sessions, now } : null,

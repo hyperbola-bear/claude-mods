@@ -62,6 +62,7 @@ const VIEW: BandView = {
   maxRows: 24,
   lead: null,
   order: CARD_ORDER,
+  modules: { on: { pickers: true, cache: true, tokens: true, sessions: true, assume: true, next: true, handoff: false }, order: DEFAULT_ORDER },
   chip: runs('● 52:10', { color: 'success' }),
   overage: null,
   usedTokens: '1.2M tokens',
@@ -184,8 +185,8 @@ test('the cards as tiles of one size in rows that line up, handoff in the bottom
   // The first row of tiles stays in full; the rows under it fold, one row a tile, no gap between them.
   expect(folded[0]).toMatch(/^── M O D E L .* {2}── C A C H E ─+$/)
   expect(folded.slice(6, 8)).toEqual([
-    expect.stringMatching(/^CONTEXT ▕███▍ {6}▏ 34% +1\.2M {2}SESSIONS +●1 ●2 ✓3 1 asleep$/),
-    expect.stringMatching(/^\? 4 to check +a: review {2}✦ 1: Run the tests +2 3$/),
+    expect.stringMatching(/^CONTEXT ▕███▍ {6}▏ 34% +1\.2M t: details {2}SESSIONS +●1 ●2 ✓3 1 asleep$/),
+    expect.stringMatching(/^GUESSES \? 4 to check +a: review {2}NEXT STEPS ✦ 1: Run the tests +2 3$/),
   ])
   expect(folded.some(l => /S E S S I O N S|C O N T E X T|C H E C K|N E X T/.test(l))).toBe(false)
   // Bold where the person is needed.
@@ -238,7 +239,7 @@ test('short of rows the model and effort pickers stay in full: the other rows fo
 test('+N more brings the hidden cards first; the card pressed to the front folds before the pickers do', () => {
   const g = bandGrid({ ...VIEW, columns: 60, maxRows: 8, lead: 'next' })
   const rows = plain(g)
-  expect(rows[0]).toMatch(/^✦ 1: Run the tests +2 3$/)
+  expect(rows[0]).toMatch(/^NEXT STEPS ✦ 1: Run the tests +2 3$/)
   expect(rows[2]).toMatch(/^── M O D E L /)
   expect(g.hits.map(h => h.id)).toContain('more:cache')
 })
@@ -405,4 +406,43 @@ test('the Modules pane fits any width: narrow, the descriptions go and the switc
     expect(g.hits.filter(h => h.id.startsWith('module:up:') || h.id.startsWith('module:down:'))).toHaveLength(10)
     expect(plain(g)[1]!.includes('model and effort pickers')).toBe(width >= 56)
   }
+})
+
+test('the modules behind the settings: their rows while they fit, then one switch each when the band is short', () => {
+  const at = (columns: number, maxRows: number) => bandGrid({ ...VIEW, view: 'modules', columns, maxRows })
+  const tall = plain(at(60, 12))
+  expect(tall[0]).toMatch(/^── M O D U L E S ─+$/)
+  expect(tall[1]).toMatch(/^ 1 ● on {2}Model & effort model and effort pickers +▲ {3}▼ $/)
+  expect(tall[7]).toMatch(/^ {3}○ off Handoff +write and read handoff n… bottom bar$/)
+  // Narrow, the descriptions go and the switches and arrows stay.
+  expect(plain(at(40, 12))[1]).toMatch(/^ 1 ● on {2}Model & effort +▲ {3}▼ $/)
+  expect(tall.at(-1)).toMatch(/^⚙ s: Back +❖ user-hud ▾ $/)
+  // A row short, the hint goes first.
+  const nine = plain(at(60, 9))
+  expect(nine).toHaveLength(9)
+  expect(nine.some(l => l.startsWith('Click'))).toBe(false)
+  // Shorter still, the switches fold into pills, each still pressable.
+  const g = at(60, 4)
+  const rows = plain(g)
+  expect(rows.length).toBeLessThanOrEqual(4)
+  expect(rows[0]).toMatch(/^ ● Model & effort +● Cache +● Context /)
+  expect(g.hits.map(h => h.id)).toContain('module:toggle:handoff')
+  for (const w of [28, 40, 60, 100]) for (const r of [4, 9, 12]) for (const l of plain(at(w, r))) expect(widthOf(runs(l)), `${w}x${r}`).toBeLessThanOrEqual(w)
+})
+
+test('folded, every card leads with its name, and the whole context row opens the Tokens pane', () => {
+  for (const w of [36, 49, 60]) {
+    for (const c of cardsOf(VIEW, w)) {
+      const row = plain(c.folded)[0]!
+      expect(row, `${c.id} at ${w}`).toMatch(/^(MODEL|CACHE|CONTEXT|SESSIONS|GUESSES|NEXT STEPS) /)
+    }
+  }
+  const context = cardsOf(VIEW, 60).find(c => c.id === 'context')!.folded
+  const text = plain(context)[0]!
+  expect(text).toMatch(/^CONTEXT ▕.*▏ 34% +1\.2M t: details$/)
+  // Every cell but the gaps between the pieces opens the breakdown: the name, the battery, the total, the hint.
+  const pressable = new Set(context.hits.filter(h => h.id === 'tokens').flatMap(h => Array.from({ length: h.x1 - h.x0 }, (_, i) => h.x0 + i)))
+  for (const at of [0, text.indexOf('▕'), text.indexOf('34%'), text.indexOf('1.2M'), text.indexOf('details')]) expect(pressable.has(at), `cell ${at}`).toBe(true)
+  // Narrow, the hint goes before the total does.
+  expect(plain(cardsOf(VIEW, 28).find(c => c.id === 'context')!.folded)[0]).toMatch(/1\.2M$/)
 })

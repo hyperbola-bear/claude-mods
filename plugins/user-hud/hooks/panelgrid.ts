@@ -1,10 +1,13 @@
-// Pure band layout: the closed row, or the open panel above it (cards, or the settings behind `s`), as one
+// Pure band layout: the closed row, or the open panel above it (cards, the settings behind `s`, or the modules
+// behind the settings' Modules row), as one
 // grid of cells and the actions on it, so a `Client` paints the band the same on the terminal and the desktop.
 import type { CardId, HudView, SelectorStyle, Sessions } from '../types'
 import { BATTERY_COLORS, batteryRuns, levelOf } from './battery.ts'
 import { builder, cut, fits, keyed, line, pad, piece, pill, put, runs, spanOf, widthOf } from './cells.ts'
 import type { Grid, Piece, Run, Span } from './cells.ts'
 import { DEFAULT_ORDER, MODULE_CARD, hintedRule } from './hud.ts'
+import type { ModuleId, Modules } from './hud.ts'
+import { MODULE_TITLES, modulesPaneGrid } from './modulesview.ts'
 import { fittedStyle, layout } from './selectorgrid.ts'
 import type { GridField } from './selectorgrid.ts'
 import { CARD_SESSIONS, sessionChips, sessionsCard } from './sessionsview.ts'
@@ -47,6 +50,8 @@ export type BandView = {
   /** The cache card: its state with the pie, the life bar, and what is cached. */
   cache: { status: Run[]; bar: Run[]; detail: string | null } | null
   settings: Setting[]
+  /** Which modules are on, and their order, for the modules behind the settings. */
+  modules: { on: Modules; order: readonly ModuleId[] }
   handoff: { hasNewest: boolean; note: string } | null
   /** Next steps: the prompts suggested after the last reply, or a dim note while they are asked for. */
   next: { items: string[]; note: string | null } | null
@@ -86,6 +91,7 @@ const HOTKEYS: Record<string, string> = {
   'next:1': '2',
   'next:2': '3',
   settings: 's',
+  'modules:default': 'd',
 }
 
 const text = (s: string, look = {}): Piece => piece(s, look)
@@ -194,6 +200,17 @@ function gridOf(lines: readonly (Line | Grid)[]): Grid {
   return b.grid
 }
 
+/**
+ * The context folded to one row, every cell of it opening the Tokens pane: the name, the battery, the total, and
+ * `t: details` while it fits, so the breakdown stays in reach when the card's rule is folded away.
+ */
+function contextFolded(v: BandView, w: number): Line {
+  const left = [piece('CONTEXT', { isDim: true }, 'tokens'), v.context === null ? piece('—', { isDim: true }, 'tokens') : { runs: batteryRuns(v.context), action: 'tokens' }]
+  const total = v.tokens?.total ? [piece(v.tokens.total, { isDim: true }, 'tokens')] : []
+  const withHint = [...total, keyed('t', 'details', 'tokens')]
+  return line(w, left, fits(w, left, withHint) ? withHint : total)
+}
+
 function contextCard(v: BandView, w: number): Card | null {
   if (!v.tokens) return null
   const fill = v.context === null ? text('known after a reply', { isDim: true }) : { runs: batteryRuns(v.context), action: null }
@@ -206,7 +223,7 @@ function contextCard(v: BandView, w: number): Card | null {
       line(w, [fill], v.contextWindow ? [text(`of ${v.contextWindow}`, { isDim: true })] : []),
       line(w, usage),
     ]),
-    folded: gridOf([line(w, [piece('CONTEXT', { isDim: true }, 'tokens'), v.context === null ? text('—', { isDim: true }) : fill], total ? [text(total, { isDim: true })] : [])]),
+    folded: gridOf([contextFolded(v, w)]),
   }
 }
 
@@ -257,9 +274,12 @@ function guessesCard(v: BandView, w: number): Card | null {
   return {
     id: 'assume',
     full: gridOf([hintedRule('CHECK MY GUESSES', w, more), ...rows]),
-    folded: gridOf([line(w, [piece(`? ${gs.length} to check`, { color: 'claude' }, 'assume:review')], [keyed('a', 'review', 'assume:review')])]),
+    folded: gridOf([line(w, [text('GUESSES', { isDim: true }), piece(`? ${gs.length} to check`, { color: 'claude' }, 'assume:review')], [keyed('a', 'review', 'assume:review')])]),
   }
 }
+
+/** Folded, a card's row starts with its name, as CONTEXT, SESSIONS and the others do. */
+const NEXT_NAME = text('NEXT STEPS', { isDim: true })
 
 /** Next steps suggested after a reply, at most. */
 const NEXT_STEPS = 3
@@ -269,14 +289,14 @@ function nextCard(v: BandView, w: number): Card | null {
   if (!nx) return null
   const star = text('✦', { color: 'claude' })
   if (nx.items.length === 0) {
-    const note = line(w, [star, text(nx.note ?? 'suggested after each reply', { isDim: true })])
-    return { id: 'next', full: gridOf([hintedRule('NEXT STEPS', w), note]), folded: gridOf([note]) }
+    const note = [star, text(nx.note ?? 'suggested after each reply', { isDim: true })]
+    return { id: 'next', full: gridOf([hintedRule('NEXT STEPS', w), line(w, note)]), folded: gridOf([line(w, [NEXT_NAME, ...note])]) }
   }
   const rest = nx.items.slice(1).map((_, i) => piece(`${i + 2}`, { color: 'claude', isBold: true }, `next:${i + 1}`))
   return {
     id: 'next',
     full: gridOf([hintedRule('NEXT STEPS', w), ...nx.items.map((t, i) => line(w, [star, keyed(`${i + 1}`, t, `next:${i}`)]))]),
-    folded: gridOf([line(w, [star, keyed('1', nx.items[0]!, 'next:0')], rest)]),
+    folded: gridOf([line(w, [NEXT_NAME, star, keyed('1', nx.items[0]!, 'next:0')], rest)]),
   }
 }
 
@@ -485,8 +505,29 @@ function settingsPanel(v: BandView): Band {
   return finish(gridOf([...rows, bottomBar(v, width, [gear, keyed('s', 'Back', 'settings')])]), width)
 }
 
-/** The band: the closed row, or the open panel's cards or settings. */
+/**
+ * The modules behind the settings: each one's switch and `▲ ▼` for its card, as the Modules pane draws them, with
+ * `s: Back` to the settings. Short of rows the closing hint goes first, then the rows give way to one switch each.
+ */
+function modulesPanel(v: BandView): Band {
+  const { width } = cardLayout(v.columns)
+  const budget = v.maxRows - 1
+  const pane = modulesPaneGrid(v.modules.on, v.modules.order, width)
+  const b = builder()
+  const kept = pane.rows.length <= budget ? pane.rows.length : pane.rows.length - 1 <= budget ? pane.rows.length - 1 : 0
+  if (kept > 0) b.append({ rows: pane.rows.slice(0, kept), hits: pane.hits.filter(h => h.y < kept) })
+  else {
+    const pills = v.modules.order.map(id => pill(`${v.modules.on[id] ? '●' : '○'} ${MODULE_TITLES[id]}`, `module:toggle:${id}`, v.modules.on[id] ? 'success' : 'subtle'))
+    for (const l of folded(pills, width).slice(0, Math.max(0, budget))) b.add(l.row, l.spans)
+  }
+  const back = bottomBar(v, width, [gear, keyed('s', 'Back', 'settings')])
+  b.add(back.row, back.spans)
+  return finish(b.grid, width)
+}
+
+/** The band: the closed row, or the open panel's cards, settings, or the modules behind them. */
 export function bandGrid(v: BandView): Band {
   if (!v.isOpen) return closedRow(v)
+  if (v.view === 'modules') return modulesPanel(v)
   return v.view === 'settings' && v.settings.length > 0 ? settingsPanel(v) : cardsPanel(v)
 }

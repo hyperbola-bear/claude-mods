@@ -6,7 +6,7 @@ import type { ModuleId, Modules } from './hud.ts'
 import type { Band } from './panelgrid.ts'
 
 /** What each module is called on its card. */
-const TITLES: Record<ModuleId, string> = {
+export const MODULE_TITLES: Record<ModuleId, string> = {
   pickers: 'Model & effort',
   cache: 'Cache',
   tokens: 'Context',
@@ -24,7 +24,7 @@ const toggle = (id: ModuleId, isOn: boolean): Piece => piece(isOn ? '● on ' : 
 
 function moduleRow(id: ModuleId, place: string, isOn: boolean, right: readonly Piece[], width: number) {
   const m = MODULES.find(x => x.id === id)!
-  const left = [piece(place.padStart(2), { isDim: true }), toggle(id, isOn), piece(TITLES[id].padEnd(14), isOn ? { isBold: true } : { isDim: true })]
+  const left = [piece(place.padStart(2), { isDim: true }), toggle(id, isOn), piece(MODULE_TITLES[id].padEnd(14), isOn ? { isBold: true } : { isDim: true })]
   if (width >= DESC_MIN_WIDTH) left.push(piece(m.desc, { isDim: true }))
   return line(width, left, right)
 }
