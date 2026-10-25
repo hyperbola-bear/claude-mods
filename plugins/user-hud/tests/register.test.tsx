@@ -119,6 +119,14 @@ type World = {
   /** The pids `ps` says are running, and the title rows the transcripts' grep prints. */
   livePids: number[]
   titleRows: string[]
+  /** What `ps -Eww` prints for a pid: its tty, command and environment. */
+  procs: Record<number, string>
+  /** Folders `fs.stat` finds, beside the files; the tmux clients `list-clients` prints; commands that exit 1. */
+  dirs: string[]
+  tmuxClients: string
+  failing: string[]
+  /** What `ps -A -o pid=,ppid=,comm=` prints: every process, its parent and its executable. */
+  tree: string
   /** Every directory the plugin listed. */
   listed: string[]
   toasts: string[]
@@ -207,6 +215,11 @@ function world(on: On, stored: Readonly<Record<string, unknown>> = {}): World {
     closes: [],
     livePids: [],
     titleRows: [],
+    procs: {},
+    dirs: [],
+    tmuxClients: '',
+    failing: [],
+    tree: '',
     listed: [],
     toasts: [],
     argv: [],
@@ -323,6 +336,7 @@ function world(on: On, stored: Readonly<Record<string, unknown>> = {}): World {
     return { value: names.map(f => ({ name: f.slice(dir.length), kind: 'file' as const, size: 1, mtimeMs: w.files[f]?.mtimeMs ?? 0, isLink: false })) }
   })
   on('fs.stat', ($, e) => {
+    if (w.dirs.includes(e.path)) return { value: { kind: 'dir' as const, size: 1, mtimeMs: 0, isLink: false } }
     if (e.path.endsWith('/assets/logo.icns')) return { value: { kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false } }
     const f = w.files[e.path.replace(/^\/work\//, '')]
     if (!f) return { deny: 'missing' }
@@ -347,7 +361,14 @@ function world(on: On, stored: Readonly<Record<string, unknown>> = {}): World {
     w.argv.push([...e.argv])
     const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
     const args = e.argv.join(' ')
+    if (w.failing.includes(e.argv[0] ?? '')) return { value: { exitCode: 1, stdout: '', stderr: 'failed', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'osascript') return out(`${w.alertChoice}\n`)
+    if (e.argv[0] === 'open' || e.argv[0]?.endsWith('/orca')) return out('')
+    if (e.argv[0] === 'ps' && e.argv[1] === '-Eww') return out(w.procs[Number(e.argv.at(-1))] ?? '')
+    if (e.argv[0] === 'ps' && e.argv[2] === 'comm=') return out('/opt/homebrew/bin/tmux\n')
+    if (e.argv[0] === 'ps' && e.argv[1] === '-A') return out(w.tree)
+    if (e.argv[0]?.endsWith('.app/Contents/MacOS/goland')) return out('')
+    if (e.argv[0]?.endsWith('/tmux') && e.argv[3] === 'list-clients') return out(w.tmuxClients)
     if (e.argv[0] === 'ps') {
       const asked = (e.argv.at(-1) ?? '').split(',').map(Number)
       return { value: { exitCode: 1, stdout: asked.filter(p => w.livePids.includes(p)).map(p => `${String(p).padStart(5)}\n`).join(''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -1669,7 +1690,7 @@ test('the Sessions pane: needs you, working, done in the last 8h, asleep on requ
   expect(w.closes).toEqual(['sessions'])
 })
 
-test('pressing a desktop session’s row, in the Sessions pane or on the card, opens the app on it; a terminal’s does nothing', async ($, on) => {
+test('pressing a desktop session’s row, in the Sessions pane or on the card, opens the app on it', async ($, on) => {
   const w = world(on)
   mock.env(on, { HOME })
   sixSessions(w)
@@ -1680,14 +1701,136 @@ test('pressing a desktop session’s row, in the Sessions pane or on the card, o
   for (const surface of SURFACES) {
     const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'sessions', props: { ...PANE_PROPS, title: 'Sessions', bodyColumns: 60 } })
     const jumps = (await cellsOf(pane, 'sessions'))!.hits.filter(h => h.id.startsWith('session:'))
-    expect([...new Set(jumps.map(h => h.id))]).toEqual(['session:local_4c4432ad-2706'])
-    await act(pane, 'session:local_4c4432ad-2706', 'sessions')
+    // Every row but this session's: the asleep one is hidden until `z`.
+    expect([...new Set(jumps.map(h => h.id))]).toEqual(['session:aaaa-0002', 'session:aaaa-0003', 'session:aaaa-0004'])
+    await act(pane, 'session:aaaa-0004', 'sessions')
     await pane.unmount()
   }
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: 100 } })
   await openPanel(band)
-  await act(band, 'session:local_4c4432ad-2706')
+  await act(band, 'session:aaaa-0004')
   expect(opens()).toEqual(Array.from({ length: 3 }, () => ['open', 'claude://code/continue?session=local_4c4432ad-2706']))
+  // A desktop session is never looked up through ps: its link is enough.
+  expect(w.argv.filter(a => a[1] === '-Eww')).toEqual([])
+})
+
+/** The ps line of a terminal session, as macOS prints it: tty, command, environment. */
+const procLine = (tty: string, env: string) => `ttys${tty}  claude --model claude-sonnet-5-5 HOME=${HOME} ${env}\n`
+
+/** Presses the row of `aaaa-0002`, the session waiting on you, on the open panel's card. */
+async function pressWaiting($: Engine, w: World) {
+  await start($)
+  await w.clock.settle()
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: 100 } })
+  await openPanel(band)
+  await act(band, 'session:aaaa-0002')
+  // The commands of the jump, after the ps of its process.
+  const at = w.argv.findIndex(a => a[1] === '-Eww')
+  expect(w.argv[at]).toEqual(['ps', '-Eww', '-o', 'tty=,command=', '-p', '102'])
+  return w.argv.slice(at + 1)
+}
+
+test('pressing a terminal session’s row brings its own tab forward: Orca, Terminal, Ghostty', async ($, on) => {
+  const w = world(on)
+  mock.env(on, { HOME })
+  sixSessions(w)
+  w.procs[102] = procLine('004', 'TERM_PROGRAM=Orca __CFBundleIdentifier=com.stablyai.orca ORCA_TERMINAL_HANDLE=term_7b2400ab ORCA_CLI_BIN_DIR=/Applications/Orca.app/Contents/Resources/bin')
+  expect(await pressWaiting($, w)).toEqual([
+    ['/Applications/Orca.app/Contents/Resources/bin/orca', 'terminal', 'switch', '--terminal', 'term_7b2400ab'],
+    ['open', '-b', 'com.stablyai.orca'],
+  ])
+})
+
+test('a Terminal tab is found by its tty, a Ghostty one by its folder and title', async ($, on) => {
+  const w = world(on)
+  mock.env(on, { HOME })
+  sixSessions(w)
+  statusFile(w, 102, { sessionId: 'aaaa-0002', status: 'waiting', name: 'billing-1d', entrypoint: 'cli', cwd: '/work/billing', statusUpdatedAt: T0 - 2 * 60_000 })
+  w.procs[102] = procLine('010', '__CFBundleIdentifier=com.mitchellh.ghostty TERM_PROGRAM=ghostty')
+  const steps = await pressWaiting($, w)
+  expect(steps.map(a => [a[0], ...a.slice(3)])).toEqual([['osascript', '/work/billing', 'Settle-1804 subagent explorat']])
+})
+
+test('in an IDE the project’s window comes forward: VS Code by the workspace its lock file names, GoLand by its .idea', async ($, on) => {
+  const w = world(on)
+  mock.env(on, { HOME })
+  sixSessions(w)
+  statusFile(w, 102, { sessionId: 'aaaa-0002', status: 'waiting', name: 'billing-1d', entrypoint: 'cli', cwd: '/work/api/src', statusUpdatedAt: T0 - 2 * 60_000 })
+  w.procs[102] = procLine('017', '__CFBundleIdentifier=com.microsoft.VSCode TERM_PROGRAM=vscode CLAUDE_CODE_SSE_PORT=47628')
+  w.files[`${HOME}/.claude/ide/47628.lock`] = { text: JSON.stringify({ pid: 1, workspaceFolders: ['/work/api'], authToken: 'secret' }), mtimeMs: 0 }
+  expect(await pressWaiting($, w)).toEqual([['open', '-b', 'com.microsoft.VSCode', '/work/api']])
+})
+
+test('GoLand: its own executable, found up the session’s parents, opens the folder holding .idea; with none found, only the app comes forward', async ($, on) => {
+  const w = world(on)
+  mock.env(on, { HOME })
+  sixSessions(w)
+  statusFile(w, 102, { sessionId: 'aaaa-0002', status: 'waiting', name: 'billing-1d', entrypoint: 'cli', cwd: '/work/go app/cmd', statusUpdatedAt: T0 - 2 * 60_000 })
+  w.procs[102] = procLine('013', '__CFBundleIdentifier=com.jetbrains.goland TERMINAL_EMULATOR=JetBrains-JediTerm')
+  w.dirs = ['/work/go app/.idea']
+  w.tree = ['  900     1 /Applications/GoLand.app/Contents/MacOS/goland', '  901   900 /bin/zsh', '  102   901 claude'].join('\n')
+  expect(await pressWaiting($, w)).toEqual([
+    ['ps', '-A', '-o', 'pid=,ppid=,comm='],
+    ['/Applications/GoLand.app/Contents/MacOS/goland', '/work/go app'],
+  ])
+  w.dirs = []
+  w.argv.length = 0
+  await act(await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: 100 } }), 'session:aaaa-0002')
+  expect(w.argv.filter(a => a[0] === 'open')).toEqual([['open', '-b', 'com.jetbrains.goland']])
+})
+
+test('tmux: the pane is shown on the client last used, then the terminal of that client comes forward', async ($, on) => {
+  const w = world(on)
+  mock.env(on, { HOME })
+  sixSessions(w)
+  w.procs[102] = procLine('021', 'TERM_PROGRAM=tmux TMUX=/private/tmp/tmux-501/default,51234,0 TMUX_PANE=%3')
+  w.tmuxClients = '1792900000 51300 /dev/ttys021\n1792905000 51400 /dev/ttys022\n'
+  w.procs[51400] = procLine('022', '__CFBundleIdentifier=com.apple.Terminal TERM_PROGRAM=Apple_Terminal')
+  const steps = await pressWaiting($, w)
+  const tmux = (...a: string[]) => ['/opt/homebrew/bin/tmux', '-S', '/private/tmp/tmux-501/default', ...a]
+  expect(steps.slice(0, 5)).toEqual([
+    ['ps', '-o', 'comm=', '-p', '51234'],
+    tmux('list-clients', '-F', '#{client_activity} #{client_pid} #{client_tty}'),
+    tmux('switch-client', '-c', '/dev/ttys022', '-t', '%3'),
+    tmux('select-window', '-t', '%3'),
+    tmux('select-pane', '-t', '%3'),
+  ])
+  expect(steps.slice(5).map(a => [a[0], a.at(-1)])).toEqual([
+    ['ps', '51400'],
+    ['osascript', '/dev/ttys022'],
+  ])
+})
+
+test('tmux inside GoLand: the pane is shown, then GoLand’s executable, found above the tmux client, opens the project', async ($, on) => {
+  const w = world(on)
+  mock.env(on, { HOME })
+  sixSessions(w)
+  statusFile(w, 102, { sessionId: 'aaaa-0002', status: 'waiting', name: 'billing-1d', entrypoint: 'cli', cwd: '/work/go', statusUpdatedAt: T0 - 2 * 60_000 })
+  w.procs[102] = procLine('030', 'TERM_PROGRAM=tmux TMUX=/private/tmp/tmux-501/gl,51234,0 TMUX_PANE=%0')
+  w.tmuxClients = '1792905000 51400 /dev/ttys031\n'
+  w.procs[51400] = procLine('031', '__CFBundleIdentifier=com.jetbrains.goland TERMINAL_EMULATOR=JetBrains-JediTerm')
+  // The session hangs under the tmux server; the client under GoLand's shell.
+  w.tree = ['  900     1 /Applications/GoLand.app/Contents/MacOS/goland', '  901   900 /bin/zsh', '51400   901 tmux', '51234     1 tmux', '  102 51234 claude'].join('\n')
+  w.dirs = ['/work/go/.idea']
+  const steps = await pressWaiting($, w)
+  expect(steps.slice(-2)).toEqual([
+    ['ps', '-A', '-o', 'pid=,ppid=,comm='],
+    ['/Applications/GoLand.app/Contents/MacOS/goland', '/work/go'],
+  ])
+})
+
+test('when the tab cannot be picked the app still comes forward; a process ps no longer finds does nothing', async ($, on) => {
+  const w = world(on)
+  mock.env(on, { HOME })
+  sixSessions(w)
+  w.procs[102] = procLine('010', '__CFBundleIdentifier=com.apple.Terminal TERM_PROGRAM=Apple_Terminal')
+  w.failing = ['osascript']
+  expect((await pressWaiting($, w)).map(a => a[0] === 'osascript' ? ['osascript'] : a)).toEqual([['osascript'], ['open', '-b', 'com.apple.Terminal']])
+  w.failing = []
+  w.procs = {}
+  w.argv.length = 0
+  await act(await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: 100 } }), 'session:aaaa-0002')
+  expect(w.argv.filter(a => a[0] !== 'ps')).toEqual([])
 })
 
 test('sessions: read again every 5 seconds, their titles at most once a minute', async ($, on) => {

@@ -87,6 +87,8 @@ export type SessionInfo = {
   entry: 'cli' | 'app'
   /** The desktop app's id for it (`local_…`): pressing its row opens it there. Null for a terminal's. */
   hostId: string | null
+  /** The folder it runs in: pressing a terminal session's row finds its tab or project window by it. */
+  cwd: string | null
   /** When its status last changed, in ms since the epoch. */
   statusAt: number
 }

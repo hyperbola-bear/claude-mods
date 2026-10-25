@@ -1,6 +1,7 @@
 // Pure session logic: a status file of `~/.claude/sessions/` read into a session, the titles its transcript
 // holds, and every live session filed under what it needs from the person.
 import type { SessionGroup, SessionInfo, SessionStatus, Sessions } from '../types'
+import { isPath } from './jump.ts'
 
 /** An idle session finished within this long is done; longer, it is asleep. */
 export const DONE_MS = 8 * 3_600_000
@@ -20,6 +21,8 @@ export type SessionFile = {
   entry: 'cli' | 'app'
   /** The desktop app's id for it (`local_…`), which its deep link opens; null for a terminal's. */
   hostId: string | null
+  /** The folder it runs in; a terminal's jump looks for its tab or project by it. */
+  cwd: string | null
   statusAt: number
 }
 
@@ -53,6 +56,7 @@ export function parseSessionFile(text: string): SessionFile | null {
     isUserName: o.nameSource === 'user',
     entry: o.entrypoint === 'cli' ? 'cli' : 'app',
     hostId: isHostId(o.hostSessionId) ? o.hostSessionId : null,
+    cwd: isPath(o.cwd) ? o.cwd : null,
     statusAt: typeof o.statusUpdatedAt === 'number' ? o.statusUpdatedAt : 0,
   }
 }
