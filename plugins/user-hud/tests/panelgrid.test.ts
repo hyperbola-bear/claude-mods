@@ -211,7 +211,9 @@ test('short of rows the model and effort pickers stay in full: the other rows fo
   expect(rows).toHaveLength(8)
   expect(rows[0]).toMatch(/^── M O D E L {3}· {3}E F F O R T ─+$/)
   expect(rows[5]).toBe(' '.repeat(60))
-  expect(rows[6]).toMatch(/^● 52:10 ▰+▱ +w: Keep warm $/)
+  // Folded, the cache names itself, dim like CONTEXT and SESSIONS, before its countdown.
+  expect(rows[6]).toMatch(/^CACHE ● 52:10 ▰+▱ +w: Keep warm $/)
+  expect(g.rows[6]!.find(r => r.text === 'CACHE')?.isDim).toBe(true)
   expect(textOf(g, 'more:context')).toBe(' +4 more ')
   expect(rows.at(-1)).toMatch(/^⚙ s: Settings {2}\+4 more +❖ user-hud ▾ $/)
   expect(g.hits.map(h => h.id)).toContain('pick:model:opus')
@@ -223,7 +225,7 @@ test('short of rows the model and effort pickers stay in full: the other rows fo
   const five = plain(bandGrid({ ...VIEW, columns: 60, maxRows: 5 }))
   expect(five.slice(0, 4)).toEqual([
     expect.stringMatching(/^MODEL Opus 5\.5 · XHigh +m: pick$/),
-    expect.stringMatching(/^● 52:10/),
+    expect.stringMatching(/^CACHE ● 52:10/),
     expect.stringMatching(/^CONTEXT /),
     expect.stringMatching(/^SESSIONS /),
   ])

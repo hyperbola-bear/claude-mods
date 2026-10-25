@@ -236,7 +236,8 @@ function cacheCard(v: BandView, w: number): Card | null {
   }
   const foldedRight = [...(v.overage ? [pill('New chat', 'newchat', 'subtle')] : []), ...right]
   const chip = v.chip.length > 0 ? v.chip : v.cache.status
-  return { id: 'cache', full: gridOf(lines), folded: gridOf([line(w, [{ runs: chip, action: null }, ...bar], foldedRight)]) }
+  const folded = line(w, [text('CACHE', { isDim: true }), { runs: chip, action: null }, ...bar], foldedRight)
+  return { id: 'cache', full: gridOf(lines), folded: gridOf([folded]) }
 }
 
 /** Guesses shown in full: the rest wait for these to be marked. */
