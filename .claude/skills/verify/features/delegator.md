@@ -20,7 +20,7 @@ Every subagent Claude starts waits in a dialog for the person's approval. Once i
 - Ask Claude for any work it hands to an agent. The dialog opens in the prompt area.
 - Type `/delegator` to open the pane, or click `● N agents ▸` on the band.
 - With the pane focused: `o` turns the gate off or on, `c` hides or shows the agents done.
-- `/config` has four rows: Approve subagents before launch, Suggest a model by task complexity, Animate the characters, Ask agents to report their steps.
+- `/config` has five rows: Approve subagents before launch, Suggest a model by task complexity, Show the characters, Animate the characters, Ask agents to report their steps.
 
 ## Driving it with tui.sh
 

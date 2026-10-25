@@ -41,7 +41,7 @@ const TRACKED: Tracking = {
   },
 }
 
-const MOMENT = { at: AT, frame: 0, asksSteps: false }
+const MOMENT = { at: AT, frame: 0, asksSteps: false, showsCharacters: true }
 
 const PALETTE = new Set(Object.values(PAL))
 
@@ -100,6 +100,15 @@ test('at every width from 40 to 110 no row is wider than the pane; below 44 the 
     } else {
       expect({ width, characters: grid.rows.slice(first + 1, first + 4).every(hasCharacter) }).toEqual({ width, characters: true })
     }
+  }
+})
+
+test('with Show the characters off, no character is drawn at any width and the text starts at the left edge', () => {
+  for (const width of [40, 70, 110]) {
+    const grid = paneGrid(QUEUE, TRACKED, width, true, { ...MOMENT, showsCharacters: false })
+    const lines = plain(grid)
+    expect({ width, characters: grid.rows.some(hasCharacter) }).toEqual({ width, characters: false })
+    expect(lines[lines.findIndex(l => l.includes('R U N N I N G')) + 1]?.startsWith('#3 Explore')).toBe(true)
   }
 })
 

@@ -8,6 +8,7 @@ import type { Run } from './cells.ts'
 export const PAL: Record<string, string> = {
   o: '#d97757',
   k: '#1b1b1f',
+  p: '#f2a7a0',
   h: '#c9b07a',
   g: '#56805a',
   d: '#626a7a',
@@ -22,38 +23,38 @@ export const PAL: Record<string, string> = {
 }
 
 const HEAD = '.okooko.'
-const CLAW = 'oooooooo'
-const BODY = '.oooooo.'
-const LEG_A = 'o.o..o.o'
-const LEG_B = '.o.oo.o.'
+const ARMS = 'ookookoo'
+const CHEEKS = '.poooop.'
+const FEET_A = '..o..o..'
+const FEET_B = '.o....o.'
 
 type Frame = readonly [string, string, string, string, string, string]
 
-/** Each role's two frames, row by row from the top. */
+/** Each role's two frames, row by row from the top: its hat, then a round face with tall eyes and pink cheeks. */
 export const CHARS: Record<Role, readonly [Frame, Frame]> = {
   explorer: [
-    ['..hhhh..', 'hhgggghh', HEAD, CLAW, BODY, LEG_A],
-    ['..hhhh..', 'hhgggghh', '.kookoo.', CLAW, BODY, LEG_B],
+    ['..hhhh..', 'hhgggghh', HEAD, ARMS, CHEEKS, FEET_A],
+    ['..hhhh..', 'hhgggghh', '.kookoo.', 'okookooo', CHEEKS, FEET_A],
   ],
   developer: [
-    ['..dddd..', '.d....d.', 'dokookod', CLAW, BODY, LEG_A],
-    ['..dddd..', '.d....d.', 'bokookob', CLAW, BODY, LEG_A],
+    ['..dddd..', '.d.oo.d.', 'dokookod', ARMS, CHEEKS, FEET_A],
+    ['..dddd..', '.d.oo.d.', 'bokookob', ARMS, CHEEKS, FEET_B],
   ],
   architect: [
-    ['..yyyy..', '.yyyyyy.', HEAD, 'oooooouu', BODY, LEG_A],
-    ['..yyyy..', '.yyyyyy.', HEAD, 'ooooooou', BODY, LEG_B],
+    ['...yy...', '.yyyyyy.', HEAD, 'ookookou', '.poooopu', FEET_A],
+    ['...yy...', '.yyyyyy.', HEAD, 'ookookou', CHEEKS, FEET_B],
   ],
   researcher: [
-    ['.KKKKKK.', '..KKKK.t', HEAD, CLAW, BODY, LEG_A],
-    ['.KKKKKK.', '..KKKKt.', HEAD, CLAW, BODY, LEG_A],
+    ['KKKKKKKK', '.tKKKK..', HEAD, ARMS, CHEEKS, FEET_A],
+    ['KKKKKKKK', 't.KKKK..', HEAD, ARMS, CHEEKS, FEET_B],
   ],
   reviewer: [
-    ['..nnnn..', '.nnnnnn.', '.okookom', 'ooooooon', BODY, LEG_A],
-    ['..nnnn..', '.nnnnnn.', '.okookoW', 'ooooooon', BODY, LEG_B],
+    ['..nnnn..', '.nnnnnn.', '.okookmm', 'ookookmm', '.poooon.', FEET_A],
+    ['..nnnn..', '.nnnnnn.', '.okookWm', 'ookookmm', '.poooon.', FEET_B],
   ],
   clawd: [
-    ['........', '........', HEAD, CLAW, BODY, LEG_A],
-    ['........', '........', HEAD, CLAW, BODY, LEG_B],
+    ['........', '..oooo..', HEAD, ARMS, CHEEKS, FEET_A],
+    ['........', '..oooo..', HEAD, ARMS, CHEEKS, FEET_B],
   ],
 }
 

@@ -65,13 +65,14 @@ const FOLLOW_WAIT_MS = 6000
 
 const FRAME_MS = 650
 
-type Cfg = { isOn: boolean; suggests: boolean; animates: boolean; asksSteps: boolean }
+type Cfg = { isOn: boolean; suggests: boolean; showsCharacters: boolean; animates: boolean; asksSteps: boolean }
 
 export function readCfg(o: Record<string, unknown>): Cfg {
   const b = (v: unknown, d: boolean) => (typeof v === 'boolean' ? v : d)
   return {
     isOn: b(o.approveAgents, true),
     suggests: b(o.suggestModels, true),
+    showsCharacters: b(o.showCharacters, true),
     animates: b(o.animateCharacters, true),
     asksSteps: b(o.askForSteps, true),
   }
@@ -117,10 +118,11 @@ function stopTicker() {
   ticker = null
 }
 
-/** Moves the characters while any agent runs and the row allows it; no timer otherwise. */
+/** Moves the characters while any agent runs and the rows show and animate them; no timer otherwise. */
 function animate($: EngineInterface, runs: readonly AgentRun[]) {
-  if (cfg.animates && isRunning(runs) && ticker === null) ticker = $.clock.every(FRAME_MS, () => void tick($))
-  else if (!(cfg.animates && isRunning(runs))) stopTicker()
+  const moves = cfg.showsCharacters && cfg.animates && isRunning(runs)
+  if (moves && ticker === null) ticker = $.clock.every(FRAME_MS, () => void tick($))
+  else if (!moves) stopTicker()
 }
 
 // Checks again before each frame: two changes that settle out of order could have started it after the last agent ended.
@@ -447,7 +449,7 @@ export const register: Register = (on, given) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui: Ui = $.ui.resolve(e)
     const width = Math.max(40, e.props.bodyColumns)
-    const grid = paneGrid(view, await read($, tracking), width, cfg.isOn, { at: await $.clock.now(), frame: await read($, frameA), asksSteps: cfg.asksSteps })
+    const grid = paneGrid(view, await read($, tracking), width, cfg.isOn, { at: await $.clock.now(), frame: await read($, frameA), asksSteps: cfg.asksSteps, showsCharacters: cfg.showsCharacters })
     return cellsElement(ui, e.surface, 'delegator', grid, width, PANE_BUTTONS, a => void runAction($, a))
   })
 
