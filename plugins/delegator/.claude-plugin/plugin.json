@@ -1,6 +1,6 @@
 {
   "name": "delegator",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": {
     "name": "Polar"
   },
@@ -26,6 +26,12 @@
       "type": "boolean",
       "title": "Suggest a model by task complexity",
       "description": "When Claude names no model for an agent, launch it on the one its task suggests: Haiku for lookups, Sonnet for building, Opus for design and analysis. Off, it runs on the agent's own default.",
+      "default": true
+    },
+    "showCharacters": {
+      "type": "boolean",
+      "title": "Show the characters",
+      "description": "Draw each running agent as a pixel character beside its rows in the Delegator pane. Off, the pane shows the rows alone, starting at the left edge.",
       "default": true
     },
     "animateCharacters": {

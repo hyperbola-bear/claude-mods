@@ -14,10 +14,10 @@ export const TASK_ROWS = 40
 /** Below this many columns the characters are left out and each agent's text starts at the left edge. */
 export const CHARACTER_MIN_WIDTH = 44
 
-/** What a drawing needs besides the state: the time now, the animation's frame, and whether agents are asked for steps. */
-export type Moment = { at: number; frame: number; asksSteps: boolean }
+/** What a drawing needs besides the state: the time now, the animation's frame, whether agents are asked for steps, and whether the characters show. */
+export type Moment = { at: number; frame: number; asksSteps: boolean; showsCharacters: boolean }
 
-const STILL: Moment = { at: 0, frame: 0, asksSteps: false }
+const STILL: Moment = { at: 0, frame: 0, asksSteps: false, showsCharacters: true }
 
 export type CellsGrid = Grid & { keys: Record<string, string> }
 
@@ -105,7 +105,7 @@ export function paneGrid(s: DelegatorState, t: Tracking, width: number, isOn: bo
 
   if (running.length > 0) {
     b.add(divider('RUNNING', width, running.length))
-    const hasCharacter = width >= CHARACTER_MIN_WIDTH
+    const hasCharacter = m.showsCharacters && width >= CHARACTER_MIN_WIDTH
     const textWidth = hasCharacter ? width - SPRITE_WIDTH - 1 : width
     running.forEach((r, i) => {
       if (i > 0) b.add([])

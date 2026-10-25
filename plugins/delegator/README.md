@@ -18,16 +18,16 @@ Every subagent Claude starts waits for your approval first. You see the task, th
 │ `note` as each step finishes.                                          │
 │ ── R U N N I N G  · 3 ──────────────────────────────────────────────── │
 │ ▄▄▀▀▀▀▄▄ #3 Explore · find session status files              Haiku 4.5 │
-│ ▄█▀██▀█▄ ▕██▏       ▏ 22%  48k  ≈$0.02  41s                            │
-│ ▄▀█▀▀█▀▄ 2/4 reading sessions/*.json                                   │
+│ ▄██████▄ ▕██▏       ▏ 22%  48k  ≈$0.02  41s                            │
+│  ▀█▀▀█▀  2/4 reading sessions/*.json                                   │
 │                                                                        │
 │  ▄▀▀▀▀▄  #5 general-purpose · port the agent panel            Opus 5.5 │
-│ ▀█▀██▀█▀ ▕██████▎   ▏ 63%  412k  ≈$1.84  6m 12s                        │
-│ ▄▀█▀▀█▀▄ 3/6 cells for the running list                                │
+│ ▀██████▀ ▕██████▎   ▏ 63%  412k  ≈$1.84  6m 12s                        │
+│  ▀█▀▀█▀  3/6 cells for the running list                                │
 │                                                                        │
-│  ▀████▀▄ #6 claude-code-guide · how Client cells paint      Sonnet 5.5 │
-│ ▄█▀██▀█▄ ▕████████  ▏ 81%  650k  ≈$0.45  4m 03s                        │
-│ ▄▀█▀▀█▀▄ no steps reported                                             │
+│ ▀▀████▀▀ #6 claude-code-guide · how Client cells paint      Sonnet 5.5 │
+│ ▄██████▄ ▕████████  ▏ 81%  650k  ≈$0.45  4m 03s                        │
+│  ▀█▀▀█▀  no steps reported                                             │
 │ ── D O N E  · 2 · ≈$0.03 ───────────────────────────────────────────── │
 │ ✓ #1 Explore · read savvy-progress                  ≈$0.03 · 31k · 38s │
 │ ✗ #2 general-purpose · rewrite the tests                       refused │
@@ -44,7 +44,7 @@ Every subagent Claude starts waits for your approval first. You see the task, th
    5. Type something.
 ```
 
-The pane is one grid of cells, the same in the terminal and the desktop app. In VS Code and on mobile it is the same rows as text, with buttons for its keys. Below 44 columns the characters are left out and each agent's text starts at the left edge. Every row is cut at the pane's width with `…`.
+The pane is one grid of cells, the same in the terminal and the desktop app. In VS Code and on mobile it is the same rows as text, with buttons for its keys. With **Show the characters** off, or below 44 columns, the characters are left out and each agent's text starts at the left edge. Every row is cut at the pane's width with `…`.
 
 ## Use
 
@@ -82,7 +82,7 @@ A task longer than 6,000 characters is never treated as a quick lookup. Turn **S
 
 Every agent that launches is tracked, whether you approved it or the gate was off, on the number the queue gave it, so `#5` is the same agent in the dialog and in every part of the pane. The pane keeps the newest 200. `/clear` empties them along with the queue. They last through a `/config` change, which reloads the plugin (the pane's **o** is one). An agent with no loop in this session to report on, such as a workflow agent run remotely, is not shown.
 
-- **Running.** Each agent shows as its character, then three rows: its number, type and task with its model on the right; its context battery, tokens, estimated cost and time; and the steps it reported, or `no steps reported`. The battery is the tokens its last model request held, out of its model's window (200k for Haiku 4.5 and the Claude 3 models, 1M for the rest). The tokens are every request's added up. The character moves, two frames 650 ms apart, only while the agent runs.
+- **Running.** Each agent shows as its character (unless **Show the characters** is off), then three rows: its number, type and task with its model on the right; its context battery, tokens, estimated cost and time; and the steps it reported, or `no steps reported`. The battery is the tokens its last model request held, out of its model's window (200k for Haiku 4.5 and the Claude 3 models, 1M for the rest). The tokens are every request's added up. The character moves, two frames 650 ms apart, only while the agent runs.
 - **Done.** A finished agent drops to one line: `✓` when it answered, `✗` when it ended on an error or an interrupt, with its tokens and time. An agent you refused shows here as `refused`, while it is among the last 8 decisions; a `/config` change forgets refusals, as it forgets the queue.
 - **Totals.** The second row counts the agents running and adds up the cost and tokens of every agent in the pane, and the time from the first one's start to the last one's end.
 
@@ -95,9 +95,9 @@ The cost is an estimate. The engine reports tokens, not money, so the pane price
 | Architect | `Plan` | hard hat; the blueprint unrolls |
 | Researcher | `claude-code-guide` | mortarboard; the tassel swings |
 | Reviewer | any agent whose type or task description says review, audit, security or sicko, whatever its type | deerstalker; the magnifier glints |
-| Clawd | any other agent | the plain crab; it just walks |
+| Clawd | any other agent | no hat; it just walks |
 
-Each character is 8 cells by 3 rows. Each cell is two pixels stacked, `▀`, `▄` or `█` in the pixels' colours, so the terminal and the desktop paint the same picture.
+Each character is 8 cells by 3 rows: its hat, then a round face with tall eyes, pink cheeks and two stubby feet. Each cell is two pixels stacked, `▀`, `▄` or `█` in the pixels' colours, so the terminal and the desktop paint the same picture.
 
 ## Steps and the plan
 
@@ -118,6 +118,7 @@ While a plan is reported and not finished, a row above the prompt shows it: its 
 |---|---|---|
 | Approve subagents before launch | on | the gate itself |
 | Suggest a model by task complexity | on | the model shown when Claude names none |
+| Show the characters | on | each running agent's character beside its rows; off, the rows start at the left edge and no timer runs |
 | Animate the characters | on | the running agents' characters move; off, they stand still and no timer runs |
 | Ask agents to report their steps | on | the line added to each agent's task asking it to call `step` |
 

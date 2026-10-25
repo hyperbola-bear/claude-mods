@@ -309,6 +309,15 @@ test('with Animate the characters off, no timer starts and the characters stand 
   expect(character((await pane($)).props)).toEqual(before)
 })
 
+test('with Show the characters off, no timer starts and the pane draws no character', { options: { approveAgents: false, showCharacters: false } }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  await spawn($, EXPLORE)
+  await w.clock.advance(6500)
+  expect(w.periods).toBe(0)
+  expect((await pane($)).lines.some(l => l.startsWith('#1 Explore'))).toBe(true)
+})
+
 test('the terminal and the desktop draw the same cells, the pane and the band', { options: { approveAgents: false } }, async ($, on) => {
   const w = world(on)
   await start($)
