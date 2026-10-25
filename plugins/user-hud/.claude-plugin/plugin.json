@@ -1,6 +1,6 @@
 {
   "name": "user-hud",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "author": {
     "name": "Polar"
   },
@@ -64,7 +64,7 @@
     "moduleOrder": {
       "type": "string",
       "title": "Module order",
-      "description": "The order of the panel's cards, top to bottom: module names separated by commas (pickers, cache, tokens, sessions, assume, next, handoff). Modules left out follow in this usual order. /hud order sets it too.",
+      "description": "The order of the panel's cards, top to bottom: module names separated by commas (pickers, cache, tokens, sessions, assume, next, handoff). Modules left out follow in this usual order. The Modules pane (/hud modules) and /hud order set it too.",
       "default": "pickers, cache, tokens, sessions, assume, next, handoff"
     },
     "warnSeconds": {
