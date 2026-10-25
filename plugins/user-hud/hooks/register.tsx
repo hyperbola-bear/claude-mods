@@ -46,6 +46,7 @@
  *
  * 6. Sessions. Every 5 seconds the status files of `~/.claude/sessions/` say which other sessions wait on
  *    you, run a turn, or finished; `ps` says which are still alive, and their transcripts their titles.
+ *    Pressing one brings forward where it runs: the desktop app on it, or its terminal's tab or IDE window.
  *
  * 7. Guesses. Claude reports the guesses it acts on through an `assumption` tool; each shows as a row the
  *    person marks right (✓) or wrong (✗, which drafts the correction in the prompt box).
@@ -59,8 +60,9 @@
  * `next`), so it sits beside pr-review-ui's band rather than replacing it.
  *
  * Reaches: model.fork (keep-warm pings), model.complete (next steps, on Haiku), process.run (osascript, afplay;
- * ps and a grep of the transcripts for the sessions; open, to jump to a desktop session), fs reads (handoff notes, the alert's logo, the session
- * status files), store (the panel's open state), settings read (the effort level, promptCacheTtl), env read
+ * ps and a grep of the transcripts for the sessions; to jump to a session: ps for where it runs, then open, osascript
+ * (Terminal, iTerm2, Ghostty), orca, tmux or a JetBrains IDE's own executable), fs reads (handoff notes, the alert's logo, the session status files, the
+ * workspace folders of an IDE lock file), store (the panel's open state), settings read (the effort level, promptCacheTtl), env read
  * (CLAUDE_CODE_PROMPT_CACHE_TTL, HOME, CLAUDE_CONFIG_DIR), session usage (the plan windows, the context
  * breakdown, the cost), session id (this session among the others), agent list (a subagent's type), config set
  * (the panel's toggles), command run (/model, /effort, /handoff, /clear) and prompt submit on button presses,
@@ -109,7 +111,9 @@ import type { GridField } from './selectorgrid.ts'
 import type { Ui } from './ui.ts'
 import { handoffPaneGrid } from './handoffview.ts'
 import { NEXT_MODEL, NEXT_SYSTEM, nextRequest, parseNext } from './next.ts'
-import { EMPTY_SESSIONS, TITLES_SCRIPT, grouped, isHostId, jumpUrl, livePids, parseSessionFile, parseTitles, titleOf } from './sessions.ts'
+import { TREE_ARGV, appExecutableOf, isPath, hostOf, jumpSteps, latestClient, parseProc, procArgv, tmuxClientsArgv, tmuxSteps, upFrom, workspaceOf } from './jump.ts'
+import type { Host } from './jump.ts'
+import { EMPTY_SESSIONS, SESSION_GROUPS, TITLES_SCRIPT, grouped, jumpUrl, livePids, parseSessionFile, parseTitles, titleOf } from './sessions.ts'
 import type { SessionFile, Titles } from './sessions.ts'
 import { sessionsPaneGrid } from './sessionsview.ts'
 import { parseGroupAction, tokensPaneGrid } from './tokenview.ts'
@@ -846,7 +850,7 @@ async function refreshSessions($: EngineInterface) {
     if (!dir) return
     const files = await sessionFiles($, dir)
     await refreshTitles($, dir, files.map(f => f.sessionId))
-    const list: SessionInfo[] = files.map(f => ({ sessionId: f.sessionId, pid: f.pid, status: f.status, title: titleOf(f, titles.get(f.sessionId)), entry: f.entry, hostId: f.hostId, statusAt: f.statusAt }))
+    const list: SessionInfo[] = files.map(f => ({ sessionId: f.sessionId, pid: f.pid, status: f.status, title: titleOf(f, titles.get(f.sessionId)), entry: f.entry, hostId: f.hostId, cwd: f.cwd, statusAt: f.statusAt }))
     const selfId = await $.session.id().catch(() => null)
     const now = await $.clock.now()
     await update($, sessionsA, () => grouped(list, selfId, now))
@@ -855,10 +859,70 @@ async function refreshSessions($: EngineInterface) {
   }
 }
 
-/** Brings the desktop app forward on that session, from the terminal or the app alike. */
-async function jumpToSession($: EngineInterface, hostId: string) {
-  if (!isHostId(hostId)) return
-  await $.process.run(['open', jumpUrl(hostId)], { timeoutMs: 5000 }).catch(() => {})
+/**
+ * Brings forward wherever that session runs, from the terminal or the app alike: the desktop app on it, or the
+ * terminal it runs in, on its tab where the terminal lets a tab be picked and on its project's window in an IDE.
+ * A step that fails falls back to bringing the app forward.
+ */
+async function jumpToSession($: EngineInterface, sessionId: string) {
+  const { byGroup } = await read($, sessionsA)
+  const s = SESSION_GROUPS.flatMap(g => byGroup[g]).find(x => x.sessionId === sessionId)
+  if (!s) return
+  if (s.hostId) return void (await runStep($, ['open', jumpUrl(s.hostId)]))
+  // Inside tmux the terminal is the one its client runs in, so that client's process stands for the session.
+  let at: { host: Host; pid: number } | null = await placeOf($, s.pid)
+  if (at?.host.kind === 'tmux') at = await showTmuxPane($, at.host)
+  if (!at) return
+  const { host } = at
+  const launcher = host.kind === 'jetbrains' ? await appExecutable($, at.pid) : null
+  const steps = jumpSteps(host, { cwd: s.cwd, title: s.title, root: await projectOf($, host, s.cwd), launcher })
+  let isShown = false
+  for (const argv of steps) isShown = (await runStep($, argv)) || isShown
+  if (!isShown && 'app' in host) await runStep($, ['open', '-b', host.app])
+}
+
+/** Runs one command of a jump; whether it worked. */
+const runStep = async ($: EngineInterface, argv: string[]) => (await $.process.run(argv, { timeoutMs: 10_000 }).catch(() => null))?.exitCode === 0
+
+/** Where that process runs, from the few environment variables that say so, with the process it was read from. */
+async function placeOf($: EngineInterface, pid: number): Promise<{ host: Host; pid: number } | null> {
+  const r = await $.process.run(procArgv(pid), { timeoutMs: 5000 }).catch(() => null)
+  const proc = r && r.exitCode === 0 ? parseProc(r.stdout) : null
+  const host = proc && hostOf(proc)
+  return host && { host, pid }
+}
+
+/** The executable of the app that process runs under, found up its parents. */
+async function appExecutable($: EngineInterface, pid: number): Promise<string | null> {
+  const r = await $.process.run(TREE_ARGV, { timeoutMs: 5000 }).catch(() => null)
+  return r && r.exitCode === 0 ? appExecutableOf(r.stdout, pid) : null
+}
+
+/** Shows the pane on the tmux client last used, and returns where that client's terminal runs. */
+async function showTmuxPane($: EngineInterface, host: Extract<Host, { kind: 'tmux' }>): Promise<{ host: Host; pid: number } | null> {
+  // The server's own binary, so a tmux the engine's PATH does not hold is still found.
+  const bin = (await $.process.run(['ps', '-o', 'comm=', '-p', String(host.serverPid)], { timeoutMs: 5000 }).catch(() => null))?.stdout.trim()
+  const tmux = isPath(bin) && /\/tmux$/.test(bin) ? bin : 'tmux'
+  const r = await $.process.run(tmuxClientsArgv(tmux, host.socket), { timeoutMs: 5000 }).catch(() => null)
+  const client = r && r.exitCode === 0 ? latestClient(r.stdout) : null
+  if (!client) return null
+  for (const argv of tmuxSteps(tmux, host.socket, host.pane, client.tty)) await runStep($, argv)
+  const outer = await placeOf($, client.pid)
+  return outer?.host.kind === 'tmux' ? null : outer
+}
+
+/**
+ * The project folder an IDE window has open around `cwd`: the workspace Claude Code's IDE extension reports, or for a
+ * JetBrains IDE the nearest folder holding `.idea`. Null when unsure, since a folder no window has open opens a new one.
+ */
+async function projectOf($: EngineInterface, host: Host, cwd: string | null): Promise<string | null> {
+  if (host.kind !== 'vscode' && host.kind !== 'jetbrains') return null
+  const dir = await configDir($)
+  const lock = host.idePort && dir ? await $.fs.read(`${dir}/ide/${host.idePort}.lock`).catch(() => null) : null
+  const workspace = typeof lock === 'string' ? workspaceOf(lock, cwd) : null
+  if (workspace || host.kind === 'vscode' || !cwd) return workspace
+  for (const p of upFrom(cwd)) if ((await $.fs.stat(`${p === '/' ? '' : p}/.idea`).catch(() => null))?.kind === 'dir') return p
+  return null
 }
 
 async function openSessionsPane($: EngineInterface) {

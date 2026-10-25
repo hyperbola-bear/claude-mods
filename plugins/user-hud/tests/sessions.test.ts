@@ -6,7 +6,7 @@ import { sessionsPaneGrid } from '../hooks/sessionsview.ts'
 
 const NOW = Date.parse('2026-10-22T09:00:00Z')
 
-const info = (sessionId: string, status: SessionInfo['status'], statusAt: number): SessionInfo => ({ sessionId, pid: 1, status, title: sessionId, entry: 'cli', hostId: null, statusAt })
+const info = (sessionId: string, status: SessionInfo['status'], statusAt: number): SessionInfo => ({ sessionId, pid: 1, status, title: sessionId, entry: 'cli', hostId: null, cwd: null, statusAt })
 
 test('a session is filed by what it needs from you: waiting needs you, busy works, idle is done for 8 hours, then asleep', () => {
   expect(groupOf({ status: 'waiting', statusAt: 0 }, NOW)).toBe('needs')
@@ -26,15 +26,17 @@ test('every session in its group, the newest first; this one apart', () => {
 
 test('a status file is read for what the panel uses; one broken, or without a pid or an id, is none', () => {
   const f = parseSessionFile(
-    JSON.stringify({ pid: 12738, sessionId: 'e7696d37-1df4', status: 'idle', name: ' BILLING1-709 ', nameSource: 'user', entrypoint: 'claude-desktop', statusUpdatedAt: 5 }),
+    JSON.stringify({ pid: 12738, sessionId: 'e7696d37-1df4', status: 'idle', name: ' BILLING1-709 ', nameSource: 'user', entrypoint: 'claude-desktop', cwd: '/work/billing', statusUpdatedAt: 5 }),
   )
-  expect(f).toEqual({ pid: 12738, sessionId: 'e7696d37-1df4', status: 'idle', name: 'BILLING1-709', isUserName: true, entry: 'app', hostId: null, statusAt: 5 })
+  expect(f).toEqual({ pid: 12738, sessionId: 'e7696d37-1df4', status: 'idle', name: 'BILLING1-709', isUserName: true, entry: 'app', hostId: null, cwd: '/work/billing', statusAt: 5 })
   expect(parseSessionFile(JSON.stringify({ pid: 1, sessionId: 'a', status: 'thinking', entrypoint: 'cli' }))).toMatchObject({ status: 'idle', entry: 'cli', name: null, statusAt: 0 })
   for (const text of ['{', 'null', '[]', '{"sessionId":"a"}', '{"pid":-1,"sessionId":"a"}', '{"pid":1,"sessionId":"../../etc"}']) expect(parseSessionFile(text), text).toBe(null)
+  // The folder goes on command lines when the jump looks for the session's tab: only an absolute one, on one line.
+  for (const cwd of ['work', '/a\nb', 7]) expect(parseSessionFile(JSON.stringify({ pid: 1, sessionId: 'a', cwd }))?.cwd, String(cwd)).toBe(null)
 })
 
 test('the title: the person’s own name, then the custom title, then the AI title, then the name; 30 characters at most', () => {
-  const f = (name: string | null, isUserName: boolean) => ({ pid: 1, sessionId: 'a', status: 'idle' as const, name, isUserName, entry: 'cli' as const, hostId: null, statusAt: 0 })
+  const f = (name: string | null, isUserName: boolean) => ({ pid: 1, sessionId: 'a', status: 'idle' as const, name, isUserName, entry: 'cli' as const, hostId: null, cwd: null, statusAt: 0 })
   const both = { custom: 'Custom', ai: 'AI' }
   expect(titleOf(f('Mine', true), both)).toBe('Mine')
   expect(titleOf(f('pd-billing-1d', false), both)).toBe('Custom')
@@ -72,12 +74,24 @@ test('a desktop session keeps the app’s id for its deep link; a terminal’s, 
   expect(jumpUrl('local_4c4432ad-2706')).toBe('claude://code/continue?session=local_4c4432ad-2706')
 })
 
-test('in the Sessions pane a desktop session’s row jumps to it; a terminal’s and this one’s do not', () => {
+test('in the Sessions pane every other session’s row jumps to it, a terminal’s too; this one’s does not', () => {
   const app = { ...info('app', 'waiting', NOW), entry: 'app' as const, hostId: 'local_app' }
   const me = { ...info('me', 'busy', NOW), entry: 'app' as const, hostId: 'local_me' }
   const g = sessionsPaneGrid(grouped([app, info('cli', 'busy', NOW), me], 'me', NOW), NOW, 60, false)
   const jumps = g.hits.filter(h => h.id.startsWith('session:'))
-  expect([...new Set(jumps.map(h => h.id))]).toEqual(['session:local_app'])
+  expect([...new Set(jumps.map(h => h.id))]).toEqual(['session:app', 'session:cli'])
   // The whole row: the dot, the title, where it runs and how long ago.
-  expect(jumps).toHaveLength(4)
+  expect(jumps.filter(h => h.id === 'session:cli')).toHaveLength(4)
+})
+
+test('in a pane too narrow for a title, the cut title still jumps: every cell of the row is pressable', () => {
+  const app = { ...info('app', 'idle', NOW - 60_000), title: 'Job app tracker workflow evaluation', entry: 'app' as const, hostId: 'local_app' }
+  const g = sessionsPaneGrid(grouped([app], 'me', NOW), NOW, 30, false)
+  const y = g.rows.findIndex(r => r.map(x => x.text).join('').includes('Job app'))
+  const text = g.rows[y]!.map(x => x.text).join('')
+  expect(text).toContain('…')
+  // Each cell from the dot to the age is under the jump, the cut title included.
+  const covered = new Set(g.hits.filter(h => h.y === y && h.id === 'session:app').flatMap(h => Array.from({ length: h.x1 - h.x0 }, (_, i) => h.x0 + i)))
+  const title = text.indexOf('Job app')
+  expect([title, title + 5, text.indexOf('…')].every(x => covered.has(x))).toBe(true)
 })

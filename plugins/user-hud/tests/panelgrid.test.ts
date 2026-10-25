@@ -20,6 +20,7 @@ const session = (title: string, status: SessionInfo['status'], minutesAgo: numbe
   title,
   entry,
   hostId: entry === 'app' ? `local_${title.replace(/\W+/g, '-')}` : null,
+  cwd: null,
   statusAt: NOW - minutesAgo * 60_000,
 })
 

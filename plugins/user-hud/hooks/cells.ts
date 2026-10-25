@@ -99,7 +99,9 @@ export function line(width: number, left: readonly Piece[], right: readonly Piec
   const room = Math.max(0, width - rightWidth - (rightWidth > 0 && left.length > 0 ? gap : 0))
   const l = join(left)
   const leftRow = cut(l.row, room)
-  const leftSpans = l.spans.filter(s => s.x1 <= widthOf(leftRow))
+  // A piece the cut shortens keeps its action over what is left of it, so a clipped title still answers a press.
+  const kept = widthOf(leftRow)
+  const leftSpans = l.spans.filter(s => s.x0 < kept).map(s => ({ ...s, x1: Math.min(s.x1, kept) }))
   const row = [...leftRow]
   put(row, ' '.repeat(Math.max(0, width - widthOf(leftRow) - rightWidth)))
   const offset = widthOf(row)
