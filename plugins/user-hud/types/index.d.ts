@@ -72,7 +72,7 @@ export type HudState = {
 /** The open panel's cards, in their usual order. */
 export type CardId = 'sessions' | 'context' | 'model' | 'cache' | 'assume' | 'next'
 
-export type HudView = 'cards' | 'settings'
+export type HudView = 'cards' | 'settings' | 'modules'
 
 /** What a session's status file says it is doing. */
 export type SessionStatus = 'busy' | 'waiting' | 'idle'

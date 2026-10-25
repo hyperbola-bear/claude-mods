@@ -738,6 +738,26 @@ test('a load that runs no session.start (the desktop’s reload) still opens the
   await band.unmount()
 })
 
+test('a press in the settings or the modules reloads the plugin; the panel comes back on the same view, for this session only', async ($, on) => {
+  // The desktop's reload runs no session.start and starts the state afresh: the view comes from the store.
+  world(on, { panelOpen: true, panelView: { session: SELF_ID, view: 'modules' } })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 12, bodyColumns: 72 } })
+  expect((await linesOf(band))[0]).toMatch(/^── M O D U L E S/)
+  // s steps back to the settings, then to the cards.
+  await act(band, 'settings')
+  expect((await linesOf(band))[0]).toMatch(/^── S E T T I N G S/)
+  await act(band, 'settings')
+  expect((await linesOf(band)).some(l => l.startsWith('── M O D E L'))).toBe(true)
+  await band.unmount()
+})
+
+test('the view another session left in the store is not this one’s: the panel opens on its cards', async ($, on) => {
+  world(on, { panelOpen: true, panelView: { session: 'some-other-session', view: 'modules' } })
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 12, bodyColumns: 72 } })
+  expect((await linesOf(band)).some(l => l.startsWith('── M O D E L'))).toBe(true)
+  await band.unmount()
+})
+
 test('the corner tab opens and closes the panel, and /hud does the same', async ($, on) => {
   const w = world(on)
   await start($)
@@ -1477,16 +1497,60 @@ test('the Modules pane: each card with its switch and ▲ ▼, handoff in the bo
   await pane.unmount()
 })
 
-test('Settings opens the Modules pane; so does /hud modules', async ($, on) => {
+test('Settings → Modules switches and orders the modules in the panel itself, the same on both surfaces; /hud modules still opens the pane', async ($, on) => {
   const w = world(on)
   await start($)
-  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
-  await openPanel(band)
+  const drawn: string[] = []
+  for (const surface of SURFACES) {
+    // The desktop's 12 rows hold every module, its switch and its arrows, and the bottom bar.
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 12, bodyColumns: 72 } })
+    await openPanel(band)
+    await act(band, 'settings')
+    await act(band, 'set:modules')
+    const lines = await linesOf(band)
+    expect(lines.slice(0, 10)).toEqual([
+      expect.stringMatching(/^── M O D U L E S ─+$/),
+      expect.stringMatching(/^ 1 ● on {2}Model & effort .*▲ {3}▼ $/),
+      expect.stringMatching(/^ 2 ● on {2}Cache .*▲ {3}▼ $/),
+      expect.stringMatching(/^ 3 ● on {2}Context .*▲ {3}▼ $/),
+      expect.stringMatching(/^ 4 ● on {2}Sessions .*▲ {3}▼ $/),
+      expect.stringMatching(/^ 5 ● on {2}Guesses .*▲ {3}▼ $/),
+      expect.stringMatching(/^ 6 ● on {2}Next steps .*▲ {3}▼ $/),
+      expect.stringMatching(/^ {3}● on {2}Handoff .*bottom bar$/),
+      expect.stringMatching(/^Click ▲ ▼ or a switch, or arrow to one and press Return\. *$/),
+      expect.stringMatching(/^⚙ s: Back +❖ user-hud ▾ $/),
+    ])
+    expect(lines.length).toBeLessThanOrEqual(12)
+    drawn.push(shape(await band.drawn()))
+    // s steps back to the settings, then to the cards.
+    await act(band, 'settings')
+    expect((await linesOf(band))[0]).toMatch(/^── S E T T I N G S/)
+    await act(band, 'settings')
+    expect((await linesOf(band)).some(l => l.startsWith('── M O D E L'))).toBe(true)
+    await band.unmount()
+  }
+  expect(drawn[1]).toBe(drawn[0])
+  // A press in the panel writes the same rows as the pane, and the modules stay on show.
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 12, bodyColumns: 72 } })
   await act(band, 'settings')
   await act(band, 'set:modules')
-  expect(w.opens).toEqual(['modules'])
+  await act(band, 'module:up:sessions')
+  expect(w.configSets.at(-1)).toEqual(['user-hud.moduleOrder', 'pickers, cache, sessions, tokens, assume, next'])
+  await act(band, 'module:toggle:handoff')
+  expect(w.configSets.at(-1)).toEqual(['user-hud.handoffModule', false])
+  await band.redraw()
+  const after = await linesOf(band)
+  expect(after[0]).toMatch(/^── M O D U L E S ─+ d: usual order ─$/)
+  expect(after[3]).toMatch(/^ 3 ● on {2}Sessions /)
+  expect(after[7]).toMatch(/^ {3}○ off Handoff /)
+  expect((await cellsOf(band))?.keys).toMatchObject({ s: 'settings', d: 'modules:default' })
+  await act(band, 'modules:default')
+  expect(w.configSets.at(-1)).toEqual(['user-hud.moduleOrder', ''])
+  // The settings never open the pane; /hud modules does.
+  expect(w.opens).toEqual([])
   await $.command.run({ command: 'hud', args: 'modules', ...RUN })
-  expect(w.opens).toEqual(['modules', 'modules'])
+  expect(w.opens).toEqual(['modules'])
+  await act(band, 'settings')
   await act(band, 'settings')
   await act(band, 'panel')
 })
@@ -1936,5 +2000,9 @@ test('with the assume module off, no tool is registered and the system prompt sa
   const composed = await $.prompt.compose({ ...COMPOSE, tools: ['Read', ASSUME] })
   expect(composed.sections.map(s => s.id)).toEqual(['intro'])
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  expect(await shows(band, 'to check')).toBe(false)
+  // Switched off mid-session, the tool registered while it was on still answers, and says to carry on.
+  const called = await $.tool.call({ tool: ASSUME, guesses: ['The panel stays on the modules'] } as never)
+  expect(JSON.stringify(called)).toContain('switched off')
   expect(await shows(band, 'to check')).toBe(false)
 })

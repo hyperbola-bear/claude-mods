@@ -20,7 +20,7 @@ The panel is seven modules, each on by default:
 
 Turn a module off and it leaves the panel and the closed row, its commands are not registered, and none of its work runs: with `cache` off nothing counts down, alerts or pings; with `tokens` off nothing is counted; with `next` off no reply asks for suggestions; with `sessions` off no session file is read; and with `assume` off Claude is not given the tool. Turn every module off and the band draws nothing.
 
-- The **Modules** pane lists every module in the order of their cards, each with its switch (`● on` / `○ off`) and `▲ ▼` to move its card a place up or down. Click them, or click into the pane and use the arrow keys and Return; the focus stays on a module as it moves. Once the order differs from the usual one, **d: usual order** puts it back. Handoff has no card (its buttons sit in the bottom bar), so it has a switch and no arrows. Every press writes the same `/config` rows as below. `/hud modules`, `/hud order`, and **Modules** behind `s` open it.
+- The **Modules** pane lists every module in the order of their cards, each with its switch (`● on` / `○ off`) and `▲ ▼` to move its card a place up or down. Click them, or click into the pane and use the arrow keys and Return; the focus stays on a module as it moves. Once the order differs from the usual one, **d: usual order** puts it back. Handoff has no card (its buttons sit in the bottom bar), so it has a switch and no arrows. Every press writes the same `/config` rows as below. `/hud modules` and `/hud order` open it as a pane. **Settings → Modules** (`s`, then the Modules row) shows the same rows in the panel itself, in place of the settings, with **⚙ s: Back** to return; on a band too short for them, the switches fold into one pill each.
 
 ```
 ── M O D U L E S ───────────────────────────────────── d: usual order ─
@@ -76,7 +76,7 @@ Click the tab (or run `/hud`) and the panel opens above it, as cards. Open or cl
 
 - The cards are tiles of one size: one, two or three across, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. Every tile is as tall as the tallest, so the tiles in a row line up and each card keeps the same space whatever it holds, with blank rows where its content is short. The guesses and next steps cards stay on show when empty (`nothing to check`, `suggested after each reply`). They come left to right, then the next row, in this order unless you change it with `/hud order`, each only while its module is on: model and effort, cache, context, sessions, guesses, next steps.
 - Handoff is not a card: **✦ h: Write handoff** and **◆ r: Read** sit in the bottom bar, beside the settings. As the bar narrows, the note goes first, then the word `handoff`, then both buttons (`/handoff` and `/read-handoff` still work).
-- When the band is short (the desktop shows 12 rows), whole rows of tiles fold to one row a tile, from the last row up, until the rest fit in full. The model and effort pickers' row never folds while anything else can give way, and neither does the row of a card brought to the front (so guesses can still be marked). Folded rows sit one under another with no blank row between them, each led by its card's name in grey (`CACHE`, `CONTEXT`, `SESSIONS`, `GUESSES`), or by `? N to check` and `✦` when there is something to act on. Which rows fold depends only on the rows and the order, never on what the cards hold:
+- When the band is short (the desktop shows 12 rows), whole rows of tiles fold to one row a tile, from the last row up, until the rest fit in full. The model and effort pickers' row never folds while anything else can give way, and neither does the row of a card brought to the front (so guesses can still be marked). Folded rows sit one under another with no blank row between them, each led by its card's name in grey (`MODEL`, `CACHE`, `CONTEXT`, `SESSIONS`, `GUESSES`, `NEXT STEPS`). The folded context row opens the Tokens pane wherever you click it, the total included, and keeps `t: details` while it fits. Which rows fold depends only on the rows and the order, never on what the cards hold:
 
 ```
 ── M O D E L   ·   E F F O R T ──────────────────  ── C A C H E ────────────────────────────────────
@@ -85,8 +85,8 @@ Click the tab (or run `/hud`) and the panel opens above it, as cards. Open or cl
   Low   Medium   High    XHigh    Max    Ultra
 ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔ ███████ ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔
 
-CONTEXT ▕███▍      ▏ 34%                     1.2M  SESSIONS                        ●1 ●2 ✓3 1 asleep
-? 4 to check                            a: review  ✦ 1: Run the tests                            2 3
+CONTEXT ▕███▍      ▏ 34%          1.2M t: details  SESSIONS                        ●1 ●2 ✓3 1 asleep
+GUESSES ? 4 to check                    a: review  NEXT STEPS ✦ 1: Run the tests                 2 3
 ⚙ s: Settings   ✦ h: Write handoff   ◆ r: Read   newest · 2h ago                       ❖ user-hud ▾
 ```
 
@@ -106,7 +106,7 @@ CONTEXT ▕███▍      ▏ 34%                     1.2M  SESSIONS         
 - **Model** runs `/model haiku|sonnet|opus|fable`. Switching models starts the prompt cache over, and the countdown says so.
 - **Effort** runs `/effort <level>`. The highlight follows the effort your requests actually carry, so a level the model caps shows the one in use. It shows once the first request has gone out.
 - **Ultracode** runs `/effort ultracode on`: the effort level stays and Claude may run multi-agent workflows. Picking a level turns it off again, as `/effort <level>` does. It needs dynamic workflows on (see `/config`); where they are off the picker stays on the level and a toast says why. `/effort` typed at the prompt moves the picker too.
-- **Settings** write the same rows as `/config`, so the two never disagree. A row your organization's policy owns stays put, with a toast saying why. **Modules** opens the Modules pane. The other settings (show the band, automatic pings per idle stretch, handoff note location) stay in `/config`.
+- **Settings** write the same rows as `/config`, so the two never disagree. A row your organization's policy owns stays put, with a toast saying why. **Modules** shows the modules in place of the settings: each one's switch and its card's `▲ ▼`. The other settings (show the band, automatic pings per idle stretch, handoff note location) stay in `/config`.
 - The whole band, the closed row and the open panel, is one grid of cells the plugin lays out itself and paints in a `Client` region, and so are its panes: no native buttons and no text in the app's own font, so the terminal and Claude Desktop draw the same cells (the tests require the two drawings identical). Click any button in it; or click into it, then use its hotkeys, or the arrow keys and Return. VS Code and mobile, which draw no `Client`, get the same rows as text with plain buttons beneath.
 - When the band is narrow, for example beside a pane docked in the terminal, the cards stack in one column, the section titles lose their letter spacing, and the closed row sheds its pieces as above. A row that still does not fit is cut on the right, ending in `…`; the band never runs off its left edge.
 - To put the panel away, use the tab. The `[-]` (× on the desktop) at the band's right end is Claude Code's own control for collapsing the whole band; a plugin cannot remove it.
