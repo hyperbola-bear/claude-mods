@@ -1366,7 +1366,7 @@ test('with the cache module off nothing counts down, alerts or pings', { options
   expect(await shows(band, /C A C H E|keep warm/i)).toBe(false)
   // The pickers' style is the one setting left.
   await act(band, 'settings')
-  expect((await cellsOf(band))?.hits.filter(h => h.id.startsWith('set:')).map(h => h.id)).toEqual(['set:selectorStyle'])
+  expect((await cellsOf(band))?.hits.filter(h => h.id.startsWith('set:')).map(h => h.id)).toEqual(['set:selectorStyle', 'set:modules'])
 })
 
 test('/hud modules lists the modules and /hud <module> on|off writes its /config row', { options: { tokensModule: false } }, async ($, on) => {
@@ -1374,7 +1374,7 @@ test('/hud modules lists the modules and /hud <module> on|off writes its /config
   await start($)
   const hud = (args: string) => $.command.run({ command: 'hud', args, ...RUN })
   expect((await hud('modules')).text).toMatch(
-    /^● on {3}pickers .*\n● on {3}cache .*\n○ off {2}tokens .*\n● on {3}sessions .*\n● on {3}assume .*\n● on {3}next .*\n● on {3}handoff .*\nSwitch one with \/hud <module> on\|off, and reorder them with \/hud order <modules…>, or in \/config\.$/,
+    /^● on {3}pickers .*\n● on {3}cache .*\n○ off {2}tokens .*\n● on {3}sessions .*\n● on {3}assume .*\n● on {3}next .*\n● on {3}handoff .*\nSwitch or move them in the Modules pane, or with \/hud <module> on\|off and \/hud order <modules…>\.$/,
   )
   expect((await hud('sessions off')).text).toBe('The sessions module is off.')
   expect(w.configSets.at(-1)).toEqual(['user-hud.sessionsModule', false])
@@ -1407,6 +1407,66 @@ test('/hud order shows the cards’ order and sets it; the modules left out foll
   const order = ['N E X T', 'S E S S I O N S', 'M O D E L', 'C A C H E', 'C O N T E X T', 'C H E C K']
   const titles = (await linesOf(band)).filter(l => l.startsWith('── ')).map(l => order.find(t => l.startsWith(`── ${t}`)))
   expect(titles).toEqual(order)
+  await act(band, 'panel')
+})
+
+test('the Modules pane: each card with its switch and ▲ ▼, handoff in the bottom bar; a press writes /config, the same on both surfaces', async ($, on) => {
+  const w = world(on)
+  await start($)
+  expect((await $.command.run({ command: 'hud', args: 'order', ...RUN })).text).toMatch(/^Cards top to bottom: /)
+  expect(w.opens).toContain('modules')
+  const drawn: string[] = []
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'modules', props: { ...PANE_PROPS, title: 'Modules', bodyColumns: 72 } })
+    expect(await pane.findAll({ type: 'Button' })).toEqual([])
+    expect(await linesOf(pane, 'modules')).toEqual([
+      expect.stringMatching(/^── M O D U L E S ─+$/),
+      expect.stringMatching(/^ 1 ● on {2}Model & effort model and effort pickers +▲ {3}▼ $/),
+      expect.stringMatching(/^ 2 ● on {2}Cache +cache countdown.* +▲ {3}▼ $/),
+      expect.stringMatching(/^ 3 ● on {2}Context +where the tokens go +▲ {3}▼ $/),
+      expect.stringMatching(/^ 4 ● on {2}Sessions +your other sessions.* +▲ {3}▼ $/),
+      expect.stringMatching(/^ 5 ● on {2}Guesses +the guesses Claude makes.* +▲ {3}▼ $/),
+      expect.stringMatching(/^ 6 ● on {2}Next steps +follow-up prompts.* +▲ {3}▼ $/),
+      expect.stringMatching(/^ {3}● on {2}Handoff +write and read handoff notes +bottom bar$/),
+      expect.stringMatching(/^Click ▲ ▼ or a switch, or arrow to one and press Return\. *$/),
+    ])
+    // The first card cannot go up, nor the last down.
+    const ids = (await cellsOf(pane, 'modules'))!.hits.map(h => h.id)
+    expect(ids).not.toContain('module:up:pickers')
+    expect(ids).not.toContain('module:down:next')
+    drawn.push(shape(await pane.drawn({ in: 'modules' })))
+    await pane.unmount()
+  }
+  expect(drawn[1]).toBe(drawn[0])
+  const pane = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'Pane', requestId: 'modules', props: { ...PANE_PROPS, title: 'Modules', bodyColumns: 72 } })
+  await act(pane, 'module:up:sessions', 'modules')
+  await pane.redraw()
+  expect(w.configSets.at(-1)).toEqual(['user-hud.moduleOrder', 'pickers, cache, sessions, tokens, assume, next'])
+  expect((await linesOf(pane, 'modules'))[3]).toMatch(/^ 3 ● on {2}Sessions /)
+  // Moved, the pane offers the usual order back, on d too.
+  expect((await cellsOf(pane, 'modules'))?.keys).toEqual({ d: 'modules:default' })
+  await act(pane, 'module:toggle:tokens', 'modules')
+  await pane.redraw()
+  expect(w.configSets.at(-1)).toEqual(['user-hud.tokensModule', false])
+  expect((await linesOf(pane, 'modules'))[4]).toMatch(/^ 4 ○ off Context /)
+  await act(pane, 'modules:default', 'modules')
+  await pane.redraw()
+  expect(w.configSets.at(-1)).toEqual(['user-hud.moduleOrder', ''])
+  expect((await linesOf(pane, 'modules'))[0]).toMatch(/^── M O D U L E S ─+$/)
+  await pane.unmount()
+})
+
+test('Settings opens the Modules pane; so does /hud modules', async ($, on) => {
+  const w = world(on)
+  await start($)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await openPanel(band)
+  await act(band, 'settings')
+  await act(band, 'set:modules')
+  expect(w.opens).toEqual(['modules'])
+  await $.command.run({ command: 'hud', args: 'modules', ...RUN })
+  expect(w.opens).toEqual(['modules', 'modules'])
+  await act(band, 'settings')
   await act(band, 'panel')
 })
 

@@ -90,15 +90,28 @@ export function parseHudArgs(args: string): HudArgs {
   return { kind: 'unknown' }
 }
 
+/** The modules that draw a card, in the panel's order: the ones the Modules pane moves. */
+export const cardOrder = (order: readonly ModuleId[]): ModuleId[] => order.filter(id => MODULE_CARD[id] !== null)
+
+/** The cards' order with `id` moved one place up (-1) or down (1); at either end it stays. */
+export function moved(order: readonly ModuleId[], id: ModuleId, by: -1 | 1): ModuleId[] {
+  const cards = cardOrder(order)
+  const i = cards.indexOf(id)
+  const j = i + by
+  if (i < 0 || j < 0 || j >= cards.length) return cards
+  ;[cards[i], cards[j]] = [cards[j]!, cards[i]!]
+  return cards
+}
+
 /** `/hud modules`: one line per module in the panel's order, on or off, then how to switch or move one. */
 export function modulesText(modules: Modules, order: readonly ModuleId[] = DEFAULT_ORDER): string {
   const lines = order.map(id => MODULES.find(m => m.id === id)!).map(m => `${modules[m.id] ? '● on ' : '○ off'}  ${m.id.padEnd(8)} ${m.desc}`)
-  return [...lines, 'Switch one with /hud <module> on|off, and reorder them with /hud order <modules…>, or in /config.'].join('\n')
+  return [...lines, 'Switch or move them in the Modules pane, or with /hud <module> on|off and /hud order <modules…>.'].join('\n')
 }
 
 /** `/hud order`: the cards' order as it stands, and how to change it. */
 export function orderText(order: readonly ModuleId[]): string {
-  return `Cards top to bottom: ${order.join(', ')}. Change it with /hud order <modules…>; the ones you leave out follow in their usual order.`
+  return `Cards top to bottom: ${order.join(', ')}. Move them in the Modules pane, or with /hud order <modules…>; the ones you leave out follow in their usual order.`
 }
 
 /** Seconds of cache life left when the alert fires: what the Alert at pill cycles through. */

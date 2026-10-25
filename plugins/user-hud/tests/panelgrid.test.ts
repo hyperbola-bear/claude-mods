@@ -8,6 +8,8 @@ import { CARD_ORDER, bandGrid, cardLayout, cardsOf } from '../hooks/panelgrid.ts
 import type { BandView } from '../hooks/panelgrid.ts'
 import { EFFORT_COLORS, EFFORT_SHORT_LABELS, EFFORT_STEPS, MODEL_COLORS } from '../hooks/selector.ts'
 import { grouped } from '../hooks/sessions.ts'
+import { DEFAULT_ORDER, moved } from '../hooks/hud.ts'
+import { modulesPaneGrid } from '../hooks/modulesview.ts'
 
 const NOW = Date.parse('2026-10-22T09:00:00Z')
 
@@ -382,3 +384,22 @@ test('wide: the cards go side by side in fewer rows than one column, every actio
   expect(wide.keys).toEqual(one.keys)
 })
 
+
+test('a card moves one place at a time and stays put at either end; handoff, with no card, is not among them', () => {
+  expect(moved(DEFAULT_ORDER, 'sessions', -1)).toEqual(['pickers', 'cache', 'sessions', 'tokens', 'assume', 'next'])
+  expect(moved(DEFAULT_ORDER, 'pickers', -1)).toEqual(['pickers', 'cache', 'tokens', 'sessions', 'assume', 'next'])
+  expect(moved(DEFAULT_ORDER, 'next', 1)).toEqual(['pickers', 'cache', 'tokens', 'sessions', 'assume', 'next'])
+  expect(moved(DEFAULT_ORDER, 'handoff', -1)).toEqual(['pickers', 'cache', 'tokens', 'sessions', 'assume', 'next'])
+})
+
+test('the Modules pane fits any width: narrow, the descriptions go and the switches and arrows stay', () => {
+  const modules = { cache: true, pickers: true, tokens: false, handoff: true, next: true, sessions: true, assume: true }
+  for (const width of [24, 40, 55, 56, 80, 140]) {
+    const g = modulesPaneGrid(modules, DEFAULT_ORDER, width)
+    for (const [y, row] of plain(g).entries()) expect(row.length, `${width}: row ${y}`).toBeLessThanOrEqual(width)
+    for (const h of g.hits) expect(h.x1, `${width}: ${h.id}`).toBeLessThanOrEqual(width)
+    expect(g.hits.filter(h => h.id.startsWith('module:toggle:'))).toHaveLength(7)
+    expect(g.hits.filter(h => h.id.startsWith('module:up:') || h.id.startsWith('module:down:'))).toHaveLength(10)
+    expect(plain(g)[1]!.includes('model and effort pickers')).toBe(width >= 56)
+  }
+})

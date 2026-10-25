@@ -95,7 +95,8 @@ import {
 } from './cache.ts'
 import type { Level } from './cache.ts'
 import { HANDOFF_DIRS, age, handoffPrompt, handoffTarget, isHandoffName, joinPath, newest, resumePrompt } from './handoff.ts'
-import { MODELS, MODULES, MODULE_CARD, asEffort, lifeBar, modelAlias, modelLabel, modulesFrom, modulesText, nextWarn, orderFrom, orderText, parseHudArgs, pieOf } from './hud.ts'
+import { MODELS, MODULES, MODULE_CARD, asEffort, lifeBar, modelAlias, modelLabel, modulesFrom, modulesText, moved, nextWarn, orderFrom, orderText, parseHudArgs, pieOf } from './hud.ts'
+import { modulesPaneGrid } from './modulesview.ts'
 import type { ModuleId, Modules } from './hud.ts'
 import { EFFORT_COLORS, EFFORT_SHORT_LABELS, EFFORT_STEPS, MODEL_COLORS, SELECTOR_STYLES, asStyle, effortStep, nextStyle, parseEffortArgs, spread, styleLabel, ultracodeTook } from './selector.ts'
 import type { EffortStep } from './selector.ts'
@@ -141,6 +142,7 @@ const HANDOFF_PANE = 'handoff'
 const TOKENS_PANE = 'tokens'
 const STYLES_PANE = 'styles'
 const SESSIONS_PANE = 'sessions'
+const MODULES_PANE = 'modules'
 /** The width the styles pane asks for: Rail's and Meter's columns, beside the field names. */
 const STYLES_PANE_COLUMNS = 76
 const SESSIONS_EVERY_MS = 5_000
@@ -466,13 +468,15 @@ function keepWarmLine(c: CacheState): string {
 function settingsView(c: CacheState): Setting[] {
   const warnSeconds = Math.round(cfg.warnMs / 1000)
   const style: Setting = { key: 'selectorStyle', label: 'Picker style', desc: 'Rail, Ladder or Meter', kind: 'choice', isOn: false, value: styleLabel(cfg.selectorStyle) }
-  if (!cfg.modules.cache) return cfg.modules.pickers ? [style] : []
+  const modules: Setting = { key: 'modules', label: 'Modules', desc: 'turn them on or off, order the cards', kind: 'choice', isOn: false, value: 'Arrange' }
+  if (!cfg.modules.cache) return [...(cfg.modules.pickers ? [style] : []), modules]
   return [
     { key: 'autoKeepWarm', label: 'Auto keep-warm', desc: keepWarmDesc(c), kind: 'toggle', isOn: cfg.autoKeepWarm, value: '' },
     { key: 'sound', label: 'Alert sound', desc: 'Glass at the warning', kind: 'toggle', isOn: cfg.sound, value: '' },
     { key: 'notifyMac', label: 'Mac alert', desc: `Keep warm button, closes in ${cfg.alertSeconds}s`, kind: 'toggle', isOn: cfg.notifyMac, value: '' },
     { key: 'warnSeconds', label: 'Alert at', desc: 'time left when the alert fires', kind: 'choice', isOn: false, value: fmtClock(warnSeconds * 1000) },
     ...(cfg.modules.pickers ? [style] : []),
+    modules,
   ]
 }
 
@@ -480,6 +484,7 @@ function settingsView(c: CacheState): Setting[] {
 async function pressSetting($: EngineInterface, key: string) {
   if (key === 'warnSeconds') return setOption($, 'warnSeconds', nextWarn(Math.round(cfg.warnMs / 1000)))
   if (key === 'selectorStyle') return cycleStyle($)
+  if (key === 'modules') return openModulesPane($)
   const toggles: Record<string, boolean> = { autoKeepWarm: cfg.autoKeepWarm, sound: cfg.sound, notifyMac: cfg.notifyMac }
   const isOn = toggles[key]
   if (isOn !== undefined) await setOption($, key, !isOn)
@@ -517,6 +522,10 @@ async function runAction($: EngineInterface, action: unknown) {
   if (action === 'sessions:close') return void (await $.ui.close({ id: SESSIONS_PANE }).catch(() => {}))
   if (action === 'sessions:asleep') return update($, asleepA, isShown => !isShown)
   if (action.startsWith('session:')) return jumpToSession($, action.slice('session:'.length))
+  if (action === 'modules:default') return setOption($, 'moduleOrder', '')
+  const mod = /^module:(toggle|up|down):(\w+)$/.exec(action)
+  const id = MODULES.find(m => m.id === mod?.[2])?.id
+  if (mod && id) return mod[1] === 'toggle' ? void (await setModule($, id, !cfg.modules[id])) : setOption($, 'moduleOrder', moved(cfg.order, id, mod[1] === 'up' ? -1 : 1).join(', '))
   if (action === 'assume:review') return reviewGuesses($)
   if (action.startsWith('assume:right:')) return update($, guessesA, gs => marked(gs, action.slice('assume:right:'.length), 'right'))
   if (action.startsWith('assume:wrong:')) return correctGuess($, action.slice('assume:wrong:'.length))
@@ -761,6 +770,10 @@ async function pickNext($: EngineInterface, index: number) {
 }
 
 /** `/hud <module> on|off`: writes the module's /config row; the reload that follows registers its commands and work. */
+async function openModulesPane($: EngineInterface) {
+  await $.ui.open({ id: MODULES_PANE, title: 'Modules' }).catch(() => {})
+}
+
 async function setModule($: EngineInterface, id: ModuleId, isOn: boolean): Promise<string> {
   if (cfg.modules[id] === isOn) return `The ${id} module is already ${isOn ? 'on' : 'off'}.`
   const key = MODULES.find(m => m.id === id)!.key
@@ -1173,10 +1186,14 @@ export const register: Register = (on, given) => {
 
   on('command.run', { command: 'hud' }, async ($, e) => {
     const args = parseHudArgs(e.args)
-    if (args.kind === 'list') return { text: modulesText(cfg.modules, cfg.order) }
+    if (args.kind === 'list') {
+      await openModulesPane($)
+      return { text: modulesText(cfg.modules, cfg.order) }
+    }
     if (args.kind === 'badOrder') return { text: `No module called ${args.unknown.join(', ')}. The modules: ${MODULES.map(m => m.id).join(', ')}.` }
     if (args.kind === 'order') {
       if (args.ids) await setOption($, 'moduleOrder', args.ids.join(', '))
+      else await openModulesPane($)
       return { text: orderText(cfg.order) }
     }
     if (args.kind === 'set') return { text: await setModule($, args.id, args.isOn) }
@@ -1310,6 +1327,14 @@ export const register: Register = (on, given) => {
     const width = Math.max(20, e.props.bodyColumns)
     const grid = sessionsPaneGrid(await read($, sessionsA), await $.clock.now(), width, await read($, asleepA))
     return cellsElement(ui, e.surface, 'sessions', clipped(grid, width), a => void runAction($, a))
+  })
+
+  // ---------- modules pane ----------
+
+  on('ui.render', { component: 'Pane', requestId: MODULES_PANE }, async ($, e) => {
+    const ui: Ui = $.ui.resolve(e)
+    const width = Math.max(20, e.props.bodyColumns)
+    return cellsElement(ui, e.surface, 'modules', clipped(modulesPaneGrid(cfg.modules, cfg.order, width), width), a => void runAction($, a))
   })
 
   // ---------- handoff pane ----------

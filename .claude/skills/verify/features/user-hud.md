@@ -13,6 +13,7 @@ A control panel above the prompt. Closed, it is one row at the right edge that s
 - `hud-battery` draws the context as ten cells, green to 50%, yellow to 75%, red beyond.
 - `hud-sessions` counts and lists other sessions, and the Sessions pane lists them all (`e`, `z`).
 - `hud-session-jump`: pressing a desktop session's row, on the card or in the Sessions pane, brings the Claude desktop app forward on that session; a terminal session's row does nothing.
+- `hud-modules`: the Modules pane switches each module and moves its card a place at a time (`/hud modules`, `/hud order`, Settings → Modules; `d` for the usual order).
 - `hud-guesses` shows the guesses Claude reports through its `assumption` tool; `✓` clears one, `✗` fills the prompt box.
 - `hud-pickers` runs `/model` and `/effort` from the model card; `/hud-styles` draws Rail, Ladder and Meter.
 - `hud-modules` switches each module with `/hud <module> on|off`.
@@ -43,6 +44,7 @@ Preconditions:
 - **Sessions pane.** With the band focused, run `tui.sh keys hud e`. A pane titled `Sessions` lists NEEDS YOU, WORKING, DONE, ASLEEP and THIS SESSION, each title at most 30 characters.
 - **Jump to a session.** In the Sessions pane, arrow to a row marked `app` and press Return (or click it). The desktop app comes forward on that session: `get_window_layout` names its `local_…` id in the focused pane. Switch back with `open "claude://code/continue?session=<this session's local_ id>"`.
 - **Guesses.** Send a prompt that forces a choice, such as `tui.sh type hud "rename the main branch to trunk in a repo you pick"`. If Claude calls the `assumption` tool, the closed row shows `? N to check` and the card lists the guesses. Press `✗` on one (click its cells, or arrow to it and Return): the prompt box holds `Not quite: "<guess>". `. Clear the box before the next step.
+- **Modules pane.** Run `tui.sh type hud "/hud modules"`. A pane titled `Modules` lists the six cards numbered 1 to 6, each with `● on` and `▲   ▼`, then Handoff with `bottom bar`. Click `▲` on Sessions: it becomes 3, the header gains `d: usual order`, and the open panel's cards follow. Click `● on` on Context: it reads `○ off` and the CONTEXT card leaves the panel. Press `d`, and `/hud tokens on`, to put both back. This writes `user-hud.moduleOrder` and `user-hud.tokensModule`, so snapshot `~/.claude/settings.json` first.
 - **Order.** Run `tui.sh type hud "/hud order next sessions"`. It answers `Cards top to bottom: next, sessions, pickers, …`, and the open panel's first card is `── N E X T   S T E P S`. Put it back with `/hud order pickers`.
 - **Module off.** Run `tui.sh type hud "/hud sessions off"`, then sweep. The sessions card and the session pieces of the closed row are gone. Turn it back on with `/hud sessions on`.
 - **Proof.** Keep the sweep captures. For the mark and the battery, keep the `.ansi` files, which carry the colours.
