@@ -28,6 +28,7 @@ A side chat in a pane beside Claude Code's transcript. It reads the main chat, s
 | `/ask` | open the pane |
 | `/ask how is auth wired?` | open it and ask |
 | `/draw the request flow` | ask for a diagram first, then a few sentences |
+| `/ask-rewind` | take back the newest question and answer, keeping the rest |
 | Enter (in the field) | ask; the focus moves to the question's `❯`, so the keys scroll |
 | ↑ ↓ PgUp PgDn, the wheel | scroll the answers |
 | `i` | back to the field |
@@ -37,16 +38,19 @@ A side chat in a pane beside Claude Code's transcript. It reads the main chat, s
 | `❯` (Enter or click on it) | copy that answer |
 | `c` | copy the newest answer |
 | `o` | open the newest answer's diagrams full size in the browser |
+| `r` | take back the newest question and answer, as `/ask-rewind` does |
 | `x` | clear the pane |
 | Esc, ctrl+x tab | back to the chat, and back to the pane |
 
 A question that starts with "draw", "diagram", "sketch", "visualize" or "chart" asks for a picture too.
 
+Rewinding removes one exchange at a time, newest first, and later questions no longer carry it. A question still being answered can be taken back too: its answer is dropped, though the model call still runs. An exchange you already sent leaves the pane but stays in the main chat. The name is `/ask-rewind` because Claude Code's own `/rewind` restores the main chat and your code, and the pane leaves it alone.
+
 ## The main chat's context
 
 - **Main chat → pane, always.** Each question is answered by a fork of the main chat (`$.model.fork`): the same model, system prompt and transcript, tool calls and results included, served from the main chat's prompt cache. The fork can't run tools. Before the session's first turn there is nothing to fork, so a plain completion over the transcript text answers instead, marked `live`.
 - **Pane → main chat, only when you send it.** Side questions don't add to the main chat's context. To share one, press `s` (the newest answer) or `→ send to chat` under any answer. It's added as a note Claude reads on its next step, marked as context you chose to share and not a request; the transcript shows a line saying what was sent, and the answer's footer says `sent to the chat`. Sent during a turn, Claude picks it up on that turn's next step.
-- **The pane's own history.** So that follow-up questions work, each fork also carries the pane's recent questions and answers that the main chat doesn't have. A sent exchange stops being carried once a main turn that started after it has ended.
+- **The pane's own history.** So that follow-up questions work, each fork also carries the pane's recent questions and answers that the main chat doesn't have. A sent exchange stops being carried once a main turn that started after it has ended, and a rewound one stops at once.
 
 ## Diagrams
 

@@ -98,9 +98,14 @@ export function sendNote(x: Pick<Exchange, 'q' | 'a'>): string {
   ].join('\n\n')
 }
 
+const shortened = (q: string): string => (q.length > 80 ? `${q.slice(0, 79)}…` : q)
+
 /** The dim line the transcript shows when an exchange is sent (the engine puts "ask:" before it); the model never reads it. */
-export const sentNotice = (x: Pick<Exchange, 'q'>): string =>
-  `sent "${x.q.length > 80 ? `${x.q.slice(0, 79)}…` : x.q}" and its answer to the chat as context`
+export const sentNotice = (x: Pick<Exchange, 'q'>): string => `sent "${shortened(x.q)}" and its answer to the chat as context`
+
+/** What the person is told when an exchange is taken back; one already sent stays in the main chat. */
+export const rewoundNotice = (x: Pick<Exchange, 'q' | 'sent'>): string =>
+  x.sent ? `Took back "${shortened(x.q)}" here; the main chat keeps it, as it was sent` : `Took back "${shortened(x.q)}" and its answer`
 
 export function footer(x: Exchange): string {
   const parts: string[] = [x.kind ?? 'error']

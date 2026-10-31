@@ -25,6 +25,8 @@ type World = {
   /** What the next forks answer, in turn; then `fork`. */
   replies: object[]
   fork: object
+  /** Holds the next fork's answer back until it resolves. */
+  gate: Promise<void> | null
   complete: object
   opens: string[]
   toasts: string[]
@@ -41,6 +43,7 @@ function world(on: On): World {
     completes: [],
     replies: [],
     fork: { isAnswered: true, text: DRAWN, usage: USAGE },
+    gate: null,
     complete: { isAnswered: true, text: 'live answer', usage: USAGE },
     opens: [],
     toasts: [],
@@ -56,9 +59,13 @@ function world(on: On): World {
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
-  on('model.fork', ($, e) => {
+  on('model.fork', async ($, e) => {
     w.forks.push(e.prompt)
-    return { value: (w.replies.shift() ?? w.fork) as never }
+    const value = (w.replies.shift() ?? w.fork) as never
+    const gate = w.gate
+    w.gate = null
+    await gate
+    return { value }
   })
   on('model.complete', ($, e) => {
     w.completes.push({ model: e.model, prompt: e.prompt })
@@ -282,6 +289,73 @@ test('o opens the newest diagrams full size in the browser; copy and clear act o
   await pane.press({ key: 'clear' })
   expect(await pane.find({ type: 'Text', text: /^Ask about this session/ })).toBeTruthy()
   expect(await pane.find({ type: 'Button', key: 'open' })).toBe(undefined)
+})
+
+const reply = (text: string) => ({ isAnswered: true, text, usage: USAGE })
+
+test('r takes back the newest question and answer, and only that: the next fork no longer carries it', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  await askCmd($, w, 'first question')
+  await askCmd($, w, 'second question')
+  const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE(60) })
+  expect((await pane.find({ type: 'Button', key: 'rewind' }))?.props.hotkey).toBe('r')
+
+  await pane.press({ key: 'rewind' })
+  await pane.redraw()
+  expect(await pane.find({ type: 'Text', text: 'second question' })).toBe(undefined)
+  expect(await pane.find({ type: 'Text', text: 'first question' })).toBeTruthy()
+  expect(w.toasts.at(-1)).toBe('Took back "second question" and its answer')
+
+  await askCmd($, w, 'third question')
+  expect(w.forks.at(-1)).toContain('Q: first question')
+  expect(w.forks.at(-1)).not.toContain('second question')
+})
+
+test('/ask-rewind steps back one exchange at a time, and says when nothing is left', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  await askCmd($, w, 'first question')
+  await askCmd($, w, 'second question')
+  const rewind = () => $.command.run({ command: 'ask-rewind', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect((await rewind()).text).toBe('Took back "second question" and its answer')
+  expect((await rewind()).text).toBe('Took back "first question" and its answer')
+  expect((await rewind()).text).toBe('Nothing to rewind')
+  const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE(60) })
+  expect(await pane.find({ type: 'Button', key: 'rewind' })).toBe(undefined)
+})
+
+test('an answer still coming when its question is taken back is dropped, and never lands on a newer question', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  w.replies = [reply('the old answer'), reply('the new answer')]
+  let release = () => {}
+  w.gate = new Promise(done => {
+    release = done
+  })
+  await askCmd($, w, 'taken back')
+  const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE(60) })
+  await pane.press({ key: 'rewind' })
+  await askCmd($, w, 'asked instead')
+  release()
+  await w.clock.settle()
+  await pane.redraw()
+  expect(await pane.find({ type: 'Text', text: 'taken back' })).toBe(undefined)
+  expect(await pane.find({ type: 'Markdown', text: 'the new answer' })).toBeTruthy()
+  expect(await pane.find({ type: 'Markdown', text: 'the old answer' })).toBe(undefined)
+})
+
+test('an exchange already sent leaves the pane, and the person is told the main chat keeps it', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  await askCmd($, w, 'shared question')
+  const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE(60) })
+  await pane.press({ key: 'send' })
+  await pane.press({ key: 'rewind' })
+  await pane.redraw()
+  expect(await pane.find({ type: 'Text', text: 'shared question' })).toBe(undefined)
+  expect(w.toasts.at(-1)).toBe('Took back "shared question" here; the main chat keeps it, as it was sent')
+  expect(shared(w)).toHaveLength(1)
 })
 
 test('/clear empties the pane', async ($, on) => {
