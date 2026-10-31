@@ -10,13 +10,15 @@ A side chat in a pane beside the transcript. It answers from a fork of the main 
 - `ask-scroll` scrolls long answers with the arrow and page keys.
 - `ask-send` sends an answer to the main chat (`s`, or `→ send to chat`), and only then.
 - `ask-copy` copies an answer (`❯` or `c`).
+- `ask-rewind` takes back the newest question and answer, one at a time, and keeps the rest (`/ask-rewind`, `r`).
 - `ask-clear` empties the pane (`x`).
 
 ## How to get to it (user POV)
 
 - Type `/ask` or `/ask <question>` at the prompt.
 - Type `/draw <subject>` at the prompt.
-- With the pane focused, press `i` for the field, `d`, `s`, `c`, `o`, `x`.
+- Type `/ask-rewind` at the prompt. `/rewind` is Claude Code's own command for the main chat, and the pane never touches it.
+- With the pane focused, press `i` for the field, `d`, `s`, `c`, `o`, `r`, `x`.
 
 ## Driving it with tui.sh
 
@@ -30,6 +32,8 @@ Preconditions:
 - **Diagram.** Run `tui.sh type ask "/draw the request flow"`. The answer starts with box-drawing characters (`┌`, `─`, `▼`) sized to the pane, none wider than it.
 - **Send.** Focus the pane and press `s` with `tui.sh keys ask s`. The transcript shows one line saying what was sent, and the answer's footer says `sent to the chat`.
 - **Not sent by default.** Ask a second question and don't press `s`. The main chat's next reply doesn't mention it.
+- **Rewind.** With two questions in the pane, run `tui.sh type ask "/ask-rewind"`. The transcript says `Took back "<second question>" and its answer`, the header reads `1 question`, and the first question stays. Then ask `what was my last question in this pane?`: the answer names the first question, not the one taken back.
+- **Rewind keeps the focus.** Focus the pane on its question's `❯` and run `tui.sh keys ask r`, then type a word with `tmux send-keys -l`. The word lands in the pane's field, not in the main prompt. Check both with one question left and with two.
 - **Width.** Run `tui.sh sweep ask pane 100 140 180`. The diagram redraws at each width and no row exceeds the pane.
 - **Proof.** `tui.sh shot ask answer` after the diagram, and the same view on the desktop as a screenshot.
 

@@ -3,8 +3,11 @@
  * pictures when they explain better.
  *
  * `/ask [question]` opens the pane (a tab once other panes are open) and asks;
- * `/draw <thing>` asks for a diagram. In the pane, Enter asks, `d` turns draw
- * mode on for every question, and the answers scroll: the newest one is
+ * `/draw <thing>` asks for a diagram; `/ask-rewind` (`r` in the pane) takes
+ * back the newest question and answer. Claude Code ships `/rewind`, which
+ * restores the main chat and code, so that name stays its own. In the pane,
+ * Enter asks, `d` turns draw mode on for every question, and the answers
+ * scroll: the newest one is
  * brought into view from its question down, and once a question is sent the
  * focus leaves the field for the question's ❯ mark (press it to copy that
  * answer), so the arrows, PgUp and PgDn (and the wheel) move through the
@@ -40,6 +43,7 @@ import {
   footer,
   forkPrompt,
   livePrompt,
+  rewoundNotice,
   segments,
   sendNote,
   sentNotice,
@@ -61,6 +65,8 @@ let view: PaneView = { surface: 'terminal', columns: 60 }
 let sentBeforeTurn: number[] = []
 // Questions sent from the field: its key, so a new field starts empty.
 let asked = 0
+// The newest exchange's id. Never reused: an answer still coming must not land on a newer question.
+let lastId = 0
 // The element holding the pane's focus ring, as the last `ui.focus` landed it.
 let ring: string | undefined
 
@@ -142,7 +148,8 @@ async function ask($: EngineInterface, question: string, isDraw: boolean) {
   let earlier: Exchange[] = []
   await update($, exchanges, xs => {
     earlier = xs.filter(one => one.a !== null && one.kind !== 'error' && one.sent !== 'seen').slice(-8)
-    made = { id: Math.max(0, ...xs.map(one => one.id)) + 1, q, a: null, isDraw: draw, askedAt }
+    lastId = Math.max(lastId, ...xs.map(one => one.id)) + 1
+    made = { id: lastId, q, a: null, isDraw: draw, askedAt }
     return [...xs, made].slice(-cfg.keep)
   })
   const x = made as Exchange | null
@@ -162,6 +169,22 @@ async function ask($: EngineInterface, question: string, isDraw: boolean) {
     await $.clock.sleep(FRAME_MS)
     await reveal($, x.id)
   }
+}
+
+/**
+ * Takes back the newest exchange, answered or not: it leaves the pane and what later questions carry. An
+ * answer still coming finds no exchange and is dropped. Says what it did.
+ */
+async function rewind($: EngineInterface): Promise<string> {
+  const xs = await read($, exchanges)
+  const x = xs.at(-1)
+  if (!x) return 'Nothing to rewind'
+  // The last exchange takes the buttons under the answers with it.
+  const isRingLeaving = xs.length === 1 || ring === questionKey(x.id) || ring === sendKey(x.id)
+  await update($, exchanges, all => all.filter(one => one.id !== x.id))
+  // An element removed with the ring on it takes the focus out of the pane, so it comes back once the redraw lands.
+  if (isRingLeaving) void $.clock.sleep(FRAME_MS).then(() => $.ui.focus({ requestId: PANE, key: fieldKey() })).catch(() => undefined)
+  return rewoundNotice(x)
 }
 
 /** The newest answer's diagrams in the browser, full size, drawn by Mermaid itself. */
@@ -197,6 +220,11 @@ export const register: Register = (on, options) => {
       argumentHint: '<what to draw>',
       immediate: true,
     })
+    await $.command.register({
+      name: 'ask-rewind',
+      description: 'Take back the newest question and answer in the ask pane, keeping the rest',
+      immediate: true,
+    })
     return next(e)
   })
 
@@ -211,6 +239,8 @@ export const register: Register = (on, options) => {
     void ask($, e.args.trim() === '' ? 'Draw what the main chat is working on right now.' : e.args, true)
     return {}
   })
+
+  on('command.run', { command: 'ask-rewind' }, async $ => ({ text: await rewind($) }))
 
   // A sent exchange is in the main chat's requests from the next turn on; once
   // that turn ends a fork holds it, so the pane stops carrying it in its prompt.
@@ -323,6 +353,7 @@ export const register: Register = (on, options) => {
             {canSend && <Button key="send" plain hotkey="s" label="send to chat" onPress={() => undefined} />}
             {xs.length > 0 && <Button key="copy" plain hotkey="c" label="copy" onPress={() => undefined} />}
             {hasDiagram && <Button key="open" plain hotkey="o" label="open full size" onPress={() => undefined} />}
+            {xs.length > 0 && <Button key="rewind" plain hotkey="r" label="rewind" onPress={() => undefined} />}
             {xs.length > 0 && <Button key="clear" plain hotkey="x" label="clear" onPress={() => undefined} />}
           </Box>
           {isTerminal && <Text dimColor>↑↓ PgUp PgDn scroll · Esc back to the chat · ctrl+x tab comes back</Text>}
@@ -384,6 +415,9 @@ export const register: Register = (on, options) => {
       }
       case 'open':
         await openDiagrams($)
+        break
+      case 'rewind':
+        $.ui.toast(await rewind($))
         break
       case 'clear':
         await update($, exchanges, () => [])

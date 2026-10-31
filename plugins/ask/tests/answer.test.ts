@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { asksForPicture, footer, forkPrompt, segments, sendNote, sentNotice, transcriptText } from '../hooks/answer.ts'
+import { asksForPicture, footer, forkPrompt, rewoundNotice, segments, sendNote, sentNotice, transcriptText } from '../hooks/answer.ts'
 import { boxArtSvg } from '../hooks/boxart.ts'
 import { diagramPage, drawAscii, drawSvg } from '../hooks/diagram.ts'
 import type { Exchange } from '../types'
@@ -55,6 +55,7 @@ test('an exchange the person sends reaches the main chat as shared context, and 
   expect(note).toContain(SEQUENCE)
   expect(sentNotice({ q: 'draw the cache flow' })).toBe('sent "draw the cache flow" and its answer to the chat as context')
   expect(sentNotice({ q: 'x'.repeat(100) })).toContain(`"${'x'.repeat(79)}…"`)
+  expect(rewoundNotice({ q: 'x'.repeat(100) })).toBe(`Took back "${'x'.repeat(79)}…" and its answer`)
 })
 
 test('the footer says where an answer came from, and whether it was sent to the chat', async () => {
