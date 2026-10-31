@@ -17,6 +17,11 @@ type World = {
   launched: Record<string, unknown>[]
   opens: string[]
   configSets: [string, unknown][]
+  /** The engine lists no /config rows for plugins, as a desktop session's does. */
+  noRows: boolean
+  /** What `claude plugin configure` answers with, and what it was given. */
+  configureExit: number
+  configured: { argv: readonly string[]; stdin: string | undefined }[]
   toasts: string[]
   clock: MockClock
 }
@@ -25,7 +30,7 @@ const RESOLVED: Record<string, string> = { haiku: 'claude-haiku-4-5', sonnet: 'c
 
 /** The world beneath the plugin: the dialog, the spawn itself, panes, config, toasts and the clock. */
 function world(on: On): World {
-  const w: World = { asked: [], replies: [], launched: [], opens: [], configSets: [], toasts: [], clock: mock.clock(on, { now: Date.parse('2026-10-12T06:00:00Z') }) }
+  const w: World = { asked: [], replies: [], launched: [], opens: [], configSets: [], noRows: false, configureExit: 0, configured: [], toasts: [], clock: mock.clock(on, { now: Date.parse('2026-10-12T06:00:00Z') }) }
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
@@ -40,7 +45,12 @@ function world(on: On): World {
     w.toasts.push(e.text)
     return { value: undefined }
   })
+  on('process.run', ($, e) => {
+    w.configured.push({ argv: e.argv, stdin: e.init?.stdin })
+    return { value: { exitCode: w.configureExit, stdout: '', stderr: w.configureExit === 0 ? '' : 'not installed', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('config.set', ($, e) => {
+    if (w.noRows) return { deny: `delegator: $.config.set: no /config row with key ${e.key} ($.config.list names them)` }
     w.configSets.push([e.key, e.value])
     return { value: e.value }
   })
@@ -240,6 +250,31 @@ test('off, agents launch without asking; the pane, /delegator and /config turn i
   expect(w.configSets.at(-1)).toEqual(['delegator.approveAgents', false])
   await spawn($, BUILDER)
   expect(w.asked).toHaveLength(1)
+})
+
+test('where the engine lists no /config rows, the gate saves through the CLI, or says why it could not', { options: { approveAgents: false } }, async ($, on) => {
+  const w = world(on)
+  w.noRows = true
+  await start($)
+  const { pane } = await paneLines($, 'desktop')
+  await pane.key({ key: 'o', in: 'delegator' })
+  expect(w.configured).toEqual([{ argv: ['claude', 'plugin', 'configure', 'delegator@polar-mods', '--values-stdin'], stdin: '{"approveAgents":"true"}' }])
+  expect(w.toasts.at(-1)).toBe('Delegator on: every agent Claude starts waits for your approval.')
+  w.configureExit = 1
+  await pane.key({ key: 'o', in: 'delegator' })
+  expect(w.toasts.at(-1)).toBe('Could not turn the delegator off: not installed')
+})
+
+test('the desktop sizes the pane to its rows, where a fixed height clips the last; the terminal keeps the count', async ($, on) => {
+  const w = world(on)
+  await start($)
+  const heights: Record<string, unknown> = {}
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const { pane } = await paneLines($, surface)
+    heights[surface] = (await pane.find({ type: 'Client' }))?.props.height
+  }
+  expect(heights.terminal).toBeGreaterThan(0)
+  expect(heights.desktop).toBe(undefined)
 })
 
 test('with suggestions off, an agent with no model named runs on its own default', { options: { suggestModels: false } }, async ($, on) => {

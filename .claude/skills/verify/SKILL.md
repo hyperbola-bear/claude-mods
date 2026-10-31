@@ -12,7 +12,7 @@ A change is verified only when all five hold:
 1. `claude plugin validate plugins/<mod>` is clean.
 2. `claude plugin test plugins/<mod>` passes, the surface-parity and width tests included.
 3. The terminal sweep passes: the drawing at 48, 80, 120 and 160 columns, open and closed.
-4. The desktop sweep passes: the same drawings narrow, medium and wide.
+4. The desktop sweep passes: the same drawings narrow, medium and wide, checked by the person (see Drive).
 5. The two sweeps agree. Both surfaces draw the same text in each row at the same width.
 
 ## The drawing contract
@@ -22,6 +22,7 @@ Check every capture against these. Each one has a test in the plugins. A live fa
 - No row is wider than its region. A row that does not fit is cut and ends in `…`.
 - Nothing is lost off the left edge. The band sits against the right edge, so an overwide row would lose its start.
 - The band is never taller than the rows the surface gives it. The desktop gives 12.
+- The last row of every grid is whole. A `Client` given a count of rows comes out shorter than its rows on the desktop and slices the bottom off the last one, so a user-hud or delegator grid there passes no `height`.
 - Colours are theme keys (`claude`, `success`, `warning`, `error`, `suggestion`, `subtle`) or the fixed hex sets the mods define (model ramp, effort ramp, battery, characters). Check each capture in a light and a dark theme.
 - Glyphs come from Box Drawing, Block Elements, Geometric Shapes and the few marks the mods already use (`✦ ✓ ✗ ⚙ ◷ ▸ ▾ ▴ ❖`). No emoji: a fallback face draws them two cells wide and shifts the row.
 - VS Code and mobile draw no `Client`. They get the same rows as text with plain buttons. Check that the fallback appears; it doesn't need to match.
@@ -78,7 +79,12 @@ Use `tui.sh keys <name> <key>` for keys inside the band or a pane (`Escape`, `En
 
 ### Desktop
 
-Through computer use, with screenshots saved to disk:
+Computer use cannot control the Claude app itself, so an agent cannot click through a desktop session. Two routes cover it:
+
+- **What a command reaches, by an agent.** Run the desktop's own engine with the desktop's flags and send the commands as stream-json messages: [`features/user-hud.md`](features/user-hud.md) has the recipe. This proves behaviour on the desktop engine. It draws nothing, so it proves no pixels.
+- **What the desktop draws, by the person.** Hand them the steps and have them send the screenshots. Report a drawing they did not check as not run.
+
+For the drawing, with screenshots saved to disk:
 
 - Type the same commands in the Code session's prompt.
 - Change the width three ways: full window (wide), the window at half the screen (medium), and the session in split view beside another session (narrow, about a docked pane's width).
@@ -92,7 +98,7 @@ Through computer use, with screenshots saved to disk:
 - `sweep` checks every capture against its width and prints `fits in <cols> columns` or the rows that are wider. It counts characters: box-drawing and block glyphs take three bytes each, so a byte count such as `awk length` flags rows that fit.
 - Save desktop screenshots into the same run folder, named `desktop-<label>-<narrow|medium|wide>.png`.
 - A proof shows the action and the state after it, not only the final screen. For a module switch, capture before and after.
-- Check side effects alongside the drawing. A guess marked wrong fills the prompt box. A saved setting appears in `/config`. A pane the drawing claims is open is listed by the app.
+- Check side effects alongside the drawing. A guess marked wrong fills the prompt box. A saved setting appears in `/config` in the terminal, and on the desktop in `pluginConfigs` in `~/.claude/settings.json`. A pane the drawing claims is open is listed by the app.
 - To compare surfaces, put each terminal `.txt` beside the desktop screenshot of the same width class. Every row's text must match. Colour can differ only where a theme key resolves differently in light and dark.
 
 ## Cleanup

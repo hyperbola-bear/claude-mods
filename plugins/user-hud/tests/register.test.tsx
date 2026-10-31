@@ -62,7 +62,8 @@ async function styleOf(d: Drawing, key = 'hud') {
 }
 
 /** What a drawing looks like with the buttons' per-mount handles left out. */
-const shape = (v: unknown) => JSON.stringify(v, (k, x: unknown) => (k === 'press' ? undefined : x))
+// The region's height is left out: the desktop sizes it to the rows, the cells being what must match.
+const shape = (v: unknown) => JSON.stringify(v, (k, x: unknown) => (k === 'press' || k === 'height' ? undefined : x))
 
 const BAND = (isWorking = false) => ({
   hasSurvey: false,
@@ -100,6 +101,10 @@ type World = {
   configSets: [string, unknown][]
   /** Rows a trusted source holds: setting one is denied. */
   lockedRows: string[]
+  /** The engine lists no /config rows for plugins, as a desktop session's does. */
+  noRows: boolean
+  /** What each `claude plugin configure` was given on stdin. */
+  configured: string[]
   /** The button the macOS alert answers with: `Keep warm`, `Dismiss` or `timeout`. */
   alertChoice: string
   files: Record<string, { text: string; mtimeMs: number }>
@@ -203,6 +208,8 @@ function world(on: On, stored: Readonly<Record<string, unknown>> = {}): World {
     limits: [],
     configSets: [],
     lockedRows: [],
+    noRows: false,
+    configured: [],
     alertChoice: 'timeout',
     files: {},
     commands: [],
@@ -257,6 +264,7 @@ function world(on: On, stored: Readonly<Record<string, unknown>> = {}): World {
   })
   on('session.measure', ($, e) => ({ changed: e.changed }))
   on('config.set', ($, e) => {
+    if (w.noRows) return { deny: `user-hud: $.config.set: no /config row with key ${e.key} ($.config.list names them)` }
     if (w.lockedRows.includes(e.key)) return { deny: 'set by your organization' }
     w.configSets.push([e.key, e.value])
     return { value: e.value }
@@ -363,6 +371,10 @@ function world(on: On, stored: Readonly<Record<string, unknown>> = {}): World {
     const args = e.argv.join(' ')
     if (w.failing.includes(e.argv[0] ?? '')) return { value: { exitCode: 1, stdout: '', stderr: 'failed', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'osascript') return out(`${w.alertChoice}\n`)
+    if (e.argv[0] === 'claude') {
+      w.configured.push(e.init?.stdin ?? '')
+      return out('Configuration saved.')
+    }
     if (e.argv[0] === 'open' || e.argv[0]?.endsWith('/orca')) return out('')
     if (e.argv[0] === 'ps' && e.argv[1] === '-Eww') return out(w.procs[Number(e.argv.at(-1))] ?? '')
     if (e.argv[0] === 'ps' && e.argv[2] === 'comm=') return out('/opt/homebrew/bin/tmux\n')
@@ -1028,6 +1040,52 @@ test('at two cards across, the Rail draws its shortened labels the same on the t
     }
     expect(drawn[1], `at ${bodyColumns}`).toBe(drawn[0])
   }
+})
+
+test('where the engine lists no /config rows, a setting saves through the CLI and takes effect at once', async ($, on) => {
+  const w = world(on)
+  w.noRows = true
+  await start($)
+  await request($, w, 80_000)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await openPanel(band)
+  await act(band, 'settings')
+  await act(band, 'set:autoKeepWarm')
+  await act(band, 'set:warnSeconds')
+  await band.redraw()
+  expect(await labelOf(band, 'set:autoKeepWarm')).toBe('● On')
+  expect(await labelOf(band, 'set:warnSeconds')).toBe('5:00')
+  expect(w.argv.filter(a => a[0] === 'claude')).toEqual(Array(2).fill(['claude', 'plugin', 'configure', 'user-hud@polar-mods', '--values-stdin']))
+  expect(w.configured).toEqual(['{"autoKeepWarm":"true"}', '{"warnSeconds":"300"}'])
+  expect(w.toasts).toEqual([])
+})
+
+test('a setting the CLI cannot save stays as it was, and says why', async ($, on) => {
+  const w = world(on)
+  w.noRows = true
+  w.failing = ['claude']
+  await start($)
+  await request($, w, 80_000)
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await openPanel(band)
+  await act(band, 'settings')
+  await act(band, 'set:autoKeepWarm')
+  await band.redraw()
+  expect(await labelOf(band, 'set:autoKeepWarm')).toBe('○ Off')
+  expect(w.toasts.at(-1)).toBe('Could not change autoKeepWarm: failed')
+})
+
+test('the desktop sizes a grid to its rows, where a fixed height clips the last; the terminal keeps the count', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await request($, w, 80_000)
+  const heights: Record<string, unknown> = {}
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+    heights[surface] = (await band.find({ type: 'Client' }))?.props.height
+  }
+  expect(heights.terminal).toBeGreaterThan(0)
+  expect(heights.desktop).toBe(undefined)
 })
 
 test('the Picker style row cycles Rail, Ladder, Meter and writes its /config row', async ($, on) => {

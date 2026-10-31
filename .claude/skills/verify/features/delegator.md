@@ -13,7 +13,9 @@ Every subagent Claude starts waits in a dialog for the person's approval. Once i
 - `pane-planned` lists the plan's tasks no agent has taken, with `after #n` for the ones they wait on.
 - `step-tool` takes an agent's `step` reports (`2/4` and a note).
 - `progress-band` shows the plan above the prompt (`<title> · <phase>  ▰▱▱ 1/3 accepted  ● 3 agents ▸`) until it finishes.
-- `gate-switch` turns the gate off and on (`/delegator off|on`, `o`, `/config`).
+- `gate-switch` turns the gate off and on (`/delegator off|on`, `o`, `/config`). On the desktop, whose engine lists no `/config` rows for plugins, it saves through `claude plugin configure`.
+- `pane-colours` keeps the characters' eyes black and bodies orange in 256 colours, as under tmux.
+- `pane-desktop-grid` draws the pane in the desktop's monospaced face with its last row whole.
 
 ## How to get to it (user POV)
 
@@ -36,9 +38,14 @@ Preconditions:
 - **Widths.** Run `tui.sh sweep dlg done 160 100 80 60`. Every width prints `fits in <cols> columns`. At 160 the pane docks beside the transcript. At 100 and under it is a framed box above the prompt, with delegator's band above user-hud's panel.
 - **Band leaves.** Run `tui.sh type dlg "Call mcp__delegator__progress with done 1 and finished true. Nothing else."`. The tool answers `ok: verify run · finished, 1/1 accepted`, the pane reads `verify run · finished`, and no row above the prompt contains `agents ▸`.
 - **Refuse.** Launch another agent the same way, press Down three times to `Refuse` and Enter. The caller is told the person refused, and DONE lists `✗ #2 … refused`.
+- **Colours under tmux.** With an agent running, take `tui.sh shot dlg running-120`. In `running-120.ansi` the character's cells use `38;5;173` and `48;5;173` for the body, never `174`, and `38;5;16` or `48;5;16` for the eyes, never `59`.
 - **Proof.** Keep `gate-dialog`, `running-120`, `done-*` and `flow-finished`, with their `.ansi` files for the character's colours.
 
 On the desktop, run the same prompts in a Code session of this checkout. The dialog is the app's own question card. The pane opens in the side panel; compare its rows with the terminal capture at the matching width.
+
+- **Monospaced grid.** With an agent running, zoom on the pane. Its character is 8 even cells wide, each agent's text starts in the same column, and the rules run to the same right edge.
+- **Last row.** Zoom on the pane's bottom row: its letters keep their tails.
+- **Gate switch.** Copy `~/.claude/settings.json` aside. Run `/delegator off`. It answers `Delegator off: agents launch without asking.`, and `pluginConfigs["delegator@polar-mods"].options.approveAgents` is `false`. Run `/delegator on` to put it back. An answer with `no /config row` means the fallback did not run.
 
 ## Gotchas
 

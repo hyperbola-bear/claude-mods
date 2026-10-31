@@ -61,7 +61,8 @@
  *
  * Reaches: model.fork (keep-warm pings), model.complete (next steps, on Haiku), process.run (osascript, afplay;
  * ps and a grep of the transcripts for the sessions; to jump to a session: ps for where it runs, then open, osascript
- * (Terminal, iTerm2, Ghostty), orca, tmux or a JetBrains IDE's own executable), fs reads (handoff notes, the alert's logo, the session status files, the
+ * (Terminal, iTerm2, Ghostty), orca, tmux or a JetBrains IDE's own executable; claude plugin configure where the
+ * engine lists no /config rows), fs reads (handoff notes, the alert's logo, the session status files, the
  * workspace folders of an IDE lock file), store (the panel's open state and view), settings read (the effort level, promptCacheTtl), env read
  * (CLAUDE_CODE_PROMPT_CACHE_TTL, HOME, CLAUDE_CONFIG_DIR), session usage (the plan windows, the context
  * breakdown, the cost), session id (this session among the others), agent list (a subagent's type), config set
@@ -147,6 +148,9 @@ const HANDOFF_PANE = 'handoff'
 const TOKENS_PANE = 'tokens'
 const STYLES_PANE = 'styles'
 const SESSIONS_PANE = 'sessions'
+const PLUGIN_ID = 'user-hud@polar-mods'
+/** What `$.config.set` says for a row the engine does not list. */
+const NO_ROW = 'no /config row'
 const MODULES_PANE = 'modules'
 /** The width the styles pane asks for: Rail's and Meter's columns, beside the field names. */
 const STYLES_PANE_COLUMNS = 76
@@ -240,6 +244,8 @@ const titles = new Map<string, Titles>()
 let titlesAt = 0
 /** True while the status files are being read, so a slow read is not started twice. */
 let isReadingSessions = false
+/** The last option saved through the CLI: the next waits for it, as each rewrites the whole settings file. */
+let configuring: Promise<unknown> = Promise.resolve()
 
 // ---------- prompt cache ----------
 
@@ -581,7 +587,8 @@ const drawsGrid = (surface: string) => (surface === 'terminal' || surface === 'd
 function cellsElement(ui: Ui, surface: string, key: string, band: Band, onAction: (action: string) => void) {
   if (drawsGrid(surface) && ui.Client) {
     const props: CellsProps = { rows: band.rows, hits: band.hits, keys: band.keys }
-    return <ui.Client key={key} module="./cellsclient.tsx" props={props} width={band.width} height={band.rows.length} />
+    // The desktop's frame for a count of rows comes out shorter than the rows it draws and clips the last; there the region fits them.
+    return <ui.Client key={key} {...(surface === 'desktop' ? {} : { height: band.rows.length })} module="./cellsclient.tsx" props={props} width={band.width} />
   }
   const { Box, Text, Button } = ui
   const hotkeys = Object.fromEntries(Object.entries(band.keys).map(([k, a]) => [a, k]))
@@ -748,13 +755,31 @@ async function openTokensPane($: EngineInterface) {
 }
 
 /**
+ * Saves an option through the CLI, to the settings /config writes, for a session whose engine lists no
+ * /config rows for plugins (the desktop's). Answers why it could not.
+ */
+function configureOption($: EngineInterface, field: string, value: boolean | string | number): Promise<string | undefined> {
+  const run = async () => {
+    const r = await $.process
+      .run(['claude', 'plugin', 'configure', PLUGIN_ID, '--values-stdin'], { stdin: JSON.stringify({ [field]: String(value) }), timeoutMs: 15_000 })
+      .catch(() => null)
+    if (r?.exitCode === 0) return undefined
+    return r?.stderr.trim().slice(0, 120) || 'this session cannot save it; change it in /config in a terminal'
+  }
+  const done = configuring.then(run)
+  configuring = done
+  return done
+}
+
+/**
  * Writes one of this plugin's /config rows. The engine reloads the module with
  * the new options; applying them here too redraws the panel without waiting.
  */
 async function setOption($: EngineInterface, field: string, value: boolean | string | number) {
-  const r = await $.config.set({ key: `user-hud.${field}`, value }).catch(err => ({ deny: String(err).slice(0, 120) }))
-  if (r.deny !== undefined) {
-    $.ui.toast(`Could not change ${field}: ${r.deny}`)
+  const r = await $.config.set({ key: `user-hud.${field}`, value }).catch(err => ({ deny: String(err) }))
+  const why = r.deny === undefined ? undefined : r.deny.includes(NO_ROW) ? await configureOption($, field, value) : r.deny.slice(0, 120)
+  if (why !== undefined) {
+    $.ui.toast(`Could not change ${field}: ${why}`)
     return
   }
   options = { ...options, [field]: value }

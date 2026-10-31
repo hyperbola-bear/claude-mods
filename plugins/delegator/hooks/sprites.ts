@@ -4,10 +4,13 @@ import type { Role } from '../types'
 import { put } from './cells.ts'
 import type { Run } from './cells.ts'
 
-/** A pixel's colour by its letter in a frame; `.` is no pixel. */
+/**
+ * A pixel's colour by its letter in a frame; `.` is no pixel. Under tmux Claude Code rounds each channel to
+ * the 256-colour cube, so `k` stays under 26 to round to black and `o`'s blue under 77 to stay orange.
+ */
 export const PAL: Record<string, string> = {
-  o: '#d97757',
-  k: '#1b1b1f',
+  o: '#d9774c',
+  k: '#141418',
   p: '#f2a7a0',
   h: '#c9b07a',
   g: '#56805a',

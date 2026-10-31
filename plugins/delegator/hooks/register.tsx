@@ -26,7 +26,8 @@
  *
  * Reaches: ui.ask (the dialogs), tool.call of AskUserQuestion (only its own
  * dialogs: the line under each option, and whether it closed by itself),
- * tool.register (its step and progress tools), config.set (its own row),
+ * tool.register (its step and progress tools), config.set (its own row, or
+ * process.run of claude plugin configure where the engine lists no rows),
  * ui.open (its pane), state (what it tracks of the agents), clock (the wait
  * for another agent's answer, and the characters' frames).
  */
@@ -59,6 +60,9 @@ import type { SpawnFacts } from './queue.ts'
 import { NO_TRACKING, addRun, endRun, reportFlow, reportSteps, startRun, stepRun } from './runs.ts'
 
 const PANE = 'delegator'
+const PLUGIN_ID = 'delegator@polar-mods'
+/** What `$.config.set` says for a row the engine does not list. */
+const NO_ROW = 'no /config row'
 
 /** How long an agent that arrives while another's dialog is open waits for that answer before asking its own. */
 const FOLLOW_WAIT_MS = 6000
@@ -207,10 +211,23 @@ async function refuse($: EngineInterface, p: Pending, reason: string): Promise<A
   }
 }
 
+/**
+ * Saves the gate through the CLI, to the settings /config writes, for a session whose engine lists no
+ * /config rows for plugins (the desktop's). Answers why it could not.
+ */
+async function configureGate($: EngineInterface, isOn: boolean): Promise<string | undefined> {
+  const r = await $.process
+    .run(['claude', 'plugin', 'configure', PLUGIN_ID, '--values-stdin'], { stdin: JSON.stringify({ approveAgents: String(isOn) }), timeoutMs: 15_000 })
+    .catch(() => null)
+  if (r?.exitCode === 0) return undefined
+  return r?.stderr.trim().slice(0, 120) || 'this session cannot save it; change it in /config in a terminal'
+}
+
 /** Writes its own /config row; the engine reloads the module with it, and this applies it at once. */
 async function setOn($: EngineInterface, isOn: boolean): Promise<string> {
-  const r = await $.config.set({ key: 'delegator.approveAgents', value: isOn }).catch(err => ({ deny: String(err).slice(0, 120) }))
-  if (r.deny !== undefined) return `Could not turn the delegator ${isOn ? 'on' : 'off'}: ${r.deny}`
+  const r = await $.config.set({ key: 'delegator.approveAgents', value: isOn }).catch(err => ({ deny: String(err) }))
+  const why = r.deny === undefined ? undefined : r.deny.includes(NO_ROW) ? await configureGate($, isOn) : r.deny.slice(0, 120)
+  if (why !== undefined) return `Could not turn the delegator ${isOn ? 'on' : 'off'}: ${why}`
   options = { ...options, approveAgents: isOn }
   cfg = readCfg(options)
   $.ui.invalidate('ui.render')
@@ -233,7 +250,8 @@ const BAND_BUTTONS: readonly Fallback[] = [{ action: 'open', label: 'Agents' }]
 function cellsElement(ui: Ui, surface: string, key: string, grid: CellsGrid, width: number, buttons: readonly Fallback[], onAction: (a: string) => void) {
   if ((surface === 'terminal' || surface === 'desktop') && !gridFaults.has(surface) && ui.Client) {
     const props: CellsProps = { rows: grid.rows, hits: grid.hits, keys: grid.keys }
-    return <ui.Client key={key} module="./cellsclient.tsx" props={props} width={width} height={grid.rows.length} />
+    // The desktop's frame for a count of rows comes out shorter than the rows it draws and clips the last; there the region fits them.
+    return <ui.Client key={key} {...(surface === 'desktop' ? {} : { height: grid.rows.length })} module="./cellsclient.tsx" props={props} width={width} />
   }
   const { Box, Text, Button } = ui
   return (
@@ -242,7 +260,7 @@ function cellsElement(ui: Ui, surface: string, key: string, grid: CellsGrid, wid
         <Text key={`${key}-row-${y}`} wrap="truncate">
           {row.length === 0 ? ' ' : null}
           {row.map((run, i) => (
-            <Text key={`${key}-run-${y}-${i}`} color={run.color || undefined} backgroundColor={run.bg || undefined} dimColor={run.isDim} bold={run.isBold}>
+            <Text key={`${key}-run-${y}-${i}`} mono color={run.color || undefined} backgroundColor={run.bg || undefined} dimColor={run.isDim} bold={run.isBold}>
               {run.text}
             </Text>
           ))}
