@@ -112,6 +112,8 @@ import type { GridField } from './selectorgrid.ts'
 import type { Ui } from './ui.ts'
 import { handoffPaneGrid } from './handoffview.ts'
 import { NEXT_MODEL, NEXT_SYSTEM, nextRequest, parseNext } from './next.ts'
+import { nextRetry } from './retry.ts'
+import type { Retries } from './retry.ts'
 import { TREE_ARGV, appExecutableOf, isPath, hostOf, jumpSteps, latestClient, parseProc, procArgv, tmuxClientsArgv, tmuxSteps, upFrom, workspaceOf } from './jump.ts'
 import type { Host } from './jump.ts'
 import { EMPTY_SESSIONS, SESSION_GROUPS, TITLES_SCRIPT, grouped, jumpUrl, livePids, parseSessionFile, parseTitles, titleOf } from './sessions.ts'
@@ -232,6 +234,8 @@ let agentsListedAt = 0
 let standingAt = 0
 /** Surfaces where the pickers' grid failed to draw: there the band draws the plain pickers instead. */
 const gridFaults = new Set<string>()
+/** Each surface's tries at a failed grid. */
+const gridRetries = new Map<string, Retries>()
 /** Set when the rows seen going in no longer say what the context holds: after a compaction or a resume. */
 let needsMeasure = false
 let requestsSinceMeasure = 0
@@ -1056,6 +1060,7 @@ export const register: Register = (on, given) => {
   lastSkill = null
   agentTypes.clear()
   gridFaults.clear()
+  gridRetries.clear()
   agentsListedAt = 0
   standingAt = 0
   needsMeasure = false
@@ -1403,6 +1408,15 @@ export const register: Register = (on, given) => {
     if (e.module.endsWith('cellsclient.tsx') && !gridFaults.has(e.surface)) {
       gridFaults.add(e.surface)
       $.ui.invalidate('ui.render')
+      const { wait, retries } = nextRetry(gridRetries.get(e.surface), await $.clock.now())
+      gridRetries.set(e.surface, retries)
+      // A frame may only have stalled: the grid gets another try, or the text rows would stay for the session.
+      if (wait !== null) {
+        $.clock.after(wait, () => {
+          gridFaults.delete(e.surface)
+          $.ui.invalidate('ui.render')
+        })
+      }
     }
     return next(e)
   })

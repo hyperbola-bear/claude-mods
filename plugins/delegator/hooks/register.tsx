@@ -57,6 +57,8 @@ import {
   settle,
 } from './queue.ts'
 import type { SpawnFacts } from './queue.ts'
+import { nextRetry } from './retry.ts'
+import type { Retries } from './retry.ts'
 import { NO_TRACKING, addRun, endRun, reportFlow, reportSteps, startRun, stepRun } from './runs.ts'
 
 const PANE = 'delegator'
@@ -107,6 +109,8 @@ const afk = new Set<string>()
 /** Agents waiting for another's answer, woken by any decision. */
 let waiters: (() => void)[] = []
 const gridFaults = new Set<string>()
+/** Each surface's tries at a failed grid. */
+const gridRetries = new Map<string, Retries>()
 let ticker: Timer | null = null
 
 function wake() {
@@ -281,6 +285,7 @@ export const register: Register = (on, given) => {
   afk.clear()
   waiters = []
   gridFaults.clear()
+  gridRetries.clear()
   ticker = null
 
   on('session.start', async ($, e, next) => {
@@ -499,6 +504,15 @@ export const register: Register = (on, given) => {
     if (e.module.endsWith('cellsclient.tsx') && !gridFaults.has(e.surface)) {
       gridFaults.add(e.surface)
       $.ui.invalidate('ui.render')
+      const { wait, retries } = nextRetry(gridRetries.get(e.surface), await $.clock.now())
+      gridRetries.set(e.surface, retries)
+      // A frame may only have stalled: the grid gets another try, or the text rows would stay for the session.
+      if (wait !== null) {
+        $.clock.after(wait, () => {
+          gridFaults.delete(e.surface)
+          $.ui.invalidate('ui.render')
+        })
+      }
     }
     return next(e)
   })
