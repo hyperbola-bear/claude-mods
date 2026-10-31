@@ -56,7 +56,7 @@ The pane is one grid of cells, the same in the terminal and the desktop app. In 
 | **Refuse** | nothing starts; Claude is told you refused and not to start it again unless you ask |
 | type an answer | it's added to the agent's task as a note, under "Notes from the person who approved this agent", and the question comes back |
 | `/delegator` | open the pane and say whether the gate is on, and how many agents wait and run |
-| `/delegator off`, `/delegator on` | turn the gate off or on; so do the pane's **o** and `/config` |
+| `/delegator off`, `/delegator on` | turn the gate off or on; so do the pane's **o** and `/config`. On the desktop app they need `claude` on your PATH |
 | **c** in the pane | hide the agents done, or show them again |
 
 ## Which model
@@ -110,7 +110,7 @@ While a plan is reported and not finished, a row above the prompt shows it: its 
 
 ## What it reaches
 
-`claude plugin validate .` lists it: `$.ui.ask` (the dialogs), `tool.call` of AskUserQuestion (its own dialogs only: the line under each option, and whether a dialog closed by itself), `$.tool.register` (`step` and `progress`), `$.config.set` (its own row), `$.ui.open` (its pane), `$.state` (the agents it tracks), `$.clock` (the wait for another agent's answer, and the characters' frames). It reads every `agent.spawn` and changes only the task and model you chose, and adds the line asking for steps. It reads the token counts of each agent's model requests (`turn.step`) and each agent's end (`turn.complete`). Nothing is sent anywhere and no files are written.
+`claude plugin validate .` lists it: `$.ui.ask` (the dialogs), `tool.call` of AskUserQuestion (its own dialogs only: the line under each option, and whether a dialog closed by itself), `$.tool.register` (`step` and `progress`), `$.config.set` (its own row), `$.process.run` (`claude plugin configure`, to save that row on the desktop app, whose sessions list no `/config` rows for plugins), `$.ui.open` (its pane), `$.state` (the agents it tracks), `$.clock` (the wait for another agent's answer, and the characters' frames). It reads every `agent.spawn` and changes only the task and model you chose, and adds the line asking for steps. It reads the token counts of each agent's model requests (`turn.step`) and each agent's end (`turn.complete`). Nothing is sent anywhere and no files are written.
 
 ## Settings
 

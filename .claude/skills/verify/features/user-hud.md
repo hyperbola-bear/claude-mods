@@ -13,6 +13,8 @@ A control panel above the prompt. Closed, it is one row at the right edge that s
 - `hud-battery` draws the context as ten cells, green to 50%, yellow to 75%, red beyond.
 - `hud-sessions` counts and lists other sessions, and the Sessions pane lists them all (`e`, `z`).
 - `hud-session-jump`: pressing another session's row, on the card or in the Sessions pane, brings forward where it runs: the Claude desktop app on it; the exact tab in Orca, Terminal, iTerm2, Ghostty and tmux; the project's window in VS Code, Cursor and the JetBrains IDEs; any other app as a whole.
+- `hud-settings-save`: every panel setting saves on both surfaces: through `$.config.set` in the terminal, through `claude plugin configure` on the desktop, whose engine lists no `/config` rows for plugins.
+- `hud-last-row`: the last row of the band and of every pane is whole on the desktop.
 - `hud-modules`: the Modules pane switches each module and moves its card a place at a time (`/hud modules`, `/hud order`; `d` for the usual order). Settings → Modules shows the same rows in the panel, in place of the settings, with `s: Back`; too short for them, one pill a module.
 - `hud-guesses` shows the guesses Claude reports through its `assumption` tool; `✓` clears one, `✗` fills the prompt box.
 - `hud-pickers` runs `/model` and `/effort` from the model card; `/hud-styles` draws Rail, Ladder and Meter.
@@ -56,7 +58,11 @@ Preconditions:
 - **Module off.** Run `tui.sh type hud "/hud sessions off"`, then sweep. The sessions card and the session pieces of the closed row are gone. Turn it back on with `/hud sessions on`.
 - **Proof.** Keep the sweep captures. For the mark and the battery, keep the `.ansi` files, which carry the colours.
 
-On the desktop, run the same steps through computer use in a Code session of this checkout. The band there has 12 rows, so the cards are folded unless one was brought to the front. Compare each row's text with the terminal capture at the matching width.
+On the desktop, the person runs the same steps in a Code session of this checkout (computer use cannot control the Claude app). The band there has 12 rows, so the cards are folded unless one was brought to the front. Compare each row's text with the terminal capture at the matching width.
+
+- **Settings save on the desktop engine, by an agent.** Run `use-source.sh`, and copy `~/.claude/settings.json` aside. Start the engine in `~/Library/Application Support/Claude/claude-code/<version>/<build>/claude.app/Contents/MacOS/claude` with `--output-format stream-json --verbose --input-format stream-json --no-session-persistence --setting-sources=user,project,local`, and pipe it these messages 7 seconds apart, each `{"type":"user","message":{"role":"user","content":"<command>"}}`: `/hud pickers off`, `/hud pickers on`. Use a module that already has a saved value, so putting it back leaves the file as it was. After each one, `pluginConfigs["user-hud@polar-mods"].options.pickersModule` has flipped, and the `result` line reads `user-hud: The pickers module is off.` or `on.`. Local commands cost no model call. The same works for `/delegator on`, `/delegator off`.
+- **Settings save on the desktop, by the person.** Copy `~/.claude/settings.json` aside first. In a desktop Code session of this checkout, click the band, press `s`, click **Auto keep-warm**. It flips to `● On` with no toast, and `pluginConfigs["user-hud@polar-mods"].options.autoKeepWarm` is `true` in `~/.claude/settings.json`. Click it again to put it back. Repeat with **Picker style** and a switch in **Modules**: each one holds, and `/hud` keeps it after `/reload-plugins`. A toast reading `no /config row` means the fallback did not run.
+- **Last row on the desktop.** Open the panel and the Sessions pane (`e`). Zoom on the bottom row of each: `Settings`, the `user-hud` tab and the last session's title keep their tails (`g`, `p`, `y`). Then the same in the Tokens pane (`t`) and the Modules pane.
 
 ## Gotchas
 
@@ -67,3 +73,7 @@ On the desktop, run the same steps through computer use in a Code session of thi
 - Sessions refresh every 5 seconds and titles once a minute. Wait for the next refresh before asserting a change.
 - A waiting session in the person's list may be days old. It is real data; don't try to answer it.
 - `[-]` at the band's right end is Claude Code's own collapse control, not the plugin's.
+- A desktop session's `$.config.list()` has no plugin rows at all, so `$.config.set` fails there whatever the key. A terminal session cannot show this: compare the two surfaces before you trust a settings proof from one.
+- `tui.sh` loads the plugins as `<name>@inline`, and `claude plugin configure` cannot reach an inline plugin. The desktop's fallback only proves itself with `use-source.sh` run, under the real `user-hud@polar-mods` id.
+- To see what the desktop gets without its UI, act as its host: on the stream-json recipe, send control requests `ui_attach` (`surface: "desktop"`, a `client_id`) and `ui_render` (`component: "AbovePrompt"`, `instance_id`, and `props` with `hasSurvey`, `isWorking`, `maxRows`, `bodyColumns`, `scroll`, `view`). A band the engine answers can still fail to show: the Code tab's own code decides what it mounts, and the desktop always sends `hasSurvey: false`.
+- The Code tab removes every plugin's band while a next-step card is waiting, unless the keyboard focus is inside the band (`turnCardShown` in its band wrapper). That is the app's own rule, not a mod bug, and a reload changes nothing. Before you report a missing band on the desktop, check that no card is up. An agent that ends its turn with a question puts one up itself.

@@ -63,3 +63,12 @@ test('which character an agent is: reviewers by type or task first, then the age
   expect(roleOf('general-purpose', 'security pass on the API')).toBe('reviewer')
   expect(roleOf('Plan', 'Review the plan')).toBe('reviewer')
 })
+
+test('under the 256 colours tmux gets, the eyes round to black and the body to orange, not grey and salmon', () => {
+  const cube = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map(i => Math.round((parseInt(hex.slice(i, i + 2), 16) / 255) * 5)) as [number, number, number]
+    return 16 + 36 * r + 6 * g + b
+  }
+  expect(cube(PAL.k!)).toBe(16)
+  expect(cube(PAL.o!)).toBe(173)
+})
