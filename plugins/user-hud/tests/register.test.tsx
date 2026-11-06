@@ -759,14 +759,14 @@ test('a press in the settings or the modules reloads the plugin; the panel comes
   await act(band, 'settings')
   expect((await linesOf(band))[0]).toMatch(/^── S E T T I N G S/)
   await act(band, 'settings')
-  expect((await linesOf(band)).some(l => l.startsWith('── M O D E L'))).toBe(true)
+  expect((await linesOf(band)).some(l => l.startsWith('MODEL '))).toBe(true)
   await band.unmount()
 })
 
 test('the view another session left in the store is not this one’s: the panel opens on its cards', async ($, on) => {
   world(on, { panelOpen: true, panelView: { session: 'some-other-session', view: 'modules' } })
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND(), maxRows: 12, bodyColumns: 72 } })
-  expect((await linesOf(band)).some(l => l.startsWith('── M O D E L'))).toBe(true)
+  expect((await linesOf(band)).some(l => l.startsWith('MODEL '))).toBe(true)
   await band.unmount()
 })
 
@@ -823,14 +823,16 @@ test('the tree grows to the band width; short of rows each card folds to one row
     expect((await band.find({ type: 'Box' }))?.props.flexGrow).toBe(1)
     await act(band, 'panel')
     expect((await band.find({ type: 'Box' }))?.props.flexGrow).toBe(1)
-    // The first row of tiles, the model, stays in full; the rows under it fold.
-    expect(await shows(band, /^── M O D E L/)).toBe(true)
-    expect(await shows(band, /S E S S I O N S|C A C H E|C O N T E X T/)).toBe(false)
+    // Next steps, kept open, stay in full; the cards above them fold, the pickers first.
+    expect(await shows(band, /^── N E X T {3}S T E P S/)).toBe(true)
+    expect(await shows(band, /M O D E L|S E S S I O N S|C A C H E|C O N T E X T/)).toBe(false)
     expect((await linesOf(band)).length).toBeLessThanOrEqual(12)
-    for (const key of ['sessions', 'tokens', 'pick:model:opus', 'keepwarm', 'handoff', 'settings']) expect(await has(band, key), key).toBe(true)
+    for (const key of ['sessions', 'tokens', 'styles', 'keepwarm', 'handoff', 'settings']) expect(await has(band, key), key).toBe(true)
     await band.redraw({ ...BAND(), maxRows: 30, bodyColumns: 60 })
+    // With rows to spare, only the pickers and the cache fold.
     expect(await shows(band, /^── S E S S I O N S/)).toBe(true)
-    expect(await shows(band, /── C A C H E/)).toBe(true)
+    expect(await shows(band, /^MODEL /)).toBe(true)
+    expect(await shows(band, /^CACHE /)).toBe(true)
     await act(band, 'panel')
     await band.unmount()
   }
@@ -911,7 +913,7 @@ test('a surface with no Client (VS Code) gets the same rows as text, and its act
   expect(w.commandLines).toEqual(['/model sonnet'])
 })
 
-test('the model and effort pickers run /model and /effort and show what requests carry', async ($, on) => {
+test('the model and effort pickers run /model and /effort and show what requests carry', { options: { keepOpen: 'pickers' } }, async ($, on) => {
   const w = world(on)
   w.settings = { ...w.settings, effortLevel: 'high' }
   await start($)
@@ -1003,7 +1005,7 @@ test('the settings toggles write their /config rows and take effect at once', { 
 const RUN = { origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 120 } }
 
 for (const selectorStyle of ['rail', 'ladder', 'meter'] as const) {
-  test(`the ${selectorStyle} pickers draw the same grid on the terminal and the desktop`, { options: { selectorStyle } }, async ($, on) => {
+  test(`the ${selectorStyle} pickers draw the same grid on the terminal and the desktop`, { options: { selectorStyle, keepOpen: 'pickers' } }, async ($, on) => {
     const w = world(on)
     w.settings = { ...w.settings, effortLevel: 'xhigh' }
     await start($)
@@ -1088,7 +1090,7 @@ test('the desktop sizes a grid to its rows, where a fixed height clips the last;
   expect(heights.desktop).toBe(undefined)
 })
 
-test('the Picker style row cycles Rail, Ladder, Meter and writes its /config row', async ($, on) => {
+test('the Picker style row cycles Rail, Ladder, Meter and writes its /config row', { options: { keepOpen: 'pickers' } }, async ($, on) => {
   const w = world(on)
   await start($)
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: 68 } })
@@ -1111,7 +1113,7 @@ test('the Picker style row cycles Rail, Ladder, Meter and writes its /config row
   ])
 })
 
-test('the Meter lights every step up to the chosen one and dims the rest', { options: { selectorStyle: 'meter' } }, async ($, on) => {
+test('the Meter lights every step up to the chosen one and dims the rest', { options: { selectorStyle: 'meter', keepOpen: 'pickers' } }, async ($, on) => {
   const w = world(on)
   w.settings = { ...w.settings, effortLevel: 'high' }
   await start($)
@@ -1323,7 +1325,7 @@ test('a compaction empties what the groups hold in the context and keeps what th
   expect(text).toMatch(/^System & memory \d+%: \d+k used, 2k in context now/m)
 })
 
-test('where a two-row style’s columns do not fit, both pickers fall back to the Ladder together', async ($, on) => {
+test('where a two-row style’s columns do not fit, both pickers fall back to the Ladder together', { options: { keepOpen: 'pickers' } }, async ($, on) => {
   const w = world(on)
   await start($)
   // Below 27 cells the models fit none of their label sets, though the effort's shortest still would.
@@ -1473,7 +1475,7 @@ test('/hud modules lists the modules and /hud <module> on|off writes its /config
   await start($)
   const hud = (args: string) => $.command.run({ command: 'hud', args, ...RUN })
   expect((await hud('modules')).text).toMatch(
-    /^● on {3}pickers .*\n● on {3}cache .*\n○ off {2}tokens .*\n● on {3}sessions .*\n● on {3}assume .*\n● on {3}next .*\n● on {3}handoff .*\nSwitch or move them in the Modules pane, or with \/hud <module> on\|off and \/hud order <modules…>\.$/,
+    /^● on {3}pickers .*\n● on {3}cache .*\n○ off {2}tokens .*\n● on {3}sessions .*\n● on {3}assume .*\n● on {3}next .*\(kept open\)\n● on {3}handoff .*\nSwitch, move or keep them open in the Modules pane, or with \/hud <module> on\|off and \/hud order <modules…>\.$/,
   )
   expect((await hud('sessions off')).text).toBe('The sessions module is off.')
   expect(w.configSets.at(-1)).toEqual(['user-hud.sessionsModule', false])
@@ -1509,7 +1511,7 @@ test('/hud order shows the cards’ order and sets it; the modules left out foll
   await act(band, 'panel')
 })
 
-test('the Modules pane: each card with its switch and ▲ ▼, handoff in the bottom bar; a press writes /config, the same on both surfaces', async ($, on) => {
+test('the Modules pane: each card with its switch, ◆ open or ◇ folds, and ▲ ▼, handoff in the bottom bar; a press writes /config, the same on both surfaces', async ($, on) => {
   const w = world(on)
   await start($)
   expect((await $.command.run({ command: 'hud', args: 'order', ...RUN })).text).toMatch(/^Cards top to bottom: /)
@@ -1520,14 +1522,14 @@ test('the Modules pane: each card with its switch and ▲ ▼, handoff in the bo
     expect(await pane.findAll({ type: 'Button' })).toEqual([])
     expect(await linesOf(pane, 'modules')).toEqual([
       expect.stringMatching(/^── M O D U L E S ─+$/),
-      expect.stringMatching(/^ 1 ● on {2}Model & effort model and effort pickers +▲ {3}▼ $/),
-      expect.stringMatching(/^ 2 ● on {2}Cache +cache countdown.* +▲ {3}▼ $/),
-      expect.stringMatching(/^ 3 ● on {2}Context +where the tokens go +▲ {3}▼ $/),
-      expect.stringMatching(/^ 4 ● on {2}Sessions +your other sessions.* +▲ {3}▼ $/),
-      expect.stringMatching(/^ 5 ● on {2}Guesses +the guesses Claude makes.* +▲ {3}▼ $/),
-      expect.stringMatching(/^ 6 ● on {2}Next steps +follow-up prompts.* +▲ {3}▼ $/),
+      expect.stringMatching(/^ 1 ● on {2}Model & effort model and effort pickers +◇ folds {2}▲ {3}▼ $/),
+      expect.stringMatching(/^ 2 ● on {2}Cache +cache countdown.* +◇ folds {2}▲ {3}▼ $/),
+      expect.stringMatching(/^ 3 ● on {2}Context +where the tokens go +◇ folds {2}▲ {3}▼ $/),
+      expect.stringMatching(/^ 4 ● on {2}Sessions +your other sessions.* +◇ folds {2}▲ {3}▼ $/),
+      expect.stringMatching(/^ 5 ● on {2}Guesses +the guesses Claude makes.* +◇ folds {2}▲ {3}▼ $/),
+      expect.stringMatching(/^ 6 ● on {2}Next steps +follow-up prompts.* +◆ open {3}▲ {3}▼ $/),
       expect.stringMatching(/^ {3}● on {2}Handoff +write and read handoff notes +bottom bar$/),
-      expect.stringMatching(/^Click ▲ ▼ or a switch, or arrow to one and press Return\. *$/),
+      expect.stringMatching(/^◆ open cards never fold\. Click one, or arrow to it and press Return\. *$/),
     ])
     // The first card cannot go up, nor the last down.
     const ids = (await cellsOf(pane, 'modules'))!.hits.map(h => h.id)
@@ -1551,6 +1553,16 @@ test('the Modules pane: each card with its switch and ▲ ▼, handoff in the bo
   await act(pane, 'modules:default', 'modules')
   await pane.redraw()
   expect(w.configSets.at(-1)).toEqual(['user-hud.moduleOrder', ''])
+  // ◇ folds keeps a card open too; ◆ open lets it fold again, down to none kept.
+  await act(pane, 'module:open:pickers', 'modules')
+  await pane.redraw()
+  expect(w.configSets.at(-1)).toEqual(['user-hud.keepOpen', 'pickers, next'])
+  expect((await linesOf(pane, 'modules'))[1]).toMatch(/◆ open {3}▲ {3}▼ $/)
+  await act(pane, 'module:open:pickers', 'modules')
+  await act(pane, 'module:open:next', 'modules')
+  expect(w.configSets.at(-1)).toEqual(['user-hud.keepOpen', ''])
+  await pane.redraw()
+  expect((await linesOf(pane, 'modules'))[6]).toMatch(/◇ folds {2}▲ {3}▼ $/)
   expect((await linesOf(pane, 'modules'))[0]).toMatch(/^── M O D U L E S ─+$/)
   await pane.unmount()
 })
@@ -1575,7 +1587,7 @@ test('Settings → Modules switches and orders the modules in the panel itself, 
       expect.stringMatching(/^ 5 ● on {2}Guesses .*▲ {3}▼ $/),
       expect.stringMatching(/^ 6 ● on {2}Next steps .*▲ {3}▼ $/),
       expect.stringMatching(/^ {3}● on {2}Handoff .*bottom bar$/),
-      expect.stringMatching(/^Click ▲ ▼ or a switch, or arrow to one and press Return\. *$/),
+      expect.stringMatching(/^◆ open cards never fold\. Click one, or arrow to it and press Return\. *$/),
       expect.stringMatching(/^⚙ s: Back +❖ user-hud ▾ $/),
     ])
     expect(lines.length).toBeLessThanOrEqual(12)
@@ -1584,7 +1596,7 @@ test('Settings → Modules switches and orders the modules in the panel itself, 
     await act(band, 'settings')
     expect((await linesOf(band))[0]).toMatch(/^── S E T T I N G S/)
     await act(band, 'settings')
-    expect((await linesOf(band)).some(l => l.startsWith('── M O D E L'))).toBe(true)
+    expect((await linesOf(band)).some(l => l.startsWith('MODEL '))).toBe(true)
     await band.unmount()
   }
   expect(drawn[1]).toBe(drawn[0])
@@ -1688,7 +1700,7 @@ test('with the next module off, a reply asks for nothing', { options: { nextModu
   expect(w.completes).toEqual([])
 })
 
-test('in a narrow column, beside a docked pane, the band never draws wider than its region', { options: { notifyMac: false, sound: false } }, async ($, on) => {
+test('in a narrow column, beside a docked pane, the band never draws wider than its region', { options: { notifyMac: false, sound: false, keepOpen: 'pickers' } }, async ($, on) => {
   const w = world(on)
   w.settings = { promptCacheTtl: '1h' }
   await start($)

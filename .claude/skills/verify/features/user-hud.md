@@ -5,7 +5,7 @@ A control panel above the prompt. Closed, it is one row at the right edge that s
 ## Sub-features
 
 - `hud-closed` sheds pieces in priority order down to the mark `❖`.
-- `hud-cards` lays the open panel as tiles of one size, 1, 2 or 3 across by width, in rows that line up, handoff in the bottom bar; short of rows, whole rows of tiles fold to one row a tile from the last up.
+- `hud-cards` lays the open panel as tiles of one size, 1, 2 or 3 across by width, in rows that line up, handoff in the bottom bar; short of rows, whole rows of tiles fold to one row a tile, the pickers' first, while next steps (and any card switched to `◆ open` in the Modules pane) stay in full.
 - `hud-more` shows `+N more` when even folded cards don't fit, and brings the hidden ones first when pressed.
 - `hud-settings` turns the panel to the settings and back (`s`).
 - `hud-mark` turns the four diamonds yellow while another session needs you.
@@ -41,7 +41,7 @@ Preconditions:
 - **Mark.** With a session waiting (`● 1 needs you` on the row), the `.ansi` capture draws `❖` in the warning colour. With none waiting, it is cream. Either way its ground is Claude's orange.
 - **Open.** Run `tui.sh type hud "/hud"`. The screen shows `user-hud panel open.` and the cards, with `⚙ s: Settings` and `❖ user-hud ▾` on the bottom row.
 - **Columns.** Run `tui.sh sweep hud open 160 100 60`. Two tiles a row at 100, three at 160, one at 60. The first row starts `── M O D E L` with `── C A C H E` beside it (and `── C O N T E X T` at 160); every tile in a row has the same height, and the bottom bar reads `⚙ s: Settings   ✦ h: Write handoff …`.
-- **Short band.** Run `tui.sh resize hud 100 24`, then `tui.sh shot hud open-short`. The model and effort pickers stay in full (`── M O D E L`); the other rows fold from the last up (`? N to check`, `SESSIONS … asleep`), then go behind `+N more`, the band no taller than before the prompt.
+- **Short band.** Run `tui.sh resize hud 100 24`, then `tui.sh shot hud open-short`. Next steps stay in full (`── N E X T   S T E P S`, all three `✦ N:` rows); the other rows fold, the pickers first (`MODEL … m: pick`), then the cache and context, then go behind `+N more`, the band no taller than before the prompt. Switch Model & effort to `◆ open` in the Modules pane and the pickers stay in full instead.
 - **Pickers in cards.** Rail is the default style. Run `tui.sh sweep hud open 160 120 100 80`. Each capture shows a model row of `Haiku … Fable` over a `▔` bar, not the Ladder's `▄` strips. Two-column cards of about 49 cells keep the versions (`Haiku 4.5`). Narrower cards drop them (`Haiku`) and shorten the effort labels, `Ultra` first and then `Med`. For Meter, start a second session with `--settings '{"pluginConfigs":{"user-hud@inline":{"options":{"selectorStyle":"meter"}}}}'`, which changes no saved setting, and sweep again: the bars use `▁` to `▇`.
 - **Settings.** Focus the band and run `tui.sh keys hud s`. The settings rows show and the bar reads `⚙ s: Back`. Press `s` again to return.
 - **Sessions pane.** With the band focused, run `tui.sh keys hud e`. A pane titled `Sessions` lists NEEDS YOU, WORKING, DONE, ASLEEP and THIS SESSION, each title at most 30 characters.

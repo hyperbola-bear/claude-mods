@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { asEffort, hintedRule, lifeBar, modelAlias, modelLabel, modulesFrom, nextWarn, orderFrom, parseHudArgs, pieOf, sectionRule } from '../hooks/hud.ts'
+import { asEffort, hintedRule, lifeBar, modelAlias, modelLabel, modulesFrom, nextWarn, openFrom, orderFrom, parseHudArgs, pieOf, sectionRule, toggledOpen } from '../hooks/hud.ts'
 import { keyed, plain } from '../hooks/cells.ts'
 
 test('models are recognised however /model or a request spells them', () => {
@@ -76,4 +76,12 @@ test('the module order: named modules first, once each, the rest after in the us
   expect(parseHudArgs('order')).toEqual({ kind: 'order', ids: null })
   expect(parseHudArgs('order handoff')).toEqual({ kind: 'order', ids: ['handoff', 'pickers', 'cache', 'tokens', 'sessions', 'assume', 'next'] })
   expect(parseHudArgs('order handoff, x')).toEqual({ kind: 'badOrder', unknown: ['x'] })
+})
+
+test('Kept open: next steps unless the row says otherwise; an empty row keeps none, handoff and unknown names never', () => {
+  expect(openFrom(undefined)).toEqual(['next'])
+  expect(openFrom('')).toEqual([])
+  expect(openFrom('next, Pickers banana handoff')).toEqual(['pickers', 'next'])
+  expect(toggledOpen(['next'], 'pickers')).toEqual(['pickers', 'next'])
+  expect(toggledOpen(['pickers', 'next'], 'next')).toEqual(['pickers'])
 })

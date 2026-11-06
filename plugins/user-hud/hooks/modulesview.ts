@@ -1,7 +1,8 @@
-// Pure layout of the Modules pane: each module on or off, and the cards' order, moved a place at a time.
+// Pure layout of the Modules pane: each module on or off, its card kept open or free to fold, and the cards'
+// order, moved a place at a time.
 import { builder, keyed, line, piece } from './cells.ts'
 import type { Piece } from './cells.ts'
-import { DEFAULT_ORDER, MODULES, cardOrder, hintedRule } from './hud.ts'
+import { DEFAULT_OPEN, DEFAULT_ORDER, MODULES, cardOrder, hintedRule } from './hud.ts'
 import type { ModuleId, Modules } from './hud.ts'
 import type { Band } from './panelgrid.ts'
 
@@ -17,10 +18,14 @@ export const MODULE_TITLES: Record<ModuleId, string> = {
 }
 
 /** Wide enough to say what each module does after its name. */
-export const DESC_MIN_WIDTH = 56
+export const DESC_MIN_WIDTH = 64
 
 /** `● on` or `○ off`, pressed to switch the module. */
 const toggle = (id: ModuleId, isOn: boolean): Piece => piece(isOn ? '● on ' : '○ off', isOn ? { color: 'success' } : { isDim: true }, `module:toggle:${id}`)
+
+/** `◆ open` keeps the card in full while the band is short; `◇ folds` lets it fold to one row. Pressed to switch. */
+const keep = (id: ModuleId, isOpen: boolean): Piece =>
+  piece(isOpen ? '◆ open ' : '◇ folds', isOpen ? { color: 'claude', isBold: true } : { isDim: true }, `module:open:${id}`)
 
 function moduleRow(id: ModuleId, place: string, isOn: boolean, right: readonly Piece[], width: number) {
   const m = MODULES.find(x => x.id === id)!
@@ -30,10 +35,10 @@ function moduleRow(id: ModuleId, place: string, isOn: boolean, right: readonly P
 }
 
 /**
- * The Modules pane: the cards top to bottom, each with its switch and `▲ ▼` to move it a place, then
+ * The Modules pane: the cards top to bottom, each with its switch, `◆ open` or `◇ folds`, and `▲ ▼` to move it a place, then
  * handoff, which draws no card. The focus stays on a module's arrow as it moves.
  */
-export function modulesPaneGrid(modules: Modules, order: readonly ModuleId[], width: number): Band {
+export function modulesPaneGrid(modules: Modules, order: readonly ModuleId[], width: number, open: readonly ModuleId[] = DEFAULT_OPEN): Band {
   const b = builder()
   const add = (l: ReturnType<typeof line>) => b.add(l.row, l.spans)
   const cards = cardOrder(order)
@@ -42,9 +47,9 @@ export function modulesPaneGrid(modules: Modules, order: readonly ModuleId[], wi
   cards.forEach((id, i) => {
     const up = i > 0 ? piece(' ▲ ', {}, `module:up:${id}`) : piece(' ▲ ', { isDim: true })
     const down = i < cards.length - 1 ? piece(' ▼ ', {}, `module:down:${id}`) : piece(' ▼ ', { isDim: true })
-    add(moduleRow(id, `${i + 1}`, modules[id], [up, down], width))
+    add(moduleRow(id, `${i + 1}`, modules[id], [keep(id, open.includes(id)), up, down], width))
   })
   for (const id of order.filter(x => !cards.includes(x))) add(moduleRow(id, '', modules[id], [piece('bottom bar', { isDim: true })], width))
-  add(line(width, [piece('Click ▲ ▼ or a switch, or arrow to one and press Return.', { isDim: true })]))
+  add(line(width, [piece('◆ open cards never fold. Click one, or arrow to it and press Return.', { isDim: true })]))
   return { ...b.grid, keys: isUsual ? {} : { d: 'modules:default' }, width }
 }
