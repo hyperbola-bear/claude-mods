@@ -136,8 +136,8 @@ test('/ask opens the pane, forks the main chat and draws the answer with its dia
   const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE(60) })
   expect(await pane.find({ type: 'Text', text: 'how does the pane get its answers?' })).toBeTruthy()
   expect((await pane.find({ type: 'Button', key: 'x1q' }))?.text).toBe('❯')
-  expect((await pane.find({ type: 'Markdown', key: 'm1-0' }))?.text).toBe('The pane forks the main chat:')
-  expect((await pane.find({ type: 'Markdown', key: 'm1-2' }))?.text).toBe('The answer stays in the pane.')
+  expect((await pane.find({ type: 'Markdown', key: 'm1-0-0' }))?.text).toBe('The pane forks the main chat:')
+  expect((await pane.find({ type: 'Markdown', key: 'm1-2-0' }))?.text).toBe('The answer stays in the pane.')
   // The LR flowchart is too wide for 59 columns, so it is drawn top-down.
   const lines = await pane.findAll({ type: 'Text', text: /[┌│└◇]/ })
   expect(lines.length).toBeGreaterThan(5)
@@ -242,7 +242,7 @@ test('before the first turn there is nothing to fork: a live completion over the
   expect(w.completes[0]?.model).toBe('haiku')
   expect(w.completes[0]?.prompt).toContain('USER: hello')
   const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE() })
-  expect((await pane.find({ type: 'Markdown', key: 'm1-0' }))?.text).toBe('live answer')
+  expect((await pane.find({ type: 'Markdown', key: 'm1-0-0' }))?.text).toBe('live answer')
   expect(await pane.find({ type: 'Text', text: /^live · .* chars of transcript, uncached$/ })).toBeTruthy()
 })
 
@@ -252,7 +252,7 @@ test('a failed fork says why and offers nothing to send', async ($, on) => {
   w.replies = [{ isAnswered: false, reason: 'api-error', status: 529, error: 'overloaded_error', usage: USAGE }]
   await askCmd($, w, 'anything?')
   const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE() })
-  expect((await pane.find({ type: 'Markdown', key: 'm1-0' }))?.text).toBe('(no answer: api-error)')
+  expect((await pane.find({ type: 'Markdown', key: 'm1-0-0' }))?.text).toBe('(no answer: api-error)')
   expect(await pane.find({ type: 'Button', key: 'x1s' })).toBe(undefined)
   expect(await pane.find({ type: 'Button', key: 'send' })).toBe(undefined)
   expect(w.session.appended()).toHaveLength(0)
@@ -365,4 +365,38 @@ test('/clear empties the pane', async ($, on) => {
   await $.session.end({ reason: 'clear', sessionId: 's', resume: undefined as never })
   const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE() })
   expect(await pane.find({ type: 'Text', text: /^Ask about this session/ })).toBeTruthy()
+})
+
+const WIDE_TABLE = [
+  'Three countries so far:',
+  '',
+  '| Country | Host | Result | How we know |',
+  '|---|---|---|---|',
+  '| NO | `no.fd-api.com` | **Affected** | 1 of 6,000 UAT receipts obfuscated (jq0e-2644-fhww), plus 3 of 5,000 earlier |',
+  '| AT | `mj.fd-api.com` | **Not affected** | support@foodora.at readable on all 20 recent AT receipts, no Cloudflare markup |',
+].join('\n')
+
+test('a table wider than the pane is drawn fitted to it on both surfaces, and as a list where too narrow; one that fits stays markdown', async ($, on) => {
+  const w = world(on)
+  w.fork = { isAnswered: true, text: WIDE_TABLE, usage: USAGE }
+  await start($, w)
+  await askCmd($, w, 'which countries?')
+  const at = (surface: 'terminal' | 'desktop', columns: number) => $.ui.mount({ plugin: 'ask', surface, component: 'Pane', requestId: 'ask', props: PANE(columns) })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const pane = await at(surface, 90)
+    const lines = (await pane.findAll({ type: 'Text' })).map(t => String(t.text)).filter(t => /^[│┌├└]/.test(t))
+    expect(lines.length, surface).toBeGreaterThan(6)
+    for (const l of lines) expect(l.length, `${surface}: ${l}`).toBeLessThanOrEqual(89)
+    expect(await pane.find({ type: 'Markdown', text: /\| Country \|/ })).toBe(undefined)
+    await pane.unmount()
+    const narrow = await at(surface, 50)
+    expect(await narrow.find({ type: 'Markdown', text: /^\*\*NO\*\*\n- Host: `no\.fd-api\.com`/ })).toBeTruthy()
+    await narrow.unmount()
+    const wide = await at(surface, 160)
+    expect(await wide.find({ type: 'Markdown', text: /^\| Country \|/ })).toBeTruthy()
+    await wide.unmount()
+  }
+  // The next question is told the width the pane was last drawn at.
+  await askCmd($, w, 'and TR?')
+  expect(w.forks.at(-1)).toContain('Keep every table within 159 columns')
 })

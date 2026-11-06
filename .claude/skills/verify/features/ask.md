@@ -7,6 +7,7 @@ A side chat in a pane beside the transcript. It answers from a fork of the main 
 - `ask-open` opens the pane with `/ask`.
 - `ask-question` answers a question typed with the command or in the pane's field.
 - `ask-draw` answers with a diagram first for `/draw` or draw mode (`d`).
+- `ask-tables` keeps tables inside the pane: the answer is told its width, and a table still too wide is redrawn with wrapped cells, or as a list where too narrow.
 - `ask-scroll` scrolls long answers with the arrow and page keys.
 - `ask-send` sends an answer to the main chat (`s`, or `→ send to chat`), and only then.
 - `ask-copy` copies an answer (`❯` or `c`).
@@ -34,6 +35,7 @@ Preconditions:
 - **Not sent by default.** Ask a second question and don't press `s`. The main chat's next reply doesn't mention it.
 - **Rewind.** With two questions in the pane, run `tui.sh type ask "/ask-rewind"`. The transcript says `Took back "<second question>" and its answer`, the header reads `1 question`, and the first question stays. Then ask `what was my last question in this pane?`: the answer names the first question, not the one taken back.
 - **Rewind keeps the focus.** Focus the pane on its question's `❯` and run `tui.sh keys ask r`, then type a word with `tmux send-keys -l`. The word lands in the pane's field, not in the main prompt. Check both with one question left and with two.
+- **Tables.** Run `tui.sh type ask "/ask compare the files you changed in a table: file, what changed, why"`. No table row is wider than the pane and no border breaks across lines. Narrow the pane (`tui.sh resize ask 90 45`): the same answer redraws with its cells wrapped, or as a bold-led list once the columns would be under 8 cells.
 - **Width.** Run `tui.sh sweep ask pane 100 140 180`. The diagram redraws at each width and no row exceeds the pane.
 - **Proof.** `tui.sh shot ask answer` after the diagram, and the same view on the desktop as a screenshot.
 
