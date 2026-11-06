@@ -37,6 +37,7 @@ Click ▲ ▼ or a switch, or arrow to one and press Return.
 - `/hud <module> on|off` switches one from the prompt (`/hud tokens off`), and `/hud order <modules…>` sets the order (`/hud order sessions next`): the modules you name come first, the rest after in the usual order. **Module order** in `/config` is the same setting, and **Kept open** (`keepOpen`, default `next`) holds the cards the `◆ open` switches keep in full.
 - `/config` has the same switches, as **Module: cache**, **Module: guesses** and so on.
 - The [`mods` script](../../README.md#install-and-update) asks which modules to turn on when it installs or updates user-hud.
+- `/user-hud:update-mods` updates every polar-mods mod you have to the latest version on GitHub. Claude runs the `mods` script with `--update` and reports what changed. `/user-hud:update-mods list` only shows the versions.
 
 ## The corner
 
