@@ -63,6 +63,26 @@ test('too narrow for its columns or rows to read, a table becomes one entry a ro
   expect(tableAsList(table.rows).split('\n').slice(0, 4)).toEqual(['**NO**', '- Host: `no.fd-api.com`', '- Result: **Affected**', expect.stringMatching(/^- How we know: 1 of 6,000/)])
 })
 
+test('a table never breaks a word it could hold: narrower than that, it becomes a list', () => {
+  const mods = [
+    ['mod', 'does', 'open', 'draws'],
+    ['user-hud', 'guesses, steps', 'automatic', 'HUD band'],
+    ['ask', 'side questions', 'pane, /ask', 'side pane'],
+    ['delegator', 'agent progress', 'automatic', 'Delegator pane'],
+    ['code-reference', 'PR review UI', 'unknown', 'pane, boxes'],
+  ]
+  // 56 cells hold every word whole, each cell on at most two lines.
+  const wide = fittedTable(mods, 56)!
+  expect([...wide.header, ...wide.body].join('\n')).toContain('code-reference')
+  expect([...wide.header, ...wide.body].join('\n')).toContain('automatic')
+  // At 48 the columns would break code-reference, automatic and Delegator mid-word.
+  expect(columnWidths(mods, 48)).toBeNull()
+  expect(fittedTable(mods, 48)).toBeNull()
+  // A word longer than WORD_ROOM, a path or a URL, still breaks rather than turn the table into a list.
+  const url = [['what', 'where'], ['docs', 'https://code.claude.com/docs/en/plugins-reference#hooks']]
+  expect(fittedTable(url, 40)).not.toBeNull()
+})
+
 test('a cell wraps at spaces, and mid-word only where a word is longer than its column', () => {
   expect(wrapCell('readable on all 20 recent receipts', 12)).toEqual(['readable on', 'all 20', 'recent', 'receipts'])
   expect(wrapCell('jq0e-2644-fhww', 6)).toEqual(['jq0e-2', '644-fh', 'ww'])

@@ -91,7 +91,8 @@ const longestWord = (rows: readonly string[][], k: number): number =>
  * Each column's width within `width`: first room for its longest word (the
  * whole column where it is short), lowered evenly from the widest where even
  * that does not fit; then the room left shared by how much more each wants.
- * Null where a column would come out under `MIN_COLUMN` cells.
+ * Null where a column would come out under `MIN_COLUMN` cells, or too narrow
+ * for a word of up to `WORD_ROOM` cells, which it would break.
  */
 export function columnWidths(rows: readonly string[][], width: number): number[] | null {
   const want = naturals(rows)
@@ -106,7 +107,8 @@ export function columnWidths(rows: readonly string[][], width: number): number[]
     // What the even lowering leaves over goes to the columns it cut, one cell each.
     for (let k = 0, n = left; n > 0 && k < out.length; k += 1) if (out[k]! < want[k]!) (out[k] = out[k]! + 1), (n -= 1)
   }
-  if (out.some((w, k) => w < Math.min(MIN_COLUMN, want[k]!))) return null
+  // A column that would break a word it has room to hold (up to WORD_ROOM) reads worse than a list.
+  if (out.some((w, k) => w < Math.min(MIN_COLUMN, want[k]!) || w < Math.min(WORD_ROOM, longestWord(rows, k)))) return null
   let extra = room - sum(out)
   const need = out.map((w, k) => want[k]! - w)
   const total = sum(need)

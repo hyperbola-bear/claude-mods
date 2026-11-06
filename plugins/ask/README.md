@@ -54,7 +54,7 @@ Rewinding removes one exchange at a time, newest first, and later questions no l
 
 ## Tables
 
-The pane is text in fixed cells on both surfaces, and a table wider than it would wrap into broken borders. So each question tells the answer how many columns the pane has (as it was last drawn) and to keep its tables inside them, with short cells. A table that is still too wide, because the answer ran over or the pane was narrowed since, is redrawn to fit: its cells wrap inside columns that share the width, each column first given room for its longest word. Where that would leave a column under 8 cells, or a row taller than 6 lines, the table becomes a list instead, one entry a row with its first cell in bold. A table that fits is left as it was written.
+The pane is text in fixed cells on both surfaces, and a table wider than it would wrap into broken borders. So each question tells the answer how many columns the pane has (as it was last drawn) and to keep its tables inside them, with short cells. A table that is still too wide, because the answer ran over or the pane was narrowed since, is redrawn to fit: its cells wrap inside columns that share the width, each column first given room for its longest word. Where that would leave a column under 8 cells, break a word of up to 16 characters, or make a row taller than 6 lines, the table becomes a list instead, one entry a row with its first cell in bold. A table that fits is left as it was written.
 
 ## Diagrams
 

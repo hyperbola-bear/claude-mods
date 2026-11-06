@@ -289,7 +289,12 @@ export const register: Register = (on, options) => {
         const key = `${i}-${n}`
         if (part.kind === 'markdown' || naturalWidth(part.rows) <= width) return <Markdown key={`m${key}`} text={part.kind === 'markdown' ? part.text : part.source} />
         const drawn = fittedTable(part.rows, width)
-        if (!drawn) return <Markdown key={`m${key}`} text={tableAsList(part.rows)} />
+        if (!drawn)
+          return (
+            <Box key={`l${key}`} flexDirection="column" marginY={1}>
+              <Markdown text={tableAsList(part.rows)} />
+            </Box>
+          )
         return (
           <Box key={`t${key}`} flexDirection="column" marginY={1}>
             {drawn.header.map((line, y) => (
