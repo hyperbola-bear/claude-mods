@@ -32,6 +32,8 @@ To get new versions later, run it again with `--update`:
 python3 ~/.claude/plugins/marketplaces/polar-mods/mods --update
 ```
 
+With user-hud installed, you can instead type `/user-hud:update-mods` in a Claude Code session. Claude runs the remote script with `--update` and tells you what changed. Add `list` to only show the versions.
+
 Run the same script without `--update` to add or remove mods, or to change user-hud's modules. The next section covers its options.
 
 ## Install and update
