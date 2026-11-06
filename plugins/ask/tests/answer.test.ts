@@ -34,6 +34,7 @@ test("the fork prompt sizes diagrams to the pane, asks for a picture in draw mod
   const earlier = [ex({ q: 'what changed?', a: 'two files' }), ex({ id: 2, q: 'broken', a: '(no answer)', kind: 'error' })]
   const terminal = forkPrompt('how does auth work?', false, { surface: 'terminal', columns: 58 }, earlier)
   expect(terminal).toContain('58 columns wide')
+  expect(terminal).toContain('Keep every table within 58 columns counting its borders')
   expect(terminal).toContain('```mermaid')
   expect(terminal).toContain('Earlier questions in this pane, which the main chat does not have:')
   expect(terminal).toContain('Q: what changed?\nA: two files')
@@ -43,6 +44,8 @@ test("the fork prompt sizes diagrams to the pane, asks for a picture in draw mod
 
   const desktop = forkPrompt('the flow', true, { surface: 'desktop', columns: 90 }, [])
   expect(desktop).toContain('SVG picture')
+  // The desktop draws the pane's text in cells too, so its tables are sized to the pane the same way.
+  expect(desktop).toContain('The pane is 90 columns of monospaced text wide')
   expect(desktop).toContain('asked for a picture')
   expect(desktop).not.toContain('Earlier questions')
 })

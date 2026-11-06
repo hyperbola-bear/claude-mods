@@ -24,7 +24,10 @@
  *
  * Answers are markdown with ```mermaid blocks, drawn where the pane is: box
  * drawings sized to the terminal pane's columns, SVG in the desktop app (see
- * diagram.ts for which types are vector drawings there). A terminal diagram
+ * diagram.ts for which types are vector drawings there). The answer is told
+ * the pane's width, and a table still wider than the pane (it was resized, or
+ * the answer ran over) is drawn here with its cells wrapped to fit, or as a
+ * list where the pane is too narrow for its columns. A terminal diagram
  * too wide for the pane is cut at its edge, and `o` opens the newest
  * answer's diagrams full size in the browser, drawn by Mermaid itself.
  *
@@ -51,6 +54,7 @@ import {
 } from './answer.ts'
 import type { PaneView } from './answer.ts'
 import { diagramPage, drawAscii, drawSvg } from './diagram.ts'
+import { fittedTable, naturalWidth, tableAsList, tableParts } from './tables.ts'
 
 export const PANE = 'ask'
 const exchanges = atom({ plugin: 'ask', key: 'exchanges' } as const, [] as Exchange[])
@@ -279,6 +283,34 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
+    /** Prose, and its tables fitted to the pane: whole where they fit, their cells wrapped where not, else a list. */
+    const prose = (text: string, i: string) =>
+      tableParts(text).map((part, n) => {
+        const key = `${i}-${n}`
+        if (part.kind === 'markdown' || naturalWidth(part.rows) <= width) return <Markdown key={`m${key}`} text={part.kind === 'markdown' ? part.text : part.source} />
+        const drawn = fittedTable(part.rows, width)
+        if (!drawn)
+          return (
+            <Box key={`l${key}`} flexDirection="column" marginY={1}>
+              <Markdown text={tableAsList(part.rows)} />
+            </Box>
+          )
+        return (
+          <Box key={`t${key}`} flexDirection="column" marginY={1}>
+            {drawn.header.map((line, y) => (
+              <Text key={`t${key}h${y}`} bold={y > 0} wrap="truncate-end">
+                {line}
+              </Text>
+            ))}
+            {drawn.body.map((line, y) => (
+              <Text key={`t${key}b${y}`} wrap="truncate-end">
+                {line}
+              </Text>
+            ))}
+          </Box>
+        )
+      })
+
     const picture = (source: string, i: string) => {
       if (e.surface !== 'terminal') {
         const { Svg } = $.ui.resolve(e)
@@ -314,7 +346,7 @@ export const register: Register = (on, options) => {
           <Text dimColor>{x.isDraw ? 'drawing…' : 'thinking…'}</Text>
         ) : (
           segments(x.a).map((seg, i) =>
-            seg.kind === 'text' ? <Markdown key={`m${x.id}-${i}`} text={seg.text} /> : picture(seg.source, `${x.id}-${i}`),
+            seg.kind === 'text' ? prose(seg.text, `${x.id}-${i}`) : picture(seg.source, `${x.id}-${i}`),
           )
         )}
         {x.a !== null && (

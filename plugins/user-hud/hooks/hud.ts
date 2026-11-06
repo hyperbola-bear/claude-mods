@@ -63,6 +63,20 @@ export function orderFrom(v: unknown): ModuleId[] {
   return [...new Set([...named, ...DEFAULT_ORDER])]
 }
 
+/** The modules whose cards stay in full while the others can fold, unless the Kept open row says otherwise. */
+export const DEFAULT_OPEN: readonly ModuleId[] = ['next']
+
+/** The modules named as kept open, once each, in the usual order; an empty row keeps none. */
+export function openFrom(v: unknown): ModuleId[] {
+  if (typeof v !== 'string') return [...DEFAULT_OPEN]
+  const named = moduleIds(v)
+  return DEFAULT_ORDER.filter(id => MODULE_CARD[id] !== null && named.includes(id))
+}
+
+/** The kept-open modules with `id` switched. */
+export const toggledOpen = (open: readonly ModuleId[], id: ModuleId): ModuleId[] =>
+  DEFAULT_ORDER.filter(x => (x === id ? !open.includes(x) : open.includes(x)))
+
 export type HudArgs =
   | { kind: 'toggle' }
   | { kind: 'list' }
@@ -104,9 +118,11 @@ export function moved(order: readonly ModuleId[], id: ModuleId, by: -1 | 1): Mod
 }
 
 /** `/hud modules`: one line per module in the panel's order, on or off, then how to switch or move one. */
-export function modulesText(modules: Modules, order: readonly ModuleId[] = DEFAULT_ORDER): string {
-  const lines = order.map(id => MODULES.find(m => m.id === id)!).map(m => `${modules[m.id] ? '● on ' : '○ off'}  ${m.id.padEnd(8)} ${m.desc}`)
-  return [...lines, 'Switch or move them in the Modules pane, or with /hud <module> on|off and /hud order <modules…>.'].join('\n')
+export function modulesText(modules: Modules, order: readonly ModuleId[] = DEFAULT_ORDER, open: readonly ModuleId[] = DEFAULT_OPEN): string {
+  const lines = order
+    .map(id => MODULES.find(m => m.id === id)!)
+    .map(m => `${modules[m.id] ? '● on ' : '○ off'}  ${m.id.padEnd(8)} ${m.desc}${open.includes(m.id) ? ' (kept open)' : ''}`)
+  return [...lines, 'Switch, move or keep them open in the Modules pane, or with /hud <module> on|off and /hud order <modules…>.'].join('\n')
 }
 
 /** `/hud order`: the cards' order as it stands, and how to change it. */

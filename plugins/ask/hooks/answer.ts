@@ -46,6 +46,18 @@ function diagramRules(view: PaneView): string {
 }
 
 /**
+ * The pane is text in fixed cells on both surfaces: a table wider than it
+ * wraps into broken borders, so the answer is told the width it has.
+ */
+function widthRules(view: PaneView): string {
+  return [
+    `The pane is ${view.columns} columns of monospaced text wide, and it does not scroll sideways.`,
+    `Keep every table within ${view.columns} columns counting its borders (each column takes its widest cell plus 3, and 1 more for the edge).`,
+    'Keep table cells short (a word or a value); put explanations in prose or a list rather than a table cell, and use a list instead of a table with more than 4 columns.',
+  ].join(' ')
+}
+
+/**
  * The one user message a fork of the main chat answers. `earlier` is the
  * pane's own recent exchanges that the main chat does not hold (nothing goes
  * back to it unless the person sends it), so a follow-up question has them.
@@ -58,6 +70,7 @@ export function forkPrompt(question: string, isDraw: boolean, view: PaneView, ea
   return [
     'This is a side question from the "ask" pane beside the main chat. Answer it from the conversation so far.',
     'Do not use tools, do not propose edits, and do not continue the main task. The pane scrolls, so answer fully, but lead with the answer itself.',
+    widthRules(view),
     diagramRules(view),
     isDraw ? 'The person asked for a picture: answer with a mermaid diagram first, then explain it in a few sentences.' : '',
     history === '' ? '' : `Earlier questions in this pane, which the main chat does not have:\n\n${history}`,

@@ -52,6 +52,10 @@ Rewinding removes one exchange at a time, newest first, and later questions no l
 - **Pane → main chat, only when you send it.** Side questions don't add to the main chat's context. To share one, press `s` (the newest answer) or `→ send to chat` under any answer. It's added as a note Claude reads on its next step, marked as context you chose to share and not a request; the transcript shows a line saying what was sent, and the answer's footer says `sent to the chat`. Sent during a turn, Claude picks it up on that turn's next step.
 - **The pane's own history.** So that follow-up questions work, each fork also carries the pane's recent questions and answers that the main chat doesn't have. A sent exchange stops being carried once a main turn that started after it has ended, and a rewound one stops at once.
 
+## Tables
+
+The pane is text in fixed cells on both surfaces, and a table wider than it would wrap into broken borders. So each question tells the answer how many columns the pane has (as it was last drawn) and to keep its tables inside them, with short cells. A table that is still too wide, because the answer ran over or the pane was narrowed since, is redrawn to fit: its cells wrap inside columns that share the width, each column first given room for its longest word. Where that would leave a column under 8 cells, break a word of up to 16 characters, or make a row taller than 6 lines, the table becomes a list instead, one entry a row with its first cell in bold. A table that fits is left as it was written.
+
 ## Diagrams
 
 Answers are Markdown with ` ```mermaid ` blocks. Mermaid is the diagram language Claude writes most reliably, and it's text, so it travels through the main chat and git as is. The pane draws it with [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid), which needs no browser:

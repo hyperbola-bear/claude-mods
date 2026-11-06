@@ -20,7 +20,7 @@ The panel is seven modules, each on by default:
 
 Turn a module off and it leaves the panel and the closed row, its commands are not registered, and none of its work runs: with `cache` off nothing counts down, alerts or pings; with `tokens` off nothing is counted; with `next` off no reply asks for suggestions; with `sessions` off no session file is read; and with `assume` off Claude is not given the tool. Turn every module off and the band draws nothing.
 
-- The **Modules** pane lists every module in the order of their cards, each with its switch (`● on` / `○ off`) and `▲ ▼` to move its card a place up or down. Click them, or click into the pane and use the arrow keys and Return; the focus stays on a module as it moves. Once the order differs from the usual one, **d: usual order** puts it back. Handoff has no card (its buttons sit in the bottom bar), so it has a switch and no arrows. Every press writes the same `/config` rows as below. `/hud modules` and `/hud order` open it as a pane. **Settings → Modules** (`s`, then the Modules row) shows the same rows in the panel itself, in place of the settings, with **⚙ s: Back** to return; on a band too short for them, the switches fold into one pill each.
+- The **Modules** pane lists every module in the order of their cards, each with its switch (`● on` / `○ off`), whether its card is kept open (`◆ open`) or may fold (`◇ folds`), and `▲ ▼` to move its card a place up or down. Click them, or click into the pane and use the arrow keys and Return; the focus stays on a module as it moves. Once the order differs from the usual one, **d: usual order** puts it back. Handoff has no card (its buttons sit in the bottom bar), so it has a switch and nothing else. Every press writes the same `/config` rows as below. `/hud modules` and `/hud order` open it as a pane. **Settings → Modules** (`s`, then the Modules row) shows the same rows in the panel itself, in place of the settings, with **⚙ s: Back** to return; on a band too short for them, the switches fold into one pill each.
 
 ```
 ── M O D U L E S ───────────────────────────────────── d: usual order ─
@@ -34,7 +34,7 @@ Turn a module off and it leaves the panel and the closed row, its commands are n
 Click ▲ ▼ or a switch, or arrow to one and press Return.
 ```
 
-- `/hud <module> on|off` switches one from the prompt (`/hud tokens off`), and `/hud order <modules…>` sets the order (`/hud order sessions next`): the modules you name come first, the rest after in the usual order. **Module order** in `/config` is the same setting.
+- `/hud <module> on|off` switches one from the prompt (`/hud tokens off`), and `/hud order <modules…>` sets the order (`/hud order sessions next`): the modules you name come first, the rest after in the usual order. **Module order** in `/config` is the same setting, and **Kept open** (`keepOpen`, default `next`) holds the cards the `◆ open` switches keep in full.
 - `/config` has the same switches, as **Module: cache**, **Module: guesses** and so on.
 - The [`mods` script](../../README.md#install-and-update) asks which modules to turn on when it installs or updates user-hud.
 
@@ -76,21 +76,20 @@ Click the tab (or run `/hud`) and the panel opens above it, as cards. Open or cl
 
 - The cards are tiles of one size: one, two or three across, as many as fit at 36 cells or more each, across at most 132 cells, two cells apart. Every tile is as tall as the tallest, so the tiles in a row line up and each card keeps the same space whatever it holds, with blank rows where its content is short. The guesses and next steps cards stay on show when empty (`nothing to check`, `suggested after each reply`). They come left to right, then the next row, in this order unless you change it with `/hud order`, each only while its module is on: model and effort, cache, context, sessions, guesses, next steps.
 - Handoff is not a card: **✦ h: Write handoff** and **◆ r: Read** sit in the bottom bar, beside the settings. As the bar narrows, the note goes first, then the word `handoff`, then both buttons (`/handoff` and `/read-handoff` still work).
-- When the band is short (the desktop shows 12 rows), whole rows of tiles fold to one row a tile, from the last row up, until the rest fit in full. The model and effort pickers' row never folds while anything else can give way, and neither does the row of a card brought to the front (so guesses can still be marked). Folded rows sit one under another with no blank row between them, each led by its card's name in grey (`MODEL`, `CACHE`, `CONTEXT`, `SESSIONS`, `GUESSES`, `NEXT STEPS`). The folded context row opens the Tokens pane wherever you click it, the total included, and keeps `t: details` while it fits. Which rows fold depends only on the rows and the order, never on what the cards hold:
+- When the band is short (the desktop shows 12 rows), whole rows of tiles fold to one row a tile until the rest fit in full. The cards kept open never fold while anything else can give way: next steps, unless you change it with the `◆ open` / `◇ folds` switches in the Modules pane, and the card brought to the front (so guesses can still be marked). The other rows fold by how little their cards lose folded: the model and effort pickers first (folded, they still name the model and effort, and `m` opens the pickers), then the cache (it keeps its countdown and Keep warm), the context (its battery), the sessions (their counts) and the guesses. A tile in full is as tall as the tallest tile still in full, so folding the pickers shortens every row. Folded rows sit one under another with no blank row between them, each led by its card's name in grey (`MODEL`, `CACHE`, `CONTEXT`, `SESSIONS`, `GUESSES`, `NEXT STEPS`). The folded context row opens the Tokens pane wherever you click it, the total included, and keeps `t: details` while it fits. Which rows fold depends only on the rows, the order and what is kept open, never on what the cards hold:
 
 ```
-── M O D E L   ·   E F F O R T ──────────────────  ── C A C H E ────────────────────────────────────
- Haiku 4.5  Sonnet 5.5   Opus 5.5    Fable 5.1     ● cache 52:10 ▰▰▰▰▰▰▰▰▰▱
-▔▔▔▔▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔▔▔▔▔ ███████████ ▔▔▔▔▔▔▔▔▔▔▔    182k cached · hit 94% · 1h          w: Keep warm
-  Low   Medium   High    XHigh    Max    Ultra
-▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔ ███████ ▔▔▔▔▔▔▔ ▔▔▔▔▔▔▔
-
+MODEL Opus 5.5 · XHigh                    m: pick  CACHE ● 52:10 ▰▰▰▰▰▰▰▰▰▱            w: Keep warm
 CONTEXT ▕███▍      ▏ 34%          1.2M t: details  SESSIONS                        ●1 ●2 ✓3 1 asleep
-GUESSES ? 4 to check                    a: review  NEXT STEPS ✦ 1: Run the tests                 2 3
+
+── C H E C K   M Y   G U E S S E S ──── +1 more ─  ── N E X T   S T E P S ──────────────────────────
+✓ ✗  "Terminal name" = the title Claude gives th…  ✦ 1: Run the tests
+✓ ✗  "Done" means finished in the last 8 hours     ✦ 2: Commit this and open a PR
+✓ ✗  The diamond means both the tab and the coun…  ✦ 3: Add a test for the empty case
 ⚙ s: Settings   ✦ h: Write handoff   ◆ r: Read   newest · 2h ago                       ❖ user-hud ▾
 ```
 
-- When even that needs more rows than there are, the last other cards go and **+N more** in the bottom bar says how many; press it and they come first. Only a band too short to hold the pickers in full at all (under about 6 rows) folds them to their one row, `MODEL Opus 5.5 · XHigh  m: pick`.
+- When even that needs more rows than there are, the last other cards go and **+N more** in the bottom bar says how many; press it and they come first. Only a band too short to hold the cards kept open in full at all (under about 5 rows for next steps) folds them too, and even then they stay on show while any other card can go behind **+N more**.
 - **⚙ s: Settings** turns the panel to the settings, and **⚙ s: Back** turns it back to the cards. When the rows are too few for them, the settings fold onto one line of pills.
 
 ```

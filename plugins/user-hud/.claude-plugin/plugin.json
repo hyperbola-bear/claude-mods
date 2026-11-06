@@ -1,6 +1,6 @@
 {
   "name": "user-hud",
-  "version": "2.5.2",
+  "version": "2.6.0",
   "author": {
     "name": "Polar"
   },
@@ -66,6 +66,12 @@
       "title": "Module order",
       "description": "The order of the panel's cards, top to bottom: module names separated by commas (pickers, cache, tokens, sessions, assume, next, handoff). Modules left out follow in this usual order. The Modules pane (/hud modules) and /hud order set it too.",
       "default": "pickers, cache, tokens, sessions, assume, next, handoff"
+    },
+    "keepOpen": {
+      "type": "string",
+      "title": "Kept open",
+      "description": "The cards that never fold when the panel is short of rows: module names separated by commas (pickers, cache, tokens, sessions, assume, next). The other cards fold to one row first, the model and effort pickers before the rest. The ◆ open switches in the Modules pane set it too.",
+      "default": "next"
     },
     "warnSeconds": {
       "type": "number",

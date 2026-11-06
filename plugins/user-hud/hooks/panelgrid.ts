@@ -27,6 +27,8 @@ export type BandView = {
   lead: CardId | null
   /** The cards top to bottom, as the person ordered the modules. */
   order: readonly CardId[]
+  /** The cards kept in full while any other card can fold or go: next steps unless the person says otherwise. */
+  keepOpen: readonly CardId[]
   /** The cache countdown chip, a pie of the time left before it; empty when nothing is cached. */
   chip: Run[]
   /** The plan window past its limit, worded (`5-hour limit 103%`); null when not on overage. */
@@ -50,8 +52,8 @@ export type BandView = {
   /** The cache card: its state with the pie, the life bar, and what is cached. */
   cache: { status: Run[]; bar: Run[]; detail: string | null } | null
   settings: Setting[]
-  /** Which modules are on, and their order, for the modules behind the settings. */
-  modules: { on: Modules; order: readonly ModuleId[] }
+  /** Which modules are on, their order, and which stay open, for the modules behind the settings. */
+  modules: { on: Modules; order: readonly ModuleId[]; open: readonly ModuleId[] }
   handoff: { hasNewest: boolean; note: string } | null
   /** Next steps: the prompts suggested after the last reply, or a dim note while they are asked for. */
   next: { items: string[]; note: string | null } | null
@@ -360,8 +362,21 @@ const rowsOf = (cards: readonly Card[], count: number, isFolded: boolean): TileR
 /** A blank row between two rows of tiles, unless both are folded. */
 const gapBefore = (rows: readonly TileRow[], i: number) => (i > 0 && !(rows[i]!.isFolded && rows[i - 1]!.isFolded) ? 1 : 0)
 
-/** Rows the tile rows take: `height` a row in full, one a row folded, and the blank rows between them. */
-const heightOf = (rows: readonly TileRow[], height: number) => rows.reduce((n, r, i) => n + (r.isFolded ? 1 : height) + gapBefore(rows, i), 0)
+/** Every tile in full is as tall as the tallest of them; folded tiles do not count. */
+const tileHeight = (rows: readonly TileRow[]) => Math.max(0, ...rows.flatMap(r => (r.isFolded ? [] : r.tiles.map(t => t.full.rows.length))))
+
+/** Rows the tile rows take: the tile height a row in full, one a row folded, and the blank rows between them. */
+const heightOf = (rows: readonly TileRow[]) => rows.reduce((n, r, i) => n + (r.isFolded ? 1 : tileHeight(rows)) + gapBefore(rows, i), 0)
+
+/**
+ * The order cards fold in, by how little each loses: folded, the pickers still name the model and effort with
+ * `m` a key away, the cache keeps its countdown and Keep warm, the context its battery, the sessions their
+ * counts; guesses folded cannot be marked, and next steps folded hide all but the first.
+ */
+const FOLD_ORDER: readonly CardId[] = ['model', 'cache', 'context', 'sessions', 'assume', 'next']
+
+/** A row folds as early as the card in it that folds first. */
+const foldRank = (r: TileRow) => Math.min(...r.tiles.map(t => FOLD_ORDER.indexOf(t.id)))
 
 /** The columns side by side, each row cut to the card width. */
 function sideBySide(columns: readonly Grid[], height: number, w: number, width: number): Grid {
@@ -409,33 +424,37 @@ function handoffForms(v: BandView): Piece[][] {
 type Fitted = { cards: Card[]; height: number; rows: TileRow[]; fits: boolean }
 
 /**
- * `cards` in rows of `count`, every tile as tall as the tallest, the rows folding from the last up until they
- * fit in `budget` rows; a row holding a `kept` card stays in full.
+ * `cards` in rows of `count`, every tile in full as tall as the tallest, the rows folding in `FOLD_ORDER` (the
+ * last row first among equals) until they fit in `budget` rows; a row holding a `kept` card stays in full.
  */
 function fitted(cards: Card[], count: number, budget: number, kept: readonly CardId[]): Fitted {
-  const height = Math.max(0, ...cards.map(c => c.full.rows.length))
   let rows = rowsOf(cards, count, false)
-  for (let i = rows.length - 1; i >= 0 && heightOf(rows, height) > budget; i -= 1) {
-    if (rows[i]!.tiles.some(t => kept.includes(t.id))) continue
+  const folding = rows
+    .map((r, i) => ({ r, i }))
+    .filter(({ r }) => !r.tiles.some(t => kept.includes(t.id)))
+    .sort((a, b) => foldRank(a.r) - foldRank(b.r) || b.i - a.i)
+  for (const { i } of folding) {
+    if (heightOf(rows) <= budget) break
     rows = rows.with(i, { ...rows[i]!, isFolded: true })
   }
-  return { cards, height, rows, fits: heightOf(rows, height) <= budget }
+  return { cards, height: tileHeight(rows), rows, fits: heightOf(rows) <= budget }
 }
 
 /**
- * The tiles that fit. The model and effort pickers, and the card pressed to the front (a folded guesses card
- * cannot be marked), stay in full while anything else can give way: the other rows fold, then the last other
- * cards go. Short of that the card pressed to the front folds, and only where the band cannot hold the pickers
- * in full at all do they fold too, then go like the rest.
+ * The tiles that fit. The cards kept open, and the card pressed to the front (a folded guesses card cannot be
+ * marked), stay in full while anything else can give way: the other rows fold, then the last other cards go.
+ * Short of that the card pressed to the front folds, and only where the band cannot hold the kept cards in full
+ * at all do they fold too, still shown while any other card can go behind `+N more`.
  */
-function fitTiles(all: readonly Card[], count: number, budget: number, lead: CardId | null): Fitted {
-  const keeps: CardId[][] = [lead && lead !== 'model' ? ['model', lead] : ['model'], ['model'], []]
-  for (const kept of keeps) {
+function fitTiles(all: readonly Card[], count: number, budget: number, lead: CardId | null, keepOpen: readonly CardId[]): Fitted {
+  const shown: CardId[] = lead && !keepOpen.includes(lead) ? [...keepOpen, lead] : [...keepOpen]
+  for (const kept of [shown, [...keepOpen], []]) {
     let cards = [...all]
     while (cards.length > 0) {
       const f = fitted(cards, count, budget, kept)
       if (f.fits) return f
-      const last = cards.findLastIndex(c => !kept.includes(c.id))
+      const other = cards.findLastIndex(c => !shown.includes(c.id))
+      const last = other >= 0 ? other : cards.findLastIndex(c => !kept.includes(c.id))
       if (last < 0) break
       cards = cards.toSpliced(last, 1)
     }
@@ -445,15 +464,15 @@ function fitTiles(all: readonly Card[], count: number, budget: number, lead: Car
 
 /**
  * The cards as tiles of one size, in rows that line up: every tile as tall as the tallest, so each keeps the
- * same space whatever it holds. Short of rows, the rows fold to one row a tile from the last up, so the first
- * (the card pressed to the front among them, since a folded guesses card cannot be marked) stay in full longest,
- * and the model and effort pickers' row stays in full while anything else can give way; then the last tiles go,
- * behind `+N more`. Which fold hangs on their order and the rows, never on what they hold.
+ * same space whatever it holds. Short of rows, the rows fold to one row a tile, the ones that lose least first
+ * (the pickers' row before the rest), while the rows of the cards kept open (next steps, unless the person says
+ * otherwise) and the card pressed to the front stay in full; then the last tiles go, behind `+N more`. Which fold
+ * hangs on their order and the rows, never on what they hold.
  */
 function cardsPanel(v: BandView): Band {
   const { width, count, card } = cardLayout(v.columns)
   const all = cardsOf(v, card)
-  const { cards, height, rows } = fitTiles(all, count, v.maxRows - 1, v.lead)
+  const { cards, height, rows } = fitTiles(all, count, v.maxRows - 1, v.lead, v.keepOpen)
   const b = builder()
   rows.forEach((r, i) => {
     if (gapBefore(rows, i)) b.add(runs(' '.repeat(width)))
@@ -512,7 +531,7 @@ function settingsPanel(v: BandView): Band {
 function modulesPanel(v: BandView): Band {
   const { width } = cardLayout(v.columns)
   const budget = v.maxRows - 1
-  const pane = modulesPaneGrid(v.modules.on, v.modules.order, width)
+  const pane = modulesPaneGrid(v.modules.on, v.modules.order, width, v.modules.open)
   const b = builder()
   const kept = pane.rows.length <= budget ? pane.rows.length : pane.rows.length - 1 <= budget ? pane.rows.length - 1 : 0
   if (kept > 0) b.append({ rows: pane.rows.slice(0, kept), hits: pane.hits.filter(h => h.y < kept) })

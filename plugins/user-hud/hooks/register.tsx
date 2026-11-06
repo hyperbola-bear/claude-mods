@@ -98,7 +98,7 @@ import {
 } from './cache.ts'
 import type { Level } from './cache.ts'
 import { HANDOFF_DIRS, age, handoffPrompt, handoffTarget, isHandoffName, joinPath, newest, resumePrompt } from './handoff.ts'
-import { MODELS, MODULES, MODULE_CARD, asEffort, lifeBar, modelAlias, modelLabel, modulesFrom, modulesText, moved, nextWarn, orderFrom, orderText, parseHudArgs, pieOf } from './hud.ts'
+import { MODELS, MODULES, MODULE_CARD, asEffort, lifeBar, modelAlias, modelLabel, modulesFrom, modulesText, moved, nextWarn, openFrom, orderFrom, orderText, parseHudArgs, pieOf, toggledOpen } from './hud.ts'
 import { modulesPaneGrid } from './modulesview.ts'
 import type { ModuleId, Modules } from './hud.ts'
 import { EFFORT_COLORS, EFFORT_SHORT_LABELS, EFFORT_STEPS, MODEL_COLORS, SELECTOR_STYLES, asStyle, effortStep, nextStyle, parseEffortArgs, spread, styleLabel, ultracodeTook } from './selector.ts'
@@ -200,6 +200,8 @@ type Cfg = {
   modules: Modules
   /** The modules' cards, top to bottom, every module once. */
   order: ModuleId[]
+  /** The modules whose cards stay in full while the others fold. */
+  keepOpen: ModuleId[]
 }
 
 export function readCfg(o: Record<string, unknown>): Cfg {
@@ -217,6 +219,7 @@ export function readCfg(o: Record<string, unknown>): Cfg {
     selectorStyle: asStyle(o.selectorStyle),
     modules: modulesFrom(o),
     order: orderFrom(o.moduleOrder),
+    keepOpen: openFrom(o.keepOpen),
   }
 }
 
@@ -560,8 +563,9 @@ async function runAction($: EngineInterface, action: unknown) {
   if (action === 'sessions:asleep') return update($, asleepA, isShown => !isShown)
   if (action.startsWith('session:')) return jumpToSession($, action.slice('session:'.length))
   if (action === 'modules:default') return setOption($, 'moduleOrder', '')
-  const mod = /^module:(toggle|up|down):(\w+)$/.exec(action)
+  const mod = /^module:(toggle|open|up|down):(\w+)$/.exec(action)
   const id = MODULES.find(m => m.id === mod?.[2])?.id
+  if (mod && id && mod[1] === 'open') return setOption($, 'keepOpen', toggledOpen(cfg.keepOpen, id).join(', '))
   if (mod && id) return mod[1] === 'toggle' ? void (await setModule($, id, !cfg.modules[id])) : setOption($, 'moduleOrder', moved(cfg.order, id, mod[1] === 'up' ? -1 : 1).join(', '))
   if (action === 'assume:review') return reviewGuesses($)
   if (action.startsWith('assume:right:')) return update($, guessesA, gs => marked(gs, action.slice('assume:right:'.length), 'right'))
@@ -1309,7 +1313,7 @@ export const register: Register = (on, given) => {
     const args = parseHudArgs(e.args)
     if (args.kind === 'list') {
       await openModulesPane($)
-      return { text: modulesText(cfg.modules, cfg.order) }
+      return { text: modulesText(cfg.modules, cfg.order, cfg.keepOpen) }
     }
     if (args.kind === 'badOrder') return { text: `No module called ${args.unknown.join(', ')}. The modules: ${MODULES.map(m => m.id).join(', ')}.` }
     if (args.kind === 'order') {
@@ -1366,6 +1370,7 @@ export const register: Register = (on, given) => {
       maxRows: e.props.maxRows,
       lead: hud.lead,
       order: cfg.order.flatMap(id => MODULE_CARD[id] ?? []),
+      keepOpen: cfg.keepOpen.flatMap(id => MODULE_CARD[id] ?? []),
       chip: mods.cache ? chipRuns(c, t.ttl, lv, rem) : [],
       overage: mods.cache && hud.overage ? limitLabel(hud.overage) : null,
       usedTokens: mods.tokens && used > 0 ? `${fmtTokens(Math.round(used))} tokens` : null,
@@ -1379,7 +1384,7 @@ export const register: Register = (on, given) => {
       contextWindow: mods.tokens && hud.contextWindow ? fmtTokens(hud.contextWindow) : null,
       cache: mods.cache ? cacheView(c, t.ttl, lv, rem) : null,
       settings: settingsView(c),
-      modules: { on: cfg.modules, order: cfg.order },
+      modules: { on: cfg.modules, order: cfg.order, open: cfg.keepOpen },
       next: mods.next ? { items: nx.items, note: nx.isThinking ? 'thinking of next steps…' : nx.error } : null,
       handoff: mods.handoff ? { hasNewest: newestNote !== undefined, note: newestNote ? `newest · ${age(newestNote.mtimeMs, now)}` : 'no notes yet' } : null,
       sessions: mods.sessions ? { list: sessions, now } : null,
@@ -1465,7 +1470,7 @@ export const register: Register = (on, given) => {
   on('ui.render', { component: 'Pane', requestId: MODULES_PANE }, async ($, e) => {
     const ui: Ui = $.ui.resolve(e)
     const width = Math.max(20, e.props.bodyColumns)
-    return cellsElement(ui, e.surface, 'modules', clipped(modulesPaneGrid(cfg.modules, cfg.order, width), width), a => void runAction($, a))
+    return cellsElement(ui, e.surface, 'modules', clipped(modulesPaneGrid(cfg.modules, cfg.order, width, cfg.keepOpen), width), a => void runAction($, a))
   })
 
   // ---------- handoff pane ----------
