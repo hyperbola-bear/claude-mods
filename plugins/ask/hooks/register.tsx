@@ -6,19 +6,21 @@
  * `/draw <thing>` asks for a diagram; `/ask-rewind` (`r` in the pane) takes
  * back the newest question and answer. Claude Code ships `/rewind`, which
  * restores the main chat and code, so that name stays its own. In the pane,
- * Enter asks, `d` turns draw mode on for every question, and the answers
- * scroll: the newest one is
- * brought into view from its question down, and once a question is sent the
- * focus leaves the field for the question's ❯ mark (press it to copy that
- * answer), so the arrows, PgUp and PgDn (and the wheel) move through the
- * answers; `i` goes back to the field.
+ * Enter asks, and `d` turns draw mode on for every question. Each question
+ * has a faint line under it, and every command sits in one bar at the bottom.
+ * Docked beside the chat, the pane scrolls the answers itself, so the bar stays
+ * put while the wheel, the arrows, PgUp and PgDn move them (layout.ts). The
+ * newest question is brought to the top while its answer comes in, and once
+ * it is sent the focus leaves the field for the question's ❯ mark (press it to
+ * copy that answer); `s` and `c` act on the answer whose ❯ holds the focus,
+ * else the newest. `i` goes back to the field.
  *
  * Context flows one way unless the person says otherwise:
  *   - main to pane: each question is a `$.model.fork` of the main chat's
  *     transcript, tools and all, so the pane knows everything said and done
  *     so far, served from the main chat's prompt cache;
  *   - pane to main: nothing, so the main chat's context does not grow with
- *     every side question. `s` (or an answer's "send to chat") appends that
+ *     every side question. `s` appends that
  *     exchange as a user-role note the model reads, with a dim line in the
  *     transcript saying what was sent.
  *
@@ -54,6 +56,8 @@ import {
 } from './answer.ts'
 import type { PaneView } from './answer.ts'
 import { diagramPage, drawAscii, drawSvg } from './diagram.ts'
+import { PARKED, clampOffset, inView, markdownRows, scrolled, spacePerRow, svgRows, textColumns, textRows, wrappedRows } from './layout.ts'
+import type { Metrics } from './layout.ts'
 import { fittedTable, naturalWidth, tableAsList, tableParts } from './tables.ts'
 
 export const PANE = 'ask'
@@ -73,13 +77,33 @@ let asked = 0
 let lastId = 0
 // The element holding the pane's focus ring, as the last `ui.focus` landed it.
 let ring: string | undefined
+// The ❯ the focus last landed on, the answer `s` and `c` act on; the field clears it. A bar button keeps it.
+let picked: number | null = null
+// Docked, the pane scrolls the answers itself: their first row in view, and how they laid out when last drawn.
+let isPinned = false
+let offset = 0
+let metrics: Metrics = { total: 0, visible: 1, starts: new Map() }
+// An exchange kept at the top until the person scrolls: the newest question, while its answer comes in.
+let follow: number | null = null
 
 /** Long enough for a state write's redraw to land. */
 const FRAME_MS = 60
 
 const fieldKey = () => `q${asked}`
 const questionKey = (id: number) => `x${id}q`
-const sendKey = (id: number) => `x${id}s`
+
+const questionOf = (key: string | undefined): number | null => {
+  const m = key === undefined ? null : /^x(\d+)q$/.exec(key)
+  return m ? Number(m[1]) : null
+}
+
+/** The answer `s` and `c` act on: the one whose ❯ was picked, else the newest that `fits`. */
+function chosen(xs: readonly Exchange[], fits: (x: Exchange) => boolean): Exchange | undefined {
+  const onPick = xs.find(x => x.id === picked)
+  return onPick && fits(onPick) ? onPick : xs.filter(fits).at(-1)
+}
+const isAnswered = (x: Exchange) => x.a !== null
+const isSendable = (x: Exchange) => x.a !== null && x.kind !== 'error' && !x.sent
 
 async function edit($: EngineInterface, id: number, change: Partial<Exchange>) {
   await update($, exchanges, xs => xs.map(x => (x.id === id ? { ...x, ...change } : x)))
@@ -90,16 +114,21 @@ async function open($: EngineInterface) {
 }
 
 /**
- * Shows an exchange from its question down. The terminal keeps the element
- * holding the focus in view, so the ring goes to the question's mark first:
- * left on the field or the buttons under the answers, it would hold the view
- * at the bottom. Nothing when the pane is not drawn.
+ * Shows an exchange from its question down, and puts the focus on its ❯ so
+ * the keys leave the field. Docked, the pane keeps it at the top until the
+ * person scrolls; inline, the engine scrolls to it. Nothing when the pane is
+ * not drawn.
  */
 async function reveal($: EngineInterface, id: number) {
+  follow = id
+  $.ui.invalidate('ui.render')
   const moved = await $.ui.focus({ requestId: PANE, key: questionKey(id) }).catch(err => ({ deny: String(err) }))
   // The mod's own `ui.focus` hook is left out of its own call, so the move is noted here.
-  if (!moved.deny) ring = questionKey(id)
-  await $.ui.scroll({ in: PANE, to: { key: `x${id}` }, block: 'start' }).catch(() => undefined)
+  if (!moved.deny) {
+    ring = questionKey(id)
+    picked = id
+  }
+  if (!isPinned) await $.ui.scroll({ in: PANE, to: { key: `x${id}` }, block: 'start' }).catch(() => undefined)
 }
 
 /** Sends one exchange to the main chat, at the person's word: a note the model reads, and a notice they see. */
@@ -167,9 +196,9 @@ async function ask($: EngineInterface, question: string, isDraw: boolean) {
     got = { a: `(no answer: ${err instanceof Error ? err.message : String(err)})`, kind: 'error' }
   }
   await edit($, x.id, { ...got, ms: (await $.clock.now()) - askedAt })
-  // Brought into view again unless the person has moved on (typing the next question, reading another),
-  // once the answer's rows are laid out: the state write redraws on the next frame.
-  if (ring === questionKey(x.id)) {
+  // Inline, brought into view again once the answer's rows are laid out (the state write redraws on the next
+  // frame), unless the person has moved on: typing the next question, reading another. Docked, `follow` holds it.
+  if (!isPinned && ring === questionKey(x.id)) {
     await $.clock.sleep(FRAME_MS)
     await reveal($, x.id)
   }
@@ -183,8 +212,10 @@ async function rewind($: EngineInterface): Promise<string> {
   const xs = await read($, exchanges)
   const x = xs.at(-1)
   if (!x) return 'Nothing to rewind'
-  // The last exchange takes the buttons under the answers with it.
-  const isRingLeaving = xs.length === 1 || ring === questionKey(x.id) || ring === sendKey(x.id)
+  // The last exchange takes rewind and clear out of the bar with it.
+  const isRingLeaving = xs.length === 1 || ring === questionKey(x.id)
+  if (follow === x.id) follow = null
+  if (picked === x.id) picked = null
   await update($, exchanges, all => all.filter(one => one.id !== x.id))
   // An element removed with the ring on it takes the focus out of the pane, so it comes back once the redraw lands.
   if (isRingLeaving) void $.clock.sleep(FRAME_MS).then(() => $.ui.focus({ requestId: PANE, key: fieldKey() })).catch(() => undefined)
@@ -261,7 +292,12 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear') await update($, exchanges, () => [])
+    if (e.reason === 'clear') {
+      offset = 0
+      follow = null
+      picked = null
+      await update($, exchanges, () => [])
+    }
     return next(e)
   })
 
@@ -272,43 +308,57 @@ export const register: Register = (on, options) => {
     const isDraw = await read($, drawMode)
     const width = Math.max(20, e.props.bodyColumns - 1)
     view = { surface: e.surface, columns: width }
+    isPinned = e.props.placement === 'dock'
     const isTerminal = e.surface === 'terminal'
     const hasDiagram = xs.some(x => x.a !== null && diagramsOf(x.a).length > 0)
-    const canSend = xs.some(x => x.a !== null && x.kind !== 'error' && !x.sent)
+    const columns = textColumns(e.surface, width)
 
-    const unDrawn = (source: string, reason: string, i: string) => (
-      <Box key={`u${i}`} flexDirection="column" marginY={1}>
-        <Code source={source} language="mermaid" />
-        <Text dimColor>{`not drawn here (${reason}): o opens it full size`}</Text>
-      </Box>
-    )
+    // Each piece of an answer with the rows it takes, so the pane can scroll the answers itself.
+    const unDrawn = (source: string, reason: string, i: string) => ({
+      rows: source.split('\n').length + 3,
+      node: (
+        <Box key={`u${i}`} flexDirection="column" marginY={1} width={width}>
+          <Code source={source} language="mermaid" />
+          <Text dimColor>{`not drawn here (${reason}): o opens it full size`}</Text>
+        </Box>
+      ),
+    })
 
     /** Prose, and its tables fitted to the pane: whole where they fit, their cells wrapped where not, else a list. */
     const prose = (text: string, i: string) =>
       tableParts(text).map((part, n) => {
         const key = `${i}-${n}`
-        if (part.kind === 'markdown' || naturalWidth(part.rows) <= width) return <Markdown key={`m${key}`} text={part.kind === 'markdown' ? part.text : part.source} />
+        if (part.kind === 'markdown') return { rows: markdownRows(part.text, columns), node: <Markdown key={`m${key}`} text={part.text} /> }
+        if (naturalWidth(part.rows) <= width) return { rows: part.rows.length + 3, node: <Markdown key={`m${key}`} text={part.source} /> }
         const drawn = fittedTable(part.rows, width)
-        if (!drawn)
-          return (
-            <Box key={`l${key}`} flexDirection="column" marginY={1}>
-              <Markdown text={tableAsList(part.rows)} />
+        if (!drawn) {
+          const list = tableAsList(part.rows)
+          return {
+            rows: markdownRows(list, columns) + 2,
+            node: (
+              <Box key={`l${key}`} flexDirection="column" marginY={1} width={width}>
+                <Markdown text={list} />
+              </Box>
+            ),
+          }
+        }
+        return {
+          rows: drawn.header.length + drawn.body.length + 2,
+          node: (
+            <Box key={`t${key}`} flexDirection="column" marginY={1} width={width}>
+              {drawn.header.map((line, y) => (
+                <Text key={`t${key}h${y}`} bold={y > 0} wrap="truncate-end">
+                  {line}
+                </Text>
+              ))}
+              {drawn.body.map((line, y) => (
+                <Text key={`t${key}b${y}`} wrap="truncate-end">
+                  {line}
+                </Text>
+              ))}
             </Box>
-          )
-        return (
-          <Box key={`t${key}`} flexDirection="column" marginY={1}>
-            {drawn.header.map((line, y) => (
-              <Text key={`t${key}h${y}`} bold={y > 0} wrap="truncate-end">
-                {line}
-              </Text>
-            ))}
-            {drawn.body.map((line, y) => (
-              <Text key={`t${key}b${y}`} wrap="truncate-end">
-                {line}
-              </Text>
-            ))}
-          </Box>
-        )
+          ),
+        }
       })
 
     const picture = (source: string, i: string) => {
@@ -316,47 +366,31 @@ export const register: Register = (on, options) => {
         const { Svg } = $.ui.resolve(e)
         const drawn = drawSvg(source, width)
         if (drawn.kind === 'error') return unDrawn(source, drawn.reason, i)
-        return (
-          <Box key={`d${i}`} marginY={1}>
-            <Svg source={drawn.svg} alt={source} />
-          </Box>
-        )
+        return {
+          rows: svgRows(drawn.svg, width) + 2,
+          node: (
+            <Box key={`d${i}`} marginY={1} width={width}>
+              <Svg source={drawn.svg} alt={source} />
+            </Box>
+          ),
+        }
       }
       const drawn = drawAscii(source, width)
       if (drawn.kind === 'error') return unDrawn(source, drawn.reason, i)
-      return (
-        <Box key={`d${i}`} flexDirection="column" marginY={1}>
-          {drawn.lines.map((line, n) => (
-            <Text key={`l${i}-${n}`} color="claude" wrap="truncate-end">
-              {line === '' ? ' ' : line}
-            </Text>
-          ))}
-          {drawn.isClipped && <Text dimColor>{`${drawn.width} columns wide, cut at ${width}: o opens it full size`}</Text>}
-        </Box>
-      )
-    }
-
-    const rows = xs.map(x => (
-      <Box key={`x${x.id}`} flexDirection="column" marginTop={1} width={width}>
-        <Box flexDirection="row" gap={1}>
-          <Button key={questionKey(x.id)} plain label="❯" onPress={() => undefined} />
-          <Text bold wrap="wrap">{`${x.q}${x.isDraw ? '  ✎' : ''}`}</Text>
-        </Box>
-        {x.a === null ? (
-          <Text dimColor>{x.isDraw ? 'drawing…' : 'thinking…'}</Text>
-        ) : (
-          segments(x.a).map((seg, i) =>
-            seg.kind === 'text' ? prose(seg.text, `${x.id}-${i}`) : picture(seg.source, `${x.id}-${i}`),
-          )
-        )}
-        {x.a !== null && (
-          <Box flexDirection="row" gap={2} flexWrap="wrap">
-            <Text dimColor>{footer(x)}</Text>
-            {x.kind !== 'error' && !x.sent && <Button key={sendKey(x.id)} plain dimColor label="→ send to chat" onPress={() => undefined} />}
+      return {
+        rows: drawn.lines.length + (drawn.isClipped ? 1 : 0) + 2,
+        node: (
+          <Box key={`d${i}`} flexDirection="column" marginY={1} width={width}>
+            {drawn.lines.map((line, n) => (
+              <Text key={`l${i}-${n}`} color="claude" wrap="truncate-end">
+                {line === '' ? ' ' : line}
+              </Text>
+            ))}
+            {drawn.isClipped && <Text dimColor>{`${drawn.width} columns wide, cut at ${width}: o opens it full size`}</Text>}
           </Box>
-        )}
-      </Box>
-    ))
+        ),
+      }
+    }
 
     const pending = xs.filter(x => x.a === null).length
     const header =
@@ -364,34 +398,128 @@ export const register: Register = (on, options) => {
         ? 'Ask about this session. Answers come from a fork of the main chat, so they know everything so far, and nothing goes back to it unless you send it (s). Ask for a picture ("draw the request flow", or d for draw mode) and it is drawn here.'
         : `${xs.length} question${xs.length === 1 ? '' : 's'}${pending ? ` · ${pending} answering` : ''} · reads the main chat${isDraw ? ' · draw mode' : ''}`
 
-    return (
-      <Box flexDirection="column" width={width}>
-        <Text dimColor wrap="wrap">{header}</Text>
-        {rows}
-        <Box marginTop={1} flexDirection="column">
-          {'Input' in el && (
-            <el.Input
-              key={fieldKey()}
-              label="❯ "
-              placeholder={isDraw ? 'what should it draw?' : 'ask about the session'}
-              submitLabel={isDraw ? 'draw' : 'ask'}
-              autoFocus
-              onSubmit={() => undefined}
-            />
-          )}
-          <Box flexDirection="row" gap={2}>
-            <Button key="ask" plain hotkey="i" label="ask" onPress={() => undefined} />
-            <Button key="draw" plain hotkey="d" label={isDraw ? 'draw: on' : 'draw: off'} onPress={() => undefined} />
-            {canSend && <Button key="send" plain hotkey="s" label="send to chat" onPress={() => undefined} />}
-            {xs.length > 0 && <Button key="copy" plain hotkey="c" label="copy" onPress={() => undefined} />}
-            {hasDiagram && <Button key="open" plain hotkey="o" label="open full size" onPress={() => undefined} />}
-            {xs.length > 0 && <Button key="rewind" plain hotkey="r" label="rewind" onPress={() => undefined} />}
-            {xs.length > 0 && <Button key="clear" plain hotkey="x" label="clear" onPress={() => undefined} />}
+    let at = textRows(header, columns)
+    const starts = new Map<number, number>()
+    const blocks = xs.map(x => {
+      const answer =
+        x.a === null
+          ? [{ rows: 1, node: <Text key="wait" dimColor>{x.isDraw ? 'drawing…' : 'thinking…'}</Text> }]
+          : segments(x.a).flatMap((seg, i) => (seg.kind === 'text' ? prose(seg.text, `${x.id}-${i}`) : [picture(seg.source, `${x.id}-${i}`)]))
+      const question = `${x.q}${x.isDraw ? '  ✎' : ''}`
+      starts.set(x.id, at)
+      at += 1 + textRows(`❯ ${question}`, columns) + 1 + answer.reduce((sum, a) => sum + a.rows, 0) + (x.a === null ? 0 : textRows(footer(x), columns))
+      return (
+        <Box key={`x${x.id}`} flexDirection="column" marginTop={1} width={width} flexShrink={0}>
+          <Box flexDirection="row" gap={1} width={width}>
+            <Button key={questionKey(x.id)} plain label="❯" onPress={() => undefined} />
+            <Text bold wrap="wrap">
+              {question}
+            </Text>
           </Box>
-          {isTerminal && <Text dimColor>↑↓ PgUp PgDn scroll · Esc back to the chat · ctrl+x tab comes back</Text>}
+          <Text dimColor wrap="truncate">
+            {'─'.repeat(width)}
+          </Text>
+          {answer.map(a => a.node)}
+          {x.a !== null && (
+            <Text dimColor wrap="wrap">
+              {footer(x)}
+            </Text>
+          )}
+        </Box>
+      )
+    })
+
+    const commands = [
+      { key: 'ask', hotkey: 'i', label: 'ask', isShown: true },
+      { key: 'draw', hotkey: 'd', label: isDraw ? 'draw: on' : 'draw: off', isShown: true },
+      { key: 'send', hotkey: 's', label: 'send to chat', isShown: chosen(xs, isSendable) !== undefined },
+      { key: 'copy', hotkey: 'c', label: 'copy', isShown: xs.some(isAnswered) },
+      { key: 'open', hotkey: 'o', label: 'open full size', isShown: hasDiagram },
+      { key: 'rewind', hotkey: 'r', label: 'rewind', isShown: xs.length > 0 },
+      { key: 'clear', hotkey: 'x', label: 'clear', isShown: xs.length > 0 },
+    ].filter(c => c.isShown)
+    const hint = isTerminal ? '↑↓ scroll · Esc back to the chat' : null
+    const hasField = 'Input' in el
+    const barRows =
+      (isPinned ? 1 : 0) + (hasField ? (isTerminal ? 1 : 2) : 0) + wrappedRows([...commands.map(c => c.label.length + 4), ...(hint ? [hint.length] : [])], width, 2)
+
+    const bar = (
+      <Box key="bar" flexDirection="column" flexShrink={0} marginTop={isPinned ? 0 : 1} width={width}>
+        {isPinned && (
+          <Text dimColor wrap="truncate">
+            {'═'.repeat(width)}
+          </Text>
+        )}
+        {'Input' in el && (
+          <el.Input
+            key={fieldKey()}
+            label="❯ "
+            placeholder={isDraw ? 'what should it draw?' : 'ask about the session'}
+            submitLabel={isDraw ? 'draw' : 'ask'}
+            autoFocus
+            onSubmit={() => undefined}
+          />
+        )}
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2} width={width}>
+          {commands.map(c => (
+            <Button key={c.key} plain hotkey={c.hotkey} label={c.label} onPress={() => undefined} />
+          ))}
+          {hint && <Text dimColor>{hint}</Text>}
         </Box>
       </Box>
     )
+
+    const answers = (
+      <Box key="answers" flexDirection="column" flexShrink={0} width={width}>
+        <Text dimColor wrap="wrap">
+          {header}
+        </Text>
+        {blocks}
+      </Box>
+    )
+
+    if (!isPinned) {
+      return (
+        <Box flexDirection="column" width={width}>
+          {answers}
+          {bar}
+        </Box>
+      )
+    }
+
+    // Docked: exactly the body's rows, the answers moved under a window of their own and the bar below them.
+    // The surface's window sits on `parked`, a spare row above and below so it has room to report a move either way.
+    const bodyRows = e.props.scroll.bodyRows
+    const parked = e.props.scroll.offset
+    metrics = { total: at, visible: Math.max(1, bodyRows - barRows), starts }
+    const held = follow === null ? undefined : starts.get(follow)
+    offset = held === undefined ? clampOffset(offset, metrics) : clampOffset(held, metrics)
+    return (
+      <Box flexDirection="column" height={parked + bodyRows + 1} width={width}>
+        {parked > 0 && <Box key="above" height={parked} flexShrink={0} />}
+        <Box key="body" flexDirection="column" height={bodyRows} flexShrink={0} width={width}>
+          <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" width={width}>
+            <Box key="window" flexDirection="column" marginTop={-offset * spacePerRow(e.surface)} flexShrink={0} width={width}>
+              {answers}
+            </Box>
+          </Box>
+          {bar}
+        </Box>
+        <Box key="below" height={1} flexShrink={0} />
+      </Box>
+    )
+  })
+
+  // Docked, the person's scroll moves the answers rather than the window, which goes back to its parked row.
+  on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
+    if (!isPinned || e.origin.kind !== 'person') return next(e)
+    const to = scrolled(offset, e.by, e, metrics)
+    follow = null
+    if (to !== offset) {
+      offset = to
+      $.ui.invalidate('ui.render')
+    }
+    return next({ ...e, offset: PARKED })
   })
 
   // Answered here rather than in the elements' closures: a closure belongs to
@@ -409,15 +537,26 @@ export const register: Register = (on, options) => {
   // The person's moves (Tab, a click, i): where the ring is decides whether a new answer may take it.
   on('ui.focus', { requestId: PANE }, ($, e, next) => {
     ring = e.element
+    const id = questionOf(e.element)
+    if (id !== null) {
+      picked = id
+      // Docked, a ❯ the person moves to is brought into view, as the engine would for a window it scrolls.
+      const to = inView(offset, metrics.starts.get(id), metrics)
+      if (isPinned && to !== offset) {
+        offset = to
+        follow = null
+        $.ui.invalidate('ui.render')
+      }
+    } else if (e.element?.startsWith('q')) picked = null
     return next(e)
   })
 
   on('ui.press', { plugin: 'ask' }, async ($, e, next) => {
-    const pressed = /^x(\d+)([qs])$/.exec(e.element)
-    if (pressed) {
-      const x = (await read($, exchanges)).find(one => one.id === Number(pressed[1]))
-      if (x && pressed[2] === 's') await send($, x)
-      else if (x?.a) {
+    const pressed = questionOf(e.element)
+    if (pressed !== null) {
+      const x = (await read($, exchanges)).find(one => one.id === pressed)
+      picked = pressed
+      if (x?.a) {
         const r = await $.ui.copy({ text: x.a, surface: e.surface })
         $.ui.toast(r.isCopied ? 'Copied the answer' : `Not copied: ${r.reason}`)
       }
@@ -432,16 +571,15 @@ export const register: Register = (on, options) => {
         await $.ui.focus({ requestId: PANE, key: fieldKey() })
         break
       case 'send': {
-        // The newest answer: the one the person most likely just read.
-        const last = (await read($, exchanges)).filter(x => x.a !== null && x.kind !== 'error').at(-1)
-        if (last) await send($, last)
+        const x = chosen(await read($, exchanges), isSendable)
+        if (x) await send($, x)
         break
       }
       case 'copy': {
-        const last = (await read($, exchanges)).filter(x => x.a !== null).at(-1)
-        if (last?.a) {
-          const r = await $.ui.copy({ text: last.a, surface: e.surface })
-          $.ui.toast(r.isCopied ? 'Copied the last answer' : `Not copied: ${r.reason}`)
+        const x = chosen(await read($, exchanges), isAnswered)
+        if (x?.a) {
+          const r = await $.ui.copy({ text: x.a, surface: e.surface })
+          $.ui.toast(r.isCopied ? 'Copied the answer' : `Not copied: ${r.reason}`)
         }
         break
       }
@@ -452,6 +590,9 @@ export const register: Register = (on, options) => {
         $.ui.toast(await rewind($))
         break
       case 'clear':
+        offset = 0
+        follow = null
+        picked = null
         await update($, exchanges, () => [])
         break
       default:

@@ -5,7 +5,8 @@ A side chat in a pane beside Claude Code's transcript. It reads the main chat, s
 ```
 ┌ transcript ───────────────────────┬ ask ─────────────────────────────────────┐
 │ ❯ refactor the cache layer        │ ❯ how does prompt caching work here?     │
-│ ● Reading src/cache/*.ts …        │ Each request sends the whole chat; the   │
+│ ● Reading src/cache/*.ts …        │ ──────────────────────────────────────── │
+│                                   │ Each request sends the whole chat; the   │
 │   Edit(src/cache/store.ts)        │ cached part is read, not billed again.   │
 │                                   │ ┌─────────────────┐                      │
 │                                   │ │You send a prompt│                      │
@@ -15,9 +16,11 @@ A side chat in a pane beside Claude Code's transcript. It reads the main chat, s
 │                                   │ │  Prefix cached? ├───no───┐             │
 │                                   │ ◇───────yes───────◇        ▼             │
 │                                   │ fork · 1.2 s · read 48210 · new 30 · out │
-│                                   │ 410  → send to chat                      │
+│                                   │ 410                                      │
+│                                   │ ════════════════════════════════════════ │
 │                                   │ ❯ ask about the session        ⏎ ask     │
-│                                   │ i: ask  d: draw: off  s: send to chat  … │
+│                                   │ i: ask  d: draw: off  s: send to chat    │
+│                                   │ c: copy  r: rewind  x: clear             │
 └───────────────────────────────────┴──────────────────────────────────────────┘
 ```
 
@@ -29,14 +32,13 @@ A side chat in a pane beside Claude Code's transcript. It reads the main chat, s
 | `/ask how is auth wired?` | open it and ask |
 | `/draw the request flow` | ask for a diagram first, then a few sentences |
 | `/ask-rewind` | take back the newest question and answer, keeping the rest |
-| Enter (in the field) | ask; the focus moves to the question's `❯`, so the keys scroll |
-| ↑ ↓ PgUp PgDn, the wheel | scroll the answers |
+| Enter (in the field) | ask; the question comes to the top and the focus moves to its `❯`, so the keys scroll |
+| ↑ ↓ PgUp PgDn, the wheel | scroll the answers; the command bar stays at the bottom |
 | `i` | back to the field |
 | `d` | draw mode: every question asks for a picture |
-| `s` | send the newest answer to the main chat as context |
-| `→ send to chat` (under an answer) | send that answer |
-| `❯` (Enter or click on it) | copy that answer |
-| `c` | copy the newest answer |
+| `❯` (Enter or click on it) | copy that answer, and point `s` and `c` at it |
+| `s` | send the answer your `❯` is on, else the newest, to the main chat as context |
+| `c` | copy the answer your `❯` is on, else the newest |
 | `o` | open the newest answer's diagrams full size in the browser |
 | `r` | take back the newest question and answer, as `/ask-rewind` does |
 | `x` | clear the pane |
@@ -44,12 +46,14 @@ A side chat in a pane beside Claude Code's transcript. It reads the main chat, s
 
 A question that starts with "draw", "diagram", "sketch", "visualize" or "chart" asks for a picture too.
 
+Each question has a faint line under it, and every command sits in one bar at the bottom of the pane, wrapping onto more rows when the pane is narrow. Docked beside the transcript, the pane scrolls the answers itself so the bar stays put. The engine doesn't report how tall a drawn answer is, so the pane estimates it from the text, and the scroll stops a couple of rows past where the answers seem to end. Shown above the prompt instead, the bar follows the last answer.
+
 Rewinding removes one exchange at a time, newest first, and later questions no longer carry it. A question still being answered can be taken back too: its answer is dropped, though the model call still runs. An exchange you already sent leaves the pane but stays in the main chat. The name is `/ask-rewind` because Claude Code's own `/rewind` restores the main chat and your code, and the pane leaves it alone.
 
 ## The main chat's context
 
 - **Main chat → pane, always.** Each question is answered by a fork of the main chat (`$.model.fork`): the same model, system prompt and transcript, tool calls and results included, served from the main chat's prompt cache. The fork can't run tools. Before the session's first turn there is nothing to fork, so a plain completion over the transcript text answers instead, marked `live`.
-- **Pane → main chat, only when you send it.** Side questions don't add to the main chat's context. To share one, press `s` (the newest answer) or `→ send to chat` under any answer. It's added as a note Claude reads on its next step, marked as context you chose to share and not a request; the transcript shows a line saying what was sent, and the answer's footer says `sent to the chat`. Sent during a turn, Claude picks it up on that turn's next step.
+- **Pane → main chat, only when you send it.** Side questions don't add to the main chat's context. To share one, press `s`: it sends the answer whose `❯` you picked, else the newest. It's added as a note Claude reads on its next step, marked as context you chose to share and not a request; the transcript shows a line saying what was sent, and the answer's footer says `sent to the chat`. Sent during a turn, Claude picks it up on that turn's next step.
 - **The pane's own history.** So that follow-up questions work, each fork also carries the pane's recent questions and answers that the main chat doesn't have. A sent exchange stops being carried once a main turn that started after it has ended, and a rewound one stops at once.
 
 ## Tables

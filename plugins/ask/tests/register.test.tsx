@@ -4,12 +4,12 @@ import type { On } from 'claude-code'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
-const PANE = (bodyColumns = 60) => ({
+const PANE = (bodyColumns = 60, placement: 'dock' | 'inline' = 'dock', bodyRows = 40) => ({
   title: 'ask',
   isFocused: true,
   bodyColumns,
-  placement: 'dock' as const,
-  scroll: { offset: 0, bodyRows: 40 },
+  placement,
+  scroll: { offset: 0, bodyRows },
   view: {},
 })
 
@@ -33,6 +33,8 @@ type World = {
   logs: string[]
   argv: string[][]
   writes: { path: string; text: string }[]
+  /** Where each scroll left the surface's window. */
+  windows: number[]
   clock: ReturnType<typeof mock.clock>
   session: ReturnType<typeof mock.session>
 }
@@ -50,6 +52,7 @@ function world(on: On): World {
     logs: [],
     argv: [],
     writes: [],
+    windows: [],
     clock: mock.clock(on, { now: Date.parse('2026-10-08T09:00:00Z') }),
     session: mock.session(on),
   }
@@ -76,7 +79,10 @@ function world(on: On): World {
     w.opens.push(e.id)
     return { value: { isPlaced: true } }
   })
-  on('ui.scroll', () => ({}))
+  on('ui.scroll', ($, e) => {
+    w.windows.push(e.offset)
+    return {}
+  })
   on('ui.focus', () => ({}))
   on('ui.toast', ($, e) => {
     w.toasts.push(e.text)
@@ -86,7 +92,6 @@ function world(on: On): World {
     w.logs.push(e.text)
     return { value: undefined }
   })
-  on('ui.invalidate', () => ({ value: undefined }))
   on('fs.write', ($, e) => {
     w.writes.push({ path: e.path, text: e.text })
     return { value: undefined }
@@ -145,7 +150,10 @@ test('/ask opens the pane, forks the main chat and draws the answer with its dia
   expect(lines.every(l => [...(l.text ?? '')].length <= 59)).toBe(true)
   expect(await pane.find({ type: 'Text', text: /^fork · \d+\.\d s · read 72000 · new 42 · out 210$/ })).toBeTruthy()
   expect(await pane.find({ type: 'Button', key: 'open' })).toBeTruthy()
-  expect((await pane.find({ type: 'Button', key: 'x1s' }))?.text).toBe('→ send to chat')
+  // A faint line sets the question apart from its answer; sending is the bar's, not the answer's.
+  expect(await pane.find({ type: 'Text', text: '─'.repeat(59) })).toBeTruthy()
+  expect(await pane.find({ type: 'Button', text: '→ send to chat' })).toBe(undefined)
+  expect(await pane.find({ type: 'Button', key: 'send' })).toBeTruthy()
 
   expect(w.session.appended()).toHaveLength(0)
 })
@@ -165,10 +173,10 @@ test('s sends the newest answer to the main chat as context, once, with a line i
   expect(w.logs).toEqual(['sent "how does the pane get its answers?" and its answer to the chat as context'])
   expect(w.toasts.at(-1)).toBe('Sent to the chat: Claude reads it on its next step')
   expect(await pane.find({ type: 'Text', text: /· sent to the chat$/ })).toBeTruthy()
-  expect(await pane.find({ type: 'Button', key: 'x2s' })).toBe(undefined)
 
-  // The first answer's own button sends that one; after that there is nothing left to send.
-  await pane.press({ key: 'x1s' })
+  // Picking the first answer's ❯ points s at it; after that there is nothing left to send.
+  await pane.press({ key: 'x1q' })
+  await pane.press({ key: 'send' })
   expect(shared(w)).toHaveLength(2)
   expect(shared(w)[1]).toContain('Question: first question')
   expect(await pane.find({ type: 'Button', key: 'send' })).toBe(undefined)
@@ -220,7 +228,8 @@ test('the pane carries its own earlier questions into each fork, until a sent on
   // Sent mid-turn, it may miss that turn's requests: still carried after it.
   const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE() })
   const end2 = await turn($, w, 't2')
-  await pane.press({ key: 'x1s' })
+  await pane.press({ key: 'x1q' })
+  await pane.press({ key: 'send' })
   await end2()
   await askCmd($, w, 'fourth')
   expect(w.forks[3]).toContain('Q: what is it doing?')
@@ -253,7 +262,6 @@ test('a failed fork says why and offers nothing to send', async ($, on) => {
   await askCmd($, w, 'anything?')
   const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE() })
   expect((await pane.find({ type: 'Markdown', key: 'm1-0-0' }))?.text).toBe('(no answer: api-error)')
-  expect(await pane.find({ type: 'Button', key: 'x1s' })).toBe(undefined)
   expect(await pane.find({ type: 'Button', key: 'send' })).toBe(undefined)
   expect(w.session.appended()).toHaveLength(0)
 })
@@ -399,4 +407,78 @@ test('a table wider than the pane is drawn fitted to it on both surfaces, and as
   // The next question is told the width the pane was last drawn at.
   await askCmd($, w, 'and TR?')
   expect(w.forks.at(-1)).toContain('Keep every table within 159 columns')
+})
+
+const LONG = Array.from({ length: 12 }, (_, i) => `Line ${i + 1} of a long answer.`).join('\n\n')
+
+/** A person's scroll over the pane, as the surface sends it. */
+const scrollBy = ($: Engine, by: number, bodyRows: number) =>
+  $.ui.scroll({ component: 'Pane', requestId: 'ask', offset: 1, by, bodyRows, contentRows: bodyRows + 2, origin: { kind: 'person' } })
+
+/** The answers' first row in view: the desktop spaces in half rows, so its margin is twice the rows. */
+const windowTop = async (pane: { surface: string; find: (q: { type: string; key: string }) => Promise<{ props?: object } | undefined> }) =>
+  -Number(((await pane.find({ type: 'Box', key: 'window' }))?.props as { marginTop?: number } | undefined)?.marginTop ?? NaN) /
+  (pane.surface === 'terminal' ? 1 : 2)
+
+test('docked, the pane is its body tall with the bar last, and a scroll moves the answers while the window goes back to its row', async ($, on) => {
+  const w = world(on)
+  w.fork = { isAnswered: true, text: LONG, usage: USAGE }
+  await start($, w)
+  for (const q of ['one', 'two', 'three']) await askCmd($, w, q)
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ plugin: 'ask', surface, component: 'Pane', requestId: 'ask', props: PANE(60, 'dock', 16) })
+    const root = (await pane.drawn()) as { props?: { height?: number } }
+    // A spare row below the body, so the surface has room to send a move down.
+    expect(root.props?.height, surface).toBe(17)
+    // The newest question is brought to the top while it is answered.
+    const newest = await windowTop(pane)
+    expect(newest, surface).toBeGreaterThan(20)
+
+    // Home: the answers go to the top; the window is parked one row down, with room to move up next time.
+    w.windows = []
+    await scrollBy($, -100, 16)
+    await w.clock.settle()
+    expect(await windowTop(pane), surface).toBe(0)
+    expect(w.windows, surface).toEqual([1])
+
+    // The wheel moves a row a tick, a page key less than the body (the bar stays), and nothing goes past the end.
+    await scrollBy($, 3, 16)
+    expect(await windowTop(pane), surface).toBe(3)
+    await scrollBy($, 16, 16)
+    const paged = await windowTop(pane)
+    expect(paged - 3, surface).toBeGreaterThan(3)
+    expect(paged - 3, surface).toBeLessThan(16)
+    await scrollBy($, 100, 16)
+    const end = await windowTop(pane)
+    await scrollBy($, 5, 16)
+    expect(await windowTop(pane), surface).toBe(end)
+    await pane.unmount()
+  }
+})
+
+test('inline, the bar follows the answers and the engine scrolls the window', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  await askCmd($, w, 'one')
+  const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE(60, 'inline', 16) })
+  expect(((await pane.drawn()) as { props?: { height?: number } }).props?.height).toBe(undefined)
+  expect(await pane.find({ type: 'Box', key: 'window' })).toBe(undefined)
+  w.windows = []
+  await $.ui.scroll({ component: 'Pane', requestId: 'ask', offset: 4, by: 3, bodyRows: 16, contentRows: 40, origin: { kind: 'person' } })
+  expect(w.windows).toEqual([4])
+})
+
+test('s and c act on the answer whose ❯ was picked, else the newest; the field puts them back on the newest', async ($, on) => {
+  const w = world(on)
+  w.replies = [reply('first answer'), reply('second answer')]
+  await start($, w)
+  await askCmd($, w, 'first')
+  await askCmd($, w, 'second')
+  const pane = await $.ui.mount({ plugin: 'ask', surface: 'terminal', component: 'Pane', requestId: 'ask', props: PANE() })
+  await pane.press({ key: 'x1q' })
+  await pane.press({ key: 'send' })
+  expect(shared(w)[0]).toContain('Question: first')
+  await $.ui.focus({ component: 'Pane', requestId: 'ask', plugin: 'ask', element: 'q0', origin: { kind: 'person' } })
+  await pane.press({ key: 'send' })
+  expect(shared(w)[1]).toContain('Question: second')
 })
