@@ -107,7 +107,7 @@ import { builder, line, order, piece, put, runs, textOf, wrap } from './cells.ts
 import type { CellsProps, Run } from './cells.ts'
 import { CARD_ORDER, bandGrid, clipped } from './panelgrid.ts'
 import type { Band, Setting } from './panelgrid.ts'
-import { layout, parsePick } from './selectorgrid.ts'
+import { fittedStyle, layout, parsePick } from './selectorgrid.ts'
 import type { GridField } from './selectorgrid.ts'
 import type { Ui } from './ui.ts'
 import { handoffPaneGrid } from './handoffview.ts'
@@ -472,7 +472,8 @@ function gridFields(hud: HudState): GridField[] {
     {
       kind: 'model',
       name: 'MODEL',
-      options: MODELS.map(m => ({ id: m.alias, label: m.label, colors: [MODEL_COLORS[m.alias] ?? '#888888'], isOn: alias === m.alias })),
+      // The model in use is named as the engine names it; the others by the versions the panel knows.
+      options: MODELS.map(m => ({ id: m.alias, label: alias === m.alias ? (modelLabel(hud.model) ?? m.label) : m.label, colors: [MODEL_COLORS[m.alias] ?? '#888888'], isOn: alias === m.alias })),
       shorter: [MODELS.map(m => m.family)],
     },
     {
@@ -552,6 +553,7 @@ async function runAction($: EngineInterface, action: unknown) {
     return update($, tokensOpenA, open => (open.includes(id) ? open.filter(g => g !== id) : [...open, id]))
   }
   if (action.startsWith('handoff:')) return pressHandoff($, action.slice('handoff:'.length))
+  if (action === 'next:toggle') return update($, hudA, s => ({ ...s, isNextExpanded: !s.isNextExpanded }))
   if (action.startsWith('next:')) return pickNext($, Number(action.slice('next:'.length)))
   // `s` opens the settings from the cards, and steps back: from the modules to the settings, from the settings to the cards.
   if (action === 'settings') return setView($, (await panelView($)) === 'settings' ? 'cards' : 'settings')
@@ -1385,7 +1387,7 @@ export const register: Register = (on, given) => {
       cache: mods.cache ? cacheView(c, t.ttl, lv, rem) : null,
       settings: settingsView(c),
       modules: { on: cfg.modules, order: cfg.order, open: cfg.keepOpen },
-      next: mods.next ? { items: nx.items, note: nx.isThinking ? 'thinking of next steps…' : nx.error } : null,
+      next: mods.next ? { items: nx.items, note: nx.isThinking ? 'thinking of next steps…' : nx.error, isExpanded: hud.isNextExpanded === true } : null,
       handoff: mods.handoff ? { hasNewest: newestNote !== undefined, note: newestNote ? `newest · ${age(newestNote.mtimeMs, now)}` : 'no notes yet' } : null,
       sessions: mods.sessions ? { list: sessions, now } : null,
       guesses: mods.assume ? openGuesses(guesses).map(g => ({ id: g.id, text: g.text })) : null,
@@ -1428,24 +1430,24 @@ export const register: Register = (on, given) => {
 
   // ---------- picker styles pane ----------
 
-  // The three styles drawn as the panel draws them, each in full whatever the pane's width, in one grid.
+  // The three styles drawn as the panel draws them at the pane's own width, in one grid: where Rail or Meter
+  // cannot fit, it says so and shows the Ladder it gives way to, as the panel would.
   on('ui.render', { component: 'Pane', requestId: STYLES_PANE }, async ($, e) => {
     const ui: Ui = $.ui.resolve(e)
     const hud = await read($, hudA)
-    const width = Math.max(e.props.bodyColumns, STYLES_PANE_COLUMNS)
+    const width = Math.max(1, e.props.bodyColumns)
     const fields = gridFields(hud)
     const b = builder()
     for (const row of wrap('Model: blue to orange as the models get more capable. Effort: one grey to the full rainbow at Ultracode. Pressing a step here picks it.', width, { isDim: true })) b.add(row)
     for (const st of SELECTOR_STYLES) {
       b.add([])
-      const head = line(width, [
-        piece(st.label, { isBold: true }),
-        cfg.selectorStyle === st.style ? piece('● in use', { color: 'success' }) : piece(` Use ${st.label} `, { bg: 'subtle' }, `use:${st.style}`),
-      ])
+      const use = cfg.selectorStyle === st.style ? piece('● in use', { color: 'success' }) : piece(` Use ${st.label} `, { bg: 'subtle' }, `use:${st.style}`)
+      const head = line(width, [piece(st.label, { isBold: true }), use])
       b.add(head.row, head.spans)
+      if (fittedStyle(st.style, width, fields) !== st.style) for (const row of wrap('Too narrow here: it draws as the Ladder.', width, { isDim: true })) b.add(row)
       b.append(layout({ style: st.style, width, fields }))
     }
-    return cellsElement(ui, e.surface, 'styles', { ...b.grid, keys: {}, width }, a => void runAction($, a))
+    return cellsElement(ui, e.surface, 'styles', clipped({ ...b.grid, keys: {}, width }, width), a => void runAction($, a))
   })
 
   // ---------- tokens pane ----------

@@ -48,7 +48,7 @@ test('every row is exactly as wide as the cells it holds, and every option sits 
 test('Rail: labels over the bar, a gap between segments, the chosen one solid', () => {
   const g = layout({ style: 'rail', width: 72, fields: FIELDS })
   expect(plain(g)).toHaveLength(4)
-  expect(plain(g)[0]).toBe('MODEL      Haiku 4.5      Sonnet 5.5       Opus 5.5        Fable 5.1    ')
+  expect(plain(g)[0]).toBe('MODEL      Haiku 5.5      Sonnet 5.5       Opus 5.5        Fable 5.2    ')
   expect(plain(g)[1]).toBe(`        ${'▔'.repeat(15)} ${'▔'.repeat(15)} ${' '.repeat(15)} ${'▔'.repeat(15)} `)
   expect(g.rows[1]!.find(r => r.bg !== '')?.bg).toBe(MODEL_COLORS.opus)
   expect(hitAt(g, 8, 0)).toBe('pick:model:haiku')
@@ -91,8 +91,8 @@ const NARROW = [
   { w: 38, model: ['Haiku', 'Sonnet', 'Opus', 'Fable'], effort: ['Low', 'Med', 'High', 'XHigh', 'Max', 'Ultra'] },
   { w: 39, model: ['Haiku', 'Sonnet', 'Opus', 'Fable'], effort: ['Low', 'Med', 'High', 'XHigh', 'Max', 'Ultra'] },
   { w: 42, model: ['Haiku', 'Sonnet', 'Opus', 'Fable'], effort: ['Low', 'Medium', 'High', 'XHigh', 'Max', 'Ultra'] },
-  { w: 49, model: ['Haiku 4.5', 'Sonnet 5.5', 'Opus 5.5', 'Fable 5.1'], effort: ['Low', 'Medium', 'High', 'XHigh', 'Max', 'Ultra'] },
-  { w: 60, model: ['Haiku 4.5', 'Sonnet 5.5', 'Opus 5.5', 'Fable 5.1'], effort: ['Low', 'Medium', 'High', 'XHigh', 'Max', 'Ultracode'] },
+  { w: 49, model: ['Haiku 5.5', 'Sonnet 5.5', 'Opus 5.5', 'Fable 5.2'], effort: ['Low', 'Medium', 'High', 'XHigh', 'Max', 'Ultra'] },
+  { w: 60, model: ['Haiku 5.5', 'Sonnet 5.5', 'Opus 5.5', 'Fable 5.2'], effort: ['Low', 'Medium', 'High', 'XHigh', 'Max', 'Ultracode'] },
 ]
 
 test('at every card width Rail and Meter keep their style, each option under the longest labels that fit', () => {
@@ -119,7 +119,7 @@ test('the names take a column only from 67 cells across, where every field fits 
       expect(plain(layout({ style, width: w, fields: FIELDS })).some(r => /MODEL|EFFORT/.test(r)), `${style} at ${w}`).toBe(false)
     }
   }
-  expect(rail(67)[0]).toMatch(/^MODEL {3}.*Haiku 4\.5/)
+  expect(rail(67)[0]).toMatch(/^MODEL {3}.*Haiku 5\.5/)
   expect(rail(67)[2]).toMatch(/^EFFORT {2}.*Ultracode/)
 })
 

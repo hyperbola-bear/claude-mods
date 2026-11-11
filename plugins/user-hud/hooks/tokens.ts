@@ -757,7 +757,7 @@ export function apiLine(s: TokenState): string {
     `${fmt(sum('output'))} output`,
   ]
   const cost = s.costUsd !== null ? ` · $${Math.max(0, s.costUsd - s.costBase).toFixed(2)}` : ''
-  return `${fmt(totalUsed(s))} tokens over ${sum('requests')} requests: ${parts.join(', ')}${cost}`
+  return `${fmt(totalUsed(s))} tokens over ${sum('requests')} ${sum('requests') === 1 ? 'request' : 'requests'}: ${parts.join(', ')}${cost}`
 }
 
 /** What every request carries before the chat, by group; empty before the context breakdown came in. */
@@ -786,11 +786,11 @@ export function summary(s: TokenState): string {
   if (totalUsed(s) <= 0) return 'No tokens counted yet: the next request starts the tally.'
   const lines = [apiLine(s)]
   if (s.agents.requests + s.plugins.requests > 0) {
-    lines.push(`Of those, subagents ${fmt(apiTotal(s.agents))} over ${s.agents.requests} requests; plugin model calls ${fmt(apiTotal(s.plugins))} over ${s.plugins.requests}.`)
+    lines.push(`Of those, subagents ${fmt(apiTotal(s.agents))} over ${s.agents.requests} ${s.agents.requests === 1 ? 'request' : 'requests'}; plugin model calls ${fmt(apiTotal(s.plugins))} over ${s.plugins.requests}.`)
   }
   for (const r of ranked(s)) {
     const g = s.groups[r.id]
-    const head = `${groupOf(r.id).label} ${pct(r.share)}: ${fmt(g.used)} used, ${fmt(g.inContext)} in context now, ${g.calls} calls`
+    const head = `${groupOf(r.id).label} ${pct(r.share)}: ${fmt(g.used)} used, ${fmt(g.inContext)} in context now, ${g.calls} ${g.calls === 1 ? 'call' : 'calls'}`
     const detail = detailLine(s, r.id)
     lines.push(detail ? `${head}. ${detail}` : `${head}.`)
   }

@@ -620,7 +620,12 @@ export const register: Register = (on, options) => {
       await pick($, st.key, cmd.n)
       return { text: `${cmd.n}  ${refLabel(place)}` }
     }
-    return { text: 'Type the question after /code-reference, as a prompt.' }
+    // The engine runs `/code-reference <question>` as this command and keeps its text from a prompt hook's
+    // rewrite: the command hands the model the format as its context, then submits the question.
+    const text = cmd.kind === 'ask' ? cmd.question : reviewText(cmd.target)
+    const context = cmd.kind === 'ask' ? [explainContext(await sessionRoot($))] : await reviewPrompt($, cmd.target)
+    $.clock.after(0, () => void $.prompt.submit({ text, asUser: true }).catch(() => undefined))
+    return { context }
   })
 
   on('command.run', { command: 'code-reference-setup' }, async $ => {

@@ -95,3 +95,12 @@ test('in a pane too narrow for a title, the cut title still jumps: every cell of
   const title = text.indexOf('Job app')
   expect([title, title + 5, text.indexOf('…')].every(x => covered.has(x))).toBe(true)
 })
+
+test('in a side pane the Sessions pane’s hints wrap rather than end in an ellipsis, and no row is wider than the pane', () => {
+  for (const width of [20, 28, 31, 40]) {
+    const rows = sessionsPaneGrid(grouped([], 'me', NOW), NOW, width, false).rows.map(r => r.map(x => x.text).join(''))
+    for (const l of rows) expect(l.length, `${width}: ${l}`).toBeLessThanOrEqual(width)
+    expect(rows.join(' ').replace(/\s+/g, ' '), `${width}`).toContain('no other session is running a turn')
+    expect(rows.some(l => l.endsWith('…')), `${width}`).toBe(false)
+  }
+})

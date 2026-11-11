@@ -110,8 +110,11 @@ export function builder() {
 export function wrap(text: string, width: number, look: Look = {}): Run[][] {
   const rows: Run[][] = []
   let cur = ''
-  for (const word of text.split(/\s+/).filter(Boolean)) {
-    if (cur && cur.length + 1 + word.length > width) {
+  const w = Math.max(1, width)
+  // A word longer than a row is broken across rows, so no row is wider than `width`.
+  const words = text.split(/\s+/).filter(Boolean).flatMap(word => word.match(new RegExp(`.{1,${w}}`, 'gu')) ?? [])
+  for (const word of words) {
+    if (cur && cur.length + 1 + word.length > w) {
       rows.push(runs(cur, look))
       cur = word
     } else {

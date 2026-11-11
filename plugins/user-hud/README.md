@@ -108,6 +108,8 @@ CONTEXT ▕███▍      ▏ 34%          1.2M t: details  SESSIONS         
 - **Ultracode** runs `/effort ultracode on`: the effort level stays and Claude may run multi-agent workflows. Picking a level turns it off again, as `/effort <level>` does. It needs dynamic workflows on (see `/config`); where they are off the picker stays on the level and a toast says why. `/effort` typed at the prompt moves the picker too.
 - **Settings** write the same rows as `/config`, so the two never disagree. On the desktop app, whose sessions list no `/config` rows for plugins, they save to the same settings through `claude plugin configure`, which needs `claude` on your PATH; without it a toast says to use `/config` in a terminal. A row your organization's policy owns stays put, with a toast saying why. **Modules** shows the modules in place of the settings: each one's switch and its card's `▲ ▼`. The other settings (show the band, automatic pings per idle stretch, handoff note location) stay in `/config`.
 - The whole band, the closed row and the open panel, is one grid of cells the plugin lays out itself and paints in a `Client` region, and so are its panes: no native buttons and no text in the app's own font, so the terminal and Claude Desktop draw the same cells (the tests require the two drawings identical). Click any button in it; or click into it, then use its hotkeys, or the arrow keys and Return. VS Code and mobile, which draw no `Client`, get the same rows as text with plain buttons beneath. So does a surface whose grid fails, as when the desktop tears down a frame that stalled: the grid is tried again after 30 seconds, then 2 and 10 minutes, and after that the text rows stay until the plugin reloads. A grid that holds for 30 minutes starts those tries over.
+- In a narrow band the settings keep their names and values and drop their descriptions, rather than cut them.
+- In a narrow band the bottom bar shortens `+N more` to `+N`, then **s: Settings** to `s`, before anything is cut.
 - When the band is narrow, for example beside a pane docked in the terminal, the cards stack in one column, the section titles lose their letter spacing, and the closed row sheds its pieces as above. A row that still does not fit is cut on the right, ending in `…`; the band never runs off its left edge.
 - To put the panel away, use the tab. The `[-]` (× on the desktop) at the band's right end is Claude Code's own control for collapsing the whole band; a plugin cannot remove it.
 
@@ -121,7 +123,9 @@ Three styles; **Picker style** in the settings (or in `/config`) switches betwee
 - **Ladder**: one row. Before each label a strip that grows a cell per step up, in that step's colours; the chosen one is full blocks, the others half blocks. The most compact.
 - **Meter**: bars that rise step by step over the labels, like a signal meter. Every step up to the chosen one is lit in its colours; the ones past it are dim. Two rows a picker.
 
-The pickers are part of the band's grid: click an option to pick it, or move to it with the arrow keys and press Return. A two-row style shows the MODEL and EFFORT names beside the steps in a card 67 cells wide or more. In a narrower card the names go first, then the labels shorten: `Sonnet 5.5` to `Sonnet`, `Ultracode` to `Ultra`, `Medium` to `Med`. Under 27 cells the pickers fall back to the Ladder, which wraps. Folded, the card shows the model and effort as text, and `m` opens `/hud-styles`.
+The pickers are part of the band's grid: click an option to pick it, or move to it with the arrow keys and press Return. A two-row style shows the MODEL and EFFORT names beside the steps in a card 67 cells wide or more. In a narrower card the names go first, then the labels shorten: `Sonnet 5.5` to `Sonnet`, `Ultracode` to `Ultra`, `Medium` to `Med`. Under 27 cells the pickers fall back to the Ladder, which wraps. Folded, the card shows the model and effort as text, and `m` opens `/hud-styles`. The model in use is named with the version Claude Code reports (`Haiku 5.5`, `Fable 5.2`); the others by the versions the panel knows.
+
+`/hud-styles` draws at the pane's own width, however narrow: each style as the panel would draw it there, and where Rail or Meter cannot fit (under 27 cells) a note says it draws as the Ladder.
 
 ## Sessions
 
@@ -147,7 +151,7 @@ The **SESSIONS** card counts your other Claude Code sessions on this machine, th
   - **Any other app:** the app comes forward. When a step cannot find the tab (it was closed), the app still comes forward.
 
   Where it runs is read from the session's process (`ps`): only the few variables terminals set to say so (`TERM_PROGRAM`, `__CFBundleIdentifier`, `ORCA_TERMINAL_HANDLE`, `ITERM_SESSION_ID`, `TMUX`, `TMUX_PANE`, `TERMINAL_EMULATOR`, `CLAUDE_CODE_SSE_PORT`), each checked for its shape before it goes on a command line; the rest of the environment is never kept. The first jump to Terminal, iTerm2 or Ghostty asks macOS to let the app that runs Claude Code control it.
-- **e: expand** (`e`) opens the Sessions pane, a grid of cells like the band. `z` shows or hides the sessions asleep, and `e` closes it.
+- **e: expand** (`e`) opens the Sessions pane, a grid of cells like the band. `z` shows or hides the sessions asleep, and `e` closes it. In a narrow pane its notes wrap under their headings rather than end in `…`, and the rule drops `N live` before `e: close`.
 
 ```
 ── S E S S I O N S ───────────────────────────────── 8 live · e: close ─
@@ -171,7 +175,7 @@ THIS SESSION · 1
 
 ## Tokens
 
-The **CONTEXT** card shows how full the context window is now, as the battery (`▕███▍      ▏ 34%`, with the window's size, `of 200k`), and under it the session's token total. The closed row shows the battery too. **Details** (`t`), or `/tokens`, opens the Tokens pane, a grid of cells like the band (**Refresh** `r`, **Reset** `x`): the API's own totals (cache read, cache write, new input, output, and the cost where Claude Code keeps one), then each group with its share, what it used, what it holds in the context now, and its calls. Press a group (▸) to open it (▾): its sub-items, most used first, each with the tokens it used, its share of the group, and what it holds in the context now.
+The **CONTEXT** card shows how full the context window is now, as the battery (`▕███▍      ▏ 34%`, with the window's size, `of 200k`), and under it the session's token total. The closed row shows the battery too. **Details** (`t`), or `/tokens`, opens the Tokens pane, a grid of cells like the band (**Refresh** `r`, **Reset** `x`): the API's own totals (cache read, cache write, new input, output, and the cost where Claude Code keeps one), then each group with its share, what it used, what it holds in the context now, and its calls. Press a group (▸) to open it (▾): its sub-items, most used first, each with the tokens it used, its share of the group, and what it holds in the context now. In a narrow pane, such as the desktop's side pane, the bars shorten, the numbers move under their group and break only between items, a long group name puts its share on the next row, and the Refresh and Reset buttons stack.
 
 ```
 ── C O N T E X T ─────────────────── t: details ─
@@ -253,6 +257,7 @@ After each reply, up to three follow-up prompts show in the panel, under **NEXT 
 - They come from one short Haiku call on your last prompt (its first 2,000 characters) and the reply (its last 6,000), not the whole conversation, so each costs a few thousand Haiku tokens. The Tokens pane counts them under Skills & plugins, as user-hud.
 - A new prompt clears them. A stopped turn asks for none. If the call fails, the panel says why in their place.
 - Folded, the card shows the first, with `2` and `3` beside it.
+- Where a step is too long for its card and is cut with `…`, the card's rule offers **n: expand**. Press `n` (or click it) and next steps leave the tiles for a section of their own across the whole panel, under the other cards, each step in full and wrapped under its own start; the other cards fold or go behind **+N more** to make room. **n: collapse** puts them back in their tile.
 - `/hud next off` turns them off.
 
 ## Handoff
@@ -261,7 +266,7 @@ After each reply, up to three follow-up prompts show in the panel, under **NEXT 
 - **Read handoff** (`r`, or `/read-handoff`) opens the newest note with **Continue from this** (`c`), **Older** (`o`), **Newer** (`n`) and **Rescan** (`r`). The note is drawn as text in the pane's grid of cells: headings bold, code dim, list items wrapped under their text.
 - Notes are found in `HANDOFF.md`, `.claude/`, `.claude/handoffs/`, `handoffs/` and `docs/`. If yours live elsewhere, set **Handoff note location** in `/config`.
 
-Band hotkeys work once you have clicked into the band: `e` the Sessions pane, `t` the Tokens pane, `m` the picker styles, `w` Keep warm, `a` the guesses, `h` and `r` the handoff, `1` to `3` next steps, and `s` the settings. Each works while its button is on show, so with the panel closed it is `e`, `a`, and `w` while Keep warm is out; `/handoff`, `/read-handoff` and `/tokens` still work from the prompt.
+Band hotkeys work once you have clicked into the band: `e` the Sessions pane, `t` the Tokens pane, `m` the picker styles, `w` Keep warm, `a` the guesses, `h` and `r` the handoff, `1` to `3` next steps, `n` to expand or collapse them, and `s` the settings. Each works while its button is on show, so with the panel closed it is `e`, `a`, and `w` while Keep warm is out; `/handoff`, `/read-handoff` and `/tokens` still work from the prompt.
 
 ## What it can reach
 

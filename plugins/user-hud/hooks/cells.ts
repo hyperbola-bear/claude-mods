@@ -129,12 +129,15 @@ export function builder() {
   }
 }
 
-/** Words wrapped to `width` cells, as rows in one look. */
+/** Words wrapped to `width` cells, as rows in one look; a word longer than a row is broken. */
 export function wrap(text: string, width: number, look: Look = {}): Run[][] {
   const rows: Run[][] = []
   let cur = ''
-  for (const word of text.split(/\s+/).filter(Boolean)) {
-    if (cur && cur.length + 1 + word.length > width) {
+  const w = Math.max(1, width)
+  // A word longer than a row is broken across rows, so no row is wider than `width`.
+  const words = text.split(/\s+/).filter(Boolean).flatMap(word => word.match(new RegExp(`.{1,${w}}`, 'gu')) ?? [])
+  for (const word of words) {
+    if (cur && cur.length + 1 + word.length > w) {
       rows.push(runs(cur, look))
       cur = word
     } else {
@@ -182,4 +185,20 @@ export const plain = (g: Pick<Grid, 'rows'>) => g.rows.map(r => r.map(run => run
 export function textOf(g: Grid, action: string): string | null {
   const h = g.hits.find(x => x.id === action)
   return h ? (plain(g)[h.y] ?? '').slice(h.x0, h.x1) : null
+}
+
+/** Pills laid on as few rows as fit, a space between. */
+export function folded(pills: readonly Piece[], width: number): { row: Run[]; spans: Span[] }[] {
+  const rows: Piece[][] = pills.length > 0 ? [[]] : []
+  let used = 0
+  for (const p of pills) {
+    const w = widthOf(p.runs)
+    if (used > 0 && used + 1 + w > width) {
+      rows.push([])
+      used = 0
+    }
+    rows.at(-1)!.push(p)
+    used += (used > 0 ? 1 : 0) + w
+  }
+  return rows.map(r => line(width, r))
 }

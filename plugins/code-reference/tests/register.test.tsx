@@ -289,6 +289,21 @@ test('prompts: /code-reference <question> sends the question with the format; no
   expect(w.argv.filter(a => a[0] === 'gh' || a[0] === 'git')).toEqual([])
 })
 
+test('/code-reference <question> run as a command, as the engine routes it, still sends the question with the format', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  const ran = await $.command.run(RUN('code-reference', 'how does the band work'))
+  expect('text' in ran ? ran.text : undefined).toBe(undefined)
+  expect('context' in ran ? ran.context?.join('\n') : '').toContain('/work when the code is there')
+  await w.clock.settle()
+  expect(w.submits.at(-1)).toBe('how does the band work')
+  // A review run as a command checks out the PR and hands the model its worktree too.
+  const review = await $.command.run(RUN('code-reference', PR_URL))
+  expect('context' in review ? review.context?.join('\n') : '').toContain(`\`**Code reference:** ${PR_URL}\``)
+  await w.clock.settle()
+  expect(w.submits.at(-1)).toContain(PR_URL)
+})
+
 test('/code-reference alone draws the last reply in place when it names files, else asks for it again with links', async ($, on) => {
   const w = world(on)
   await start($, w)

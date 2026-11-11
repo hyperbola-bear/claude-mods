@@ -65,6 +65,17 @@ function runningText(r: AgentRun, width: number, at: number): Run[][] {
   return [head, usage, steps]
 }
 
+const cellsOf = (ps: readonly Piece[]) => ps.reduce((n, p) => n + widthOf(p.runs), 0) + Math.max(0, ps.length - 1)
+
+/** `left` and `right` on one row where both fit whole; else the right on a row of its own, so neither is cut. */
+function paired(b: ReturnType<typeof builder>, width: number, left: readonly Piece[], right: readonly Piece[]) {
+  if (cellsOf(left) + 1 + cellsOf(right) <= width) {
+    const l = line(width, left, right)
+    return b.add(l.row, l.spans)
+  }
+  for (const l of [line(width, left), line(width, [], right)]) b.add(l.row, l.spans)
+}
+
 /**
  * The pane, top to bottom, each part only when it has something: the gate and the totals, the flow, the
  * agents waiting and the first one's task, the agents running as their characters, the agents done, and
@@ -77,19 +88,28 @@ export function paneGrid(s: DelegatorState, t: Tracking, width: number, isOn: bo
   const refused = s.recent.filter(d => d.outcome === 'refused')
   const planned = plannedOf(t.flow, t.runs)
 
-  const head = line(
+  paired(
+    b,
     width,
     [piece('DELEGATOR', { isBold: true }), isOn ? piece('● gate on', { color: 'success' }) : piece('○ gate off', { isDim: true })],
     [keyed('o', isOn ? 'Turn off' : 'Turn on', 'toggle')],
   )
-  b.add(head.row, head.spans)
   const all = totals(t.runs, m.at)
-  const sum = line(
-    width,
-    [piece(`${running.length} running · ≈${fmtCost(all.cost)} · ${fmtTokens(all.tokens)} tokens · ${fmtTime(all.time)}`, { isDim: true })],
-    [keyed('c', t.isDoneHidden ? 'show done' : 'hide done', 'done')],
-  )
-  b.add(sum.row, sum.spans)
+  const done = [keyed('c', t.isDoneHidden ? 'show done' : 'hide done', 'done')]
+  const sums = [`${running.length} running`, `≈${fmtCost(all.cost)}`, `${fmtTokens(all.tokens)} tokens`, fmtTime(all.time)]
+  if (sums.join(' · ').length <= width) paired(b, width, [piece(sums.join(' · '), { isDim: true })], done)
+  else {
+    // Too narrow for the totals on one row: they break between items, and the switch takes its own row.
+    const rows: string[] = []
+    for (const item of sums) {
+      const last = rows[rows.length - 1]
+      if (last !== undefined && last.length + 3 + item.length <= width) rows[rows.length - 1] = `${last} · ${item}`
+      else rows.push(item)
+    }
+    for (const r of rows) b.add(runs(r, { isDim: true }))
+    const l = line(width, [], done)
+    b.add(l.row, l.spans)
+  }
   if (s.approveAllTurn) b.add(runs('Approve all is on until this turn ends.', { color: 'warning' }))
 
   const flow = t.flow

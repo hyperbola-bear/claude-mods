@@ -72,7 +72,7 @@ test('the Ladder grows a cell per step; the Meter rises to full', () => {
 })
 
 test('columns share the width with a one-cell gap, never narrower than a label', () => {
-  expect(columnWidth(64, 4, ['Haiku 4.5', 'Sonnet 5.5'])).toBe(15)
+  expect(columnWidth(64, 4, ['Haiku 5.5', 'Sonnet 5.5'])).toBe(15)
   expect(columnWidth(64, 6, ['Ultracode'])).toBe(9)
   expect(columnWidth(20, 4, ['Sonnet 5.5'])).toBe(10)
 })
