@@ -67,6 +67,8 @@ export type HudState = {
   view: HudView
   /** The card the open panel starts with (`+N more` and `a: review` move it); null for the usual order. */
   lead: CardId | null
+  /** Next steps across the panel's whole width, each in full (`n` switches); absent in state saved before it. */
+  isNextExpanded?: boolean
 }
 
 /** The open panel's cards, in their usual order. */

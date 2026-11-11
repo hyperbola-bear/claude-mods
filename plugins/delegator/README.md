@@ -44,7 +44,7 @@ Every subagent Claude starts waits for your approval first. You see the task, th
    5. Type something.
 ```
 
-The pane is one grid of cells, the same in the terminal and the desktop app. In VS Code and on mobile it is the same rows as text, with buttons for its keys. A surface whose grid fails gets those too, and the grid is tried again after 30 seconds, then 2 and 10 minutes. With **Show the characters** off, or below 44 columns, the characters are left out and each agent's text starts at the left edge. Every row is cut at the pane's width with `…`.
+The pane is one grid of cells, the same in the terminal and the desktop app. In VS Code and on mobile it is the same rows as text, with buttons for its keys. A surface whose grid fails gets those too, and the grid is tried again after 30 seconds, then 2 and 10 minutes. With **Show the characters** off, or below 44 columns, the characters are left out and each agent's text starts at the left edge. The pane draws at its own width, down to the desktop's narrowest side pane: where the title and `o: Turn off`, or the totals and `c: hide done`, do not fit on one row, the key takes a row of its own, and totals too long for one row break between their items. A task's long words, such as paths, break across rows. Any other row still too wide is cut at the pane's width with `…`.
 
 ## Use
 

@@ -1,7 +1,7 @@
 // Pure layout of the Handoff pane as one grid of cells: the actions, where the note is, and the note itself
 // as wrapped text, its headings bold and its code dim, so it reads the same on every surface.
 import type { HandoffState } from '../types'
-import { builder, line, piece, put, runs, wrap } from './cells.ts'
+import { builder, folded, line, piece, put, runs, widthOf, wrap } from './cells.ts'
 import type { Look, Run } from './cells.ts'
 import { age } from './handoff.ts'
 import type { Band } from './panelgrid.ts'
@@ -56,7 +56,8 @@ export function handoffPaneGrid(ho: HandoffState, now: number, width: number): B
     b.add(a.row, a.spans)
     return { ...b.grid, keys: { h: 'handoff' }, width }
   }
-  const pieces = [piece(' c: Continue from this ', { bg: 'claude', isBold: true }, 'handoff:continue')]
+  const go = piece(' c: Continue from this ', { bg: 'claude', isBold: true }, 'handoff:continue')
+  const pieces = [widthOf(go.runs) <= width ? go : piece(' c: Continue ', { bg: 'claude', isBold: true }, 'handoff:continue')]
   const keys: Record<string, string> = { c: 'handoff:continue', r: 'handoff:rescan' }
   if (ho.index < ho.files.length - 1) {
     pieces.push(piece(' o: Older ', { bg: 'subtle' }, 'handoff:older'))
@@ -67,8 +68,8 @@ export function handoffPaneGrid(ho: HandoffState, now: number, width: number): B
     keys.n = 'handoff:newer'
   }
   pieces.push(piece(' r: Rescan ', { bg: 'subtle' }, 'handoff:rescan'))
-  const a = line(width, pieces)
-  b.add(a.row, a.spans)
+  // The buttons fold onto as many rows as the pane needs.
+  for (const a of folded(pieces, width)) b.add(a.row, a.spans)
   // Where the note is: its end kept when the path is too long, as the file's name is what matters.
   const where = `${file.path} · ${age(file.mtimeMs, now)}${ho.files.length > 1 ? ` · ${ho.index + 1} of ${ho.files.length}` : ''}`
   b.add(runs(where.length > width ? `…${where.slice(where.length - width + 1)}` : where, { color: 'suggestion' }))

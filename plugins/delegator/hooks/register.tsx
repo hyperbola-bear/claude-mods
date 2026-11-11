@@ -471,7 +471,7 @@ export const register: Register = (on, given) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui: Ui = $.ui.resolve(e)
-    const width = Math.max(40, e.props.bodyColumns)
+    const width = Math.max(1, e.props.bodyColumns)
     const grid = paneGrid(view, await read($, tracking), width, cfg.isOn, { at: await $.clock.now(), frame: await read($, frameA), asksSteps: cfg.asksSteps, showsCharacters: cfg.showsCharacters })
     return cellsElement(ui, e.surface, 'delegator', grid, width, PANE_BUTTONS, a => void runAction($, a))
   })

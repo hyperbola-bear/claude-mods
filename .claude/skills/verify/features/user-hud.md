@@ -21,13 +21,13 @@ A control panel above the prompt. Closed, it is one row at the right edge that s
 - `hud-pickers` runs `/model` and `/effort` from the model card; `/hud-styles` draws Rail, Ladder and Meter.
 - `hud-modules` switches each module with `/hud <module> on|off`.
 - `hud-order` reorders the cards with `/hud order <modules…>` (or **Module order** in `/config`).
-- `hud-tokens`, `hud-cache`, `hud-next`, `hud-handoff`: the Tokens pane (`t`, `/tokens`), Keep warm (`w`, `/keepwarm`), next steps (`1` to `3`), Write and Read handoff (`h`, `r`).
+- `hud-tokens`, `hud-cache`, `hud-next`, `hud-handoff`: the Tokens pane (`t`, `/tokens`), Keep warm (`w`, `/keepwarm`), next steps (`1` to `3`, `n` to expand them across the panel), Write and Read handoff (`h`, `r`).
 
 ## How to get to it (user POV)
 
 - Look at the corner above the prompt: the closed row is always there while a module is on.
 - Click the tab, or type `/hud`, to open and close the panel.
-- With the band focused: `s`, `e`, `a`, `t`, `w`, `h`, `r`, `1` to `3`, the arrow keys and Return.
+- With the band focused: `s`, `e`, `a`, `t`, `w`, `h`, `r`, `1` to `3`, `n`, the arrow keys and Return.
 - Type `/hud modules`, `/hud <module> on|off`, `/tokens`, `/cache`, `/keepwarm`, `/read-handoff`, `/hud-styles`.
 
 ## Driving it with tui.sh
@@ -79,3 +79,4 @@ On the desktop, the person runs the same steps in a Code session of this checkou
 - `tui.sh` loads the plugins as `<name>@inline`, and `claude plugin configure` cannot reach an inline plugin. The desktop's fallback only proves itself with `use-source.sh` run, under the real `user-hud@polar-mods` id.
 - To see what the desktop gets without its UI, act as its host: on the stream-json recipe, send control requests `ui_attach` (`surface: "desktop"`, a `client_id`) and `ui_render` (`component: "AbovePrompt"`, `instance_id`, and `props` with `hasSurvey`, `isWorking`, `maxRows`, `bodyColumns`, `scroll`, `view`). A band the engine answers can still fail to show: the Code tab's own code decides what it mounts, and the desktop always sends `hasSurvey: false`.
 - The Code tab removes every plugin's band while a next-step card is waiting, unless the keyboard focus is inside the band (`turnCardShown` in its band wrapper). That is the app's own rule, not a mod bug, and a reload changes nothing. Before you report a missing band on the desktop, check that no card is up. An agent that ends its turn with a question puts one up itself.
+- In tmux, a click into the band (an SGR mouse report) gives the band the focus, and the band keeps the arrow you pointed with: `tui.sh type` then sends its Enter to the band, which runs that action again. Press `tui.sh keys hud Escape` before typing at the prompt.

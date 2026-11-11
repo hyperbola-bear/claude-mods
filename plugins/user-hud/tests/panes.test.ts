@@ -40,6 +40,28 @@ test('the Tokens pane fits a narrow dock: each group’s numbers move to a line 
   for (const l of narrow) expect(l.length).toBeLessThanOrEqual(44)
 })
 
+test('the Tokens pane fits a side pane: names, bars and numbers shrink or wrap, none cut off', () => {
+  let s = addShares(emptyTokens(0), [
+    { group: 'files', kind: 'Read', item: 'a-very-long-file-name-for-the-pane.ts', tokens: 6_000 },
+    { group: 'skills', kind: 'Skill', item: 'review', tokens: 3_000 },
+  ])
+  s = attributeRequest(s, contextWeights(s), { input_tokens: 0, cache_read_input_tokens: 10_000, cache_creation_input_tokens: 0, output_tokens: 0 }, { answer: '', toolUses: [] })
+  for (const width of [20, 24, 28, 31, 36, 40]) {
+    const rows = plain(tokensPaneGrid(s, width, ['files']))
+    for (const l of rows) expect(l.length, `${width}: ${l}`).toBeLessThanOrEqual(width)
+    // The label is whole; its share follows on the same row, or on the next where the label fills the row.
+    const at = rows.findIndex(l => l.startsWith('▸ ■ Skills'))
+    expect(`${rows[at]} ${rows[at + 1]}`, `${width}`).toMatch(/^▸ ■ Skills & plugins +\d+%/)
+    // The numbers wrap rather than end in an ellipsis.
+    expect(rows.join(' '), `${width}`).toMatch(/0\s+calls/)
+    expect(rows.filter(l => /used|in context|calls/.test(l)).some(l => l.endsWith('…')), `${width}`).toBe(false)
+  }
+  // From 28 cells a group's bar still draws, a few cells wide.
+  const g = tokensPaneGrid(s, 28, [])
+  const head = g.rows.find(r => r.map(x => x.text).join('').startsWith('▸ ■ Files'))!
+  expect(head.filter(run => run.bg !== undefined).reduce((n, run) => n + run.text.length, 0)).toBeGreaterThanOrEqual(2)
+})
+
 test('the Tokens pane: a group opens to its sub-items, each with what it used, its share of the group and its context', () => {
   let s = addShares(emptyTokens(0), [
     { group: 'files', kind: 'Read', item: 'a.ts', tokens: 6_000 },
@@ -56,4 +78,21 @@ test('the Tokens pane: a group opens to its sub-items, each with what it used, i
   expect(rows[head + 1]).toMatch(/^ {4}a\.ts +6k +67% +6k in context$/)
   expect(rows[head + 2]).toMatch(/^ {4}b\.ts +3k +33% +3k in context$/)
   for (const l of plain(tokensPaneGrid(s, 44, ['files']))) expect(l.length).toBeLessThanOrEqual(44)
+})
+
+test('the Handoff pane fits a side pane: no row wider than the pane, its buttons whole', () => {
+  const files = [
+    { path: '.claude/handoffs/2026-11-10-adaptive-panes.md', mtimeMs: 0 },
+    { path: '.claude/handoffs/old.md', mtimeMs: 0 },
+  ]
+  for (const width of [20, 24, 28, 31, 40, 60]) {
+    for (const g of [
+      handoffPaneGrid({ files: [], index: 0, text: null, error: null, hasCommand: false }, 0, width),
+      handoffPaneGrid({ files, index: 0, text: '# Goal\n\nShip the adaptive panes, then check them on the desktop.', error: null, hasCommand: true }, 3_600_000, width),
+    ]) {
+      for (const l of plain(g)) expect(l.length, `${width}: ${l}`).toBeLessThanOrEqual(width)
+      for (const h of g.hits) expect(h.x1, `${width}: ${h.id}`).toBeLessThanOrEqual(width)
+      for (const id of new Set(g.hits.map(h => h.id))) expect(textOf(g, id), `${width}: ${id}`).not.toMatch(/…$/)
+    }
+  }
 })

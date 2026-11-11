@@ -1,7 +1,7 @@
 // Pure layout of the other sessions: the card in the open panel, the pieces on the closed row, and the
 // Sessions pane, each a grid of cells.
 import type { SessionGroup, SessionInfo, Sessions } from '../types'
-import { builder, fits, keyed, line, piece, put } from './cells.ts'
+import { builder, fits, keyed, line, piece, put, runs, wrap } from './cells.ts'
 import type { Grid, Look, Piece, Run } from './cells.ts'
 import { hintedRule } from './hud.ts'
 import type { Band } from './panelgrid.ts'
@@ -96,10 +96,21 @@ export function sessionsPaneGrid(s: Sessions, now: number, width: number, isAsle
   const add = (l: ReturnType<typeof line>) => b.add(l.row, l.spans)
   const live = n.needs + n.working + n.done + n.asleep + (s.self ? 1 : 0)
   add(hintedRule('SESSIONS', width, [piece(`${live} live ·`, { isDim: true }), keyed('e', 'close', 'sessions:close')]))
-  const head = (title: string, count: number, note?: string) =>
-    add(line(width, [piece(`${title} · ${count}`, { isBold: true }), ...(note ? [piece(note, { isDim: true })] : [])]))
+  // A head with its note and its action on one row where they fit; narrower, the action stays beside the
+  // title when it can, and the note goes under it.
+  const headed = (title: Piece, note: string | null, action: Piece[] = []) => {
+    const notes = note ? [piece(note, { isDim: true })] : []
+    if (fits(width, [title, ...notes], action)) return add(line(width, [title, ...notes], action))
+    if (fits(width, [title], action)) add(line(width, [title], action))
+    else {
+      add(line(width, [title]))
+      if (action.length > 0) add(line(width, [], action))
+    }
+    if (note) for (const row of wrap(note, Math.max(1, width - 2), { isDim: true })) b.add([...runs('  '), ...row])
+  }
+  const head = (title: string, count: number, note?: string) => headed(piece(`${title} · ${count}`, { isBold: true }), note ?? null)
   const list = (kind: Kind, items: readonly SessionInfo[], empty: string) => {
-    if (items.length === 0) add(line(width, [piece(`  ${empty}`, { isDim: true })]))
+    if (items.length === 0) for (const row of wrap(empty, Math.max(1, width - 2), { isDim: true })) b.add([...runs('  '), ...row])
     for (const x of items) add(sessionRow(x, kind, width, now))
   }
   head('NEEDS YOU', n.needs)
@@ -108,7 +119,7 @@ export function sessionsPaneGrid(s: Sessions, now: number, width: number, isAsle
   list('working', s.byGroup.working, 'no other session is running a turn')
   head('DONE', n.done, 'in the last 8h')
   list('done', s.byGroup.done, 'none finished lately')
-  add(line(width, [piece(`ASLEEP · ${n.asleep}`, { isBold: true }), piece('idle over 8h', { isDim: true })], [keyed('z', isAsleepShown ? 'hide' : 'show', 'sessions:asleep')]))
+  headed(piece(`ASLEEP · ${n.asleep}`, { isBold: true }), 'idle over 8h', [keyed('z', isAsleepShown ? 'hide' : 'show', 'sessions:asleep')])
   if (isAsleepShown) for (const x of s.byGroup.asleep) add(sessionRow(x, 'asleep', width, now))
   if (s.self) {
     head('THIS SESSION', 1)

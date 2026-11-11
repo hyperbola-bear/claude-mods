@@ -3,7 +3,7 @@
 // grid of cells and the actions on it, so a `Client` paints the band the same on the terminal and the desktop.
 import type { CardId, HudView, SelectorStyle, Sessions } from '../types'
 import { BATTERY_COLORS, batteryRuns, levelOf } from './battery.ts'
-import { builder, cut, fits, keyed, line, pad, piece, pill, put, runs, spanOf, widthOf } from './cells.ts'
+import { builder, cut, fits, folded, keyed, line, pad, piece, pill, put, runs, spanOf, widthOf, wrap } from './cells.ts'
 import type { Grid, Piece, Run, Span } from './cells.ts'
 import { DEFAULT_ORDER, MODULE_CARD, hintedRule } from './hud.ts'
 import type { ModuleId, Modules } from './hud.ts'
@@ -55,8 +55,11 @@ export type BandView = {
   /** Which modules are on, their order, and which stay open, for the modules behind the settings. */
   modules: { on: Modules; order: readonly ModuleId[]; open: readonly ModuleId[] }
   handoff: { hasNewest: boolean; note: string } | null
-  /** Next steps: the prompts suggested after the last reply, or a dim note while they are asked for. */
-  next: { items: string[]; note: string | null } | null
+  /**
+   * Next steps: the prompts suggested after the last reply, or a dim note while they are asked for. Expanded,
+   * they take the panel's whole width, each wrapped in full, under the other cards.
+   */
+  next: { items: string[]; note: string | null; isExpanded?: boolean } | null
   sessions: { list: Sessions; now: number } | null
   /** The guesses still to mark, oldest first. */
   guesses: { id: string; text: string }[] | null
@@ -92,6 +95,7 @@ const HOTKEYS: Record<string, string> = {
   'next:0': '1',
   'next:1': '2',
   'next:2': '3',
+  'next:toggle': 'n',
   settings: 's',
   'modules:default': 'd',
 }
@@ -286,6 +290,12 @@ const NEXT_NAME = text('NEXT STEPS', { isDim: true })
 /** Next steps suggested after a reply, at most. */
 const NEXT_STEPS = 3
 
+/** A next step as its card draws it: the star, then the step's number and its prompt. */
+const nextStep = (t: string, i: number): Piece[] => [text('✦', { color: 'claude' }), keyed(`${i + 1}`, t, `next:${i}`)]
+
+/** Whether any step is cut at `w` cells, so the card offers to expand. */
+const isNextCut = (items: readonly string[], w: number) => items.some((t, i) => !fits(w, nextStep(t, i)))
+
 function nextCard(v: BandView, w: number): Card | null {
   const nx = v.next
   if (!nx) return null
@@ -295,11 +305,49 @@ function nextCard(v: BandView, w: number): Card | null {
     return { id: 'next', full: gridOf([hintedRule('NEXT STEPS', w), line(w, note)]), folded: gridOf([line(w, [NEXT_NAME, ...note])]) }
   }
   const rest = nx.items.slice(1).map((_, i) => piece(`${i + 2}`, { color: 'claude', isBold: true }, `next:${i + 1}`))
+  const expand = isNextCut(nx.items, w) ? [keyed('n', 'expand', 'next:toggle')] : []
   return {
     id: 'next',
-    full: gridOf([hintedRule('NEXT STEPS', w), ...nx.items.map((t, i) => line(w, [star, keyed(`${i + 1}`, t, `next:${i}`)]))]),
+    full: gridOf([hintedRule('NEXT STEPS', w, expand), ...nx.items.map((t, i) => line(w, nextStep(t, i)))]),
     folded: gridOf([line(w, [NEXT_NAME, star, keyed('1', nx.items[0]!, 'next:0')], rest)]),
   }
+}
+
+/** The cells before a step's prompt: `✦ 1: `, three steps at most so one digit. */
+const STEP_INDENT = 5
+
+/**
+ * Next steps expanded across the panel's `width`: each prompt in full, wrapped under its own start, the whole of
+ * it pressing the step; `n: collapse` on the rule. At most `rows` rows, the last cut where they run over.
+ */
+export function expandedNext(items: readonly string[], width: number, rows: number): Grid {
+  const b = builder()
+  const rule = hintedRule('NEXT STEPS', width, [keyed('n', 'collapse', 'next:toggle')])
+  b.add(rule.row, rule.spans)
+  items.forEach((t, i) => {
+    const action = `next:${i}`
+    wrap(t, Math.max(1, width - STEP_INDENT)).forEach((r, j) => {
+      const row: Run[] = []
+      if (j === 0) {
+        put(row, '✦ ', { color: 'claude' })
+        put(row, `${i + 1}`, { color: 'claude', isBold: true })
+        put(row, ': ')
+      } else put(row, ' '.repeat(STEP_INDENT))
+      for (const run of r) put(row, run.text, run)
+      const x1 = widthOf(row)
+      put(row, ' '.repeat(Math.max(0, width - x1)))
+      b.add(row, [{ action, x0: j === 0 ? 2 : STEP_INDENT, x1 }])
+    })
+  })
+  if (b.grid.rows.length <= rows) return b.grid
+  const kept = b.grid.rows.slice(0, Math.max(0, rows))
+  const last = kept.at(-1)
+  if (last) {
+    const marked = [...last]
+    put(marked, ' …', { isDim: true })
+    kept[kept.length - 1] = cut(marked, width)
+  }
+  return { rows: kept, hits: b.grid.hits.filter(h => h.y < kept.length) }
 }
 
 const CARDS: Record<CardId, (v: BandView, w: number) => Card | null> = {
@@ -471,17 +519,30 @@ function fitTiles(all: readonly Card[], count: number, budget: number, lead: Car
  */
 function cardsPanel(v: BandView): Band {
   const { width, count, card } = cardLayout(v.columns)
-  const all = cardsOf(v, card)
-  const { cards, height, rows } = fitTiles(all, count, v.maxRows - 1, v.lead, v.keepOpen)
+  const nx = v.next
+  const expanded = nx?.isExpanded && nx.items.length > 0 ? expandedNext(nx.items, width, v.maxRows - 1) : null
+  const all = cardsOf(v, card).filter(c => !(expanded && c.id === 'next'))
+  // Expanded next steps take their rows first, a blank row above them; the other cards fit in what is left.
+  const budget = v.maxRows - 1 - (expanded ? expanded.rows.length + 1 : 0)
+  const { cards, height, rows } = fitTiles(all, count, Math.max(0, budget), v.lead, v.keepOpen)
   const b = builder()
   rows.forEach((r, i) => {
     if (gapBefore(rows, i)) b.add(runs(' '.repeat(width)))
     b.append(sideBySide(r.tiles.map(t => (r.isFolded ? t.folded : padded(t.full, height))), r.isFolded ? 1 : height, card, width))
   })
+  if (expanded) {
+    if (rows.length > 0) b.add(runs(' '.repeat(width)))
+    b.append(expanded)
+  }
   const hidden = all.filter(c => !cards.includes(c))
-  const left: Piece[] = v.settings.length > 0 ? [gear, keyed('s', 'Settings', 'settings')] : []
-  if (hidden[0]) left.push(pill(`+${hidden.length} more`, `more:${hidden[0].id}`, 'subtle'))
   const tabPiece = [tab(true, needsYouOf(v))]
+  // Narrow, `+N more` shortens to `+N`, then Settings to its key, before the handoff buttons or anything is cut.
+  const lefts = (['more', 'n', 'key'] as const).map(form => {
+    const left: Piece[] = v.settings.length > 0 ? [gear, form === 'key' ? piece('s', { color: 'claude', isBold: true }, 'settings') : keyed('s', 'Settings', 'settings')] : []
+    if (hidden[0]) left.push(pill(form === 'more' ? `+${hidden.length} more` : `+${hidden.length}`, `more:${hidden[0].id}`, 'subtle'))
+    return left
+  })
+  const left = lefts.find(l => fits(width, l, tabPiece)) ?? lefts.at(-1)!
   const handoff = handoffForms(v).find(f => fits(width, [...left, ...f], tabPiece)) ?? []
   return finish(gridOf([b.grid, bottomBar(v, width, [...left, ...handoff])]), width)
 }
@@ -489,23 +550,10 @@ function cardsPanel(v: BandView): Band {
 function settingRow(s: Setting, width: number): Line {
   const mark = s.kind === 'choice' ? text('◇', { isDim: true }) : s.isOn ? text('●', { color: 'success' }) : text('○', { isDim: true })
   const value = s.kind === 'toggle' ? (s.isOn ? '● On' : '○ Off') : s.value
-  return line(width, [mark, text(pad(s.label, 16), { isBold: true }), text(s.desc, { isDim: true })], [pill(value, `set:${s.key}`, s.kind === 'toggle' && s.isOn ? 'success' : 'subtle')])
-}
-
-/** Pills laid on as few rows as fit, a space between. */
-function folded(pills: readonly Piece[], width: number): Line[] {
-  const rows: Piece[][] = pills.length > 0 ? [[]] : []
-  let used = 0
-  for (const p of pills) {
-    const w = widthOf(p.runs)
-    if (used > 0 && used + 1 + w > width) {
-      rows.push([])
-      used = 0
-    }
-    rows.at(-1)!.push(p)
-    used += (used > 0 ? 1 : 0) + w
-  }
-  return rows.map(r => line(width, r))
+  const right = [pill(value, `set:${s.key}`, s.kind === 'toggle' && s.isOn ? 'success' : 'subtle')]
+  const left = [mark, text(pad(s.label, 16), { isBold: true }), text(s.desc, { isDim: true })]
+  // Narrow, the description goes rather than end in an ellipsis; the label and its value stay.
+  return line(width, fits(width, left, right) ? left : [mark, text(s.label, { isBold: true })], right)
 }
 
 /** The settings behind `s`: a row each under their rule, or one pill each when the rows do not fit. */

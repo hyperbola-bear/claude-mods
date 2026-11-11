@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { AgentRun, Tracking } from '../types'
-import { plain, widthOf } from '../hooks/cells.ts'
+import { plain, widthOf, wrap } from '../hooks/cells.ts'
 import { CHARACTER_MIN_WIDTH, bandGrid, paneGrid } from '../hooks/pane.ts'
 import { EMPTY, decided, makePending } from '../hooks/queue.ts'
 import { fmtCost, startRun } from '../hooks/runs.ts'
@@ -85,18 +85,18 @@ test('the approved drawing: the gate, the totals, the flow, waiting, running wit
   expect(grid.hits.map(h => h.id)).toEqual(['toggle', 'done'])
 })
 
-test('at every width from 40 to 110 no row is wider than the pane; below 44 the characters are left out', () => {
+test('at every width from 20 to 110 no row is wider than the pane; below 44 the characters are left out', () => {
   // A word no wrap can break, such as a long link in a task, is cut too.
   const queue = { ...QUEUE, pending: [{ ...plan, prompt: `Read https://example.com/${'x'.repeat(150)} first.` }] }
-  for (let width = 40; width <= 110; width++) {
+  for (let width = 20; width <= 110; width++) {
     const grid = paneGrid(queue, TRACKED, width, true, MOMENT)
     for (const row of grid.rows) expect({ width, cells: widthOf(row) <= width }).toEqual({ width, cells: true })
     for (const h of grid.hits) expect({ width, inside: h.x0 >= 0 && h.x1 <= width }).toEqual({ width, inside: true })
     const lines = plain(grid)
-    const first = lines.findIndex(l => l.includes('R U N N I N G'))
+    const first = lines.findIndex(l => /R ?U ?N ?N ?I ?N ?G/.test(l))
     if (width < CHARACTER_MIN_WIDTH) {
       expect({ width, characters: grid.rows.some(hasCharacter) }).toEqual({ width, characters: false })
-      expect(lines[first + 1]?.startsWith('#3 Explore')).toBe(true)
+      expect({ width, first: lines[first + 1]?.startsWith('#3 Ex') }).toEqual({ width, first: true })
     } else {
       expect({ width, characters: grid.rows.slice(first + 1, first + 4).every(hasCharacter) }).toEqual({ width, characters: true })
     }
@@ -141,4 +141,26 @@ test('the band fits its row, the title giving way first', () => {
 
 test('a cost under a cent shows to three places, so a cheap agent does not read as free', () => {
   expect([0, 0.0042, 0.0099, 0.01, 0.344, 12.34].map(fmtCost)).toEqual(['$0.00', '$0.004', '$0.010', '$0.01', '$0.34', '$12.3'])
+})
+
+test('narrow, the toggle and the done switch take rows of their own rather than cut the title and totals', () => {
+  const lines = plain(paneGrid(QUEUE, TRACKED, 28, true, MOMENT)).map(l => l.trimEnd())
+  expect(lines.slice(0, 3)).toEqual(['DELEGATOR ● gate on', expect.stringMatching(/o: Turn off$/), expect.stringMatching(/^\d+ running · /)])
+  expect(lines.slice(3, 5)).toContainEqual(expect.stringMatching(/c: (hide|show) done$/))
+  expect(lines.slice(0, 1).every(l => !l.includes('…'))).toBe(true)
+  // Narrower still, the totals break between their items rather than end in an ellipsis.
+  for (const width of [20, 24, 31]) {
+    const rows = plain(paneGrid(QUEUE, TRACKED, width, true, MOMENT)).map(l => l.trimEnd())
+    const totals = rows.slice(0, rows.findIndex(l => /c: (hide|show) done$/.test(l)))
+    expect(totals.some(l => l.endsWith('…')), `${width}: ${totals.join(' | ')}`).toBe(false)
+    expect(totals.join(' '), `${width}`).toMatch(/running/)
+    expect(totals.join(' '), `${width}`).toMatch(/tokens/)
+  }
+})
+
+test('a word longer than the pane, such as a path, breaks across rows rather than ending in an ellipsis', () => {
+  const rows = wrap('Count the files in /Users/someone/polar/polar-test/plugins and report', 20).map(r => r.map(x => x.text).join(''))
+  for (const r of rows) expect(r.length).toBeLessThanOrEqual(20)
+  expect(rows.join('')).toContain('/Users/someone/polar/polar-test/plugins'.slice(0, 20))
+  expect(rows.join('').replace(/\s/g, '')).toBe('Countthefilesin/Users/someone/polar/polar-test/pluginsandreport')
 })

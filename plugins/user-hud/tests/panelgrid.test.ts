@@ -4,7 +4,7 @@ import type { SessionInfo } from '../types'
 import { batteryRuns } from '../hooks/battery.ts'
 import { cut, line, piece, plain, runs, textOf, underlined, widthOf, wrap } from '../hooks/cells.ts'
 import { MODELS } from '../hooks/hud.ts'
-import { CARD_ORDER, bandGrid, cardLayout, cardsOf } from '../hooks/panelgrid.ts'
+import { CARD_ORDER, bandGrid, cardLayout, cardsOf, expandedNext } from '../hooks/panelgrid.ts'
 import type { BandView } from '../hooks/panelgrid.ts'
 import { EFFORT_COLORS, EFFORT_SHORT_LABELS, EFFORT_STEPS, MODEL_COLORS } from '../hooks/selector.ts'
 import { grouped } from '../hooks/sessions.ts'
@@ -295,12 +295,12 @@ test('pressed to the front, the guesses stay in full beside next steps, so a 12-
 
 test('the model card draws the Rail with the names from 67 cells across, without them down to 27, and the Ladder below', () => {
   const card = (w: number) => plain(cardsOf(VIEW, w).find(c => c.id === 'model')!.full).join('\n')
-  expect(card(67)).toMatch(/^MODEL .*Haiku 4\.5/m)
+  expect(card(67)).toMatch(/^MODEL .*Haiku 5\.5/m)
   expect(card(66)).toContain('▔')
   expect(card(66)).not.toMatch(/^MODEL /m)
   expect(card(27)).toContain('▔')
   expect(card(26)).not.toContain('▔')
-  expect(card(26)).toMatch(/▄ Haiku 4\.5/)
+  expect(card(26)).toMatch(/▄ Haiku 5\.5/)
 })
 
 test('the guesses card: each guess with ✓ and ✗ before it, three at most', () => {
@@ -348,6 +348,10 @@ test('s: the settings in place of the cards, a row each, folded into pills when 
   expect(bandGrid(VIEW).keys).toEqual({ s: 'settings', e: 'sessions', t: 'tokens', w: 'keepwarm', h: 'handoff', r: 'readhandoff', 1: 'next:0', 2: 'next:1', 3: 'next:2' })
   expect(bandGrid({ ...VIEW, maxRows: 4, columns: 100, keepOpen: [] }).keys).toMatchObject({ a: 'assume:review', e: 'sessions' })
   expect(bandGrid({ ...VIEW, maxRows: 5, columns: 60, keepOpen: [] }).keys).toMatchObject({ m: 'styles' })
+  // Narrow, a setting's description goes rather than end in an ellipsis; its label and value stay.
+  const narrow = plain(bandGrid({ ...VIEW, view: 'settings', columns: 40 }))
+  expect(narrow).toContainEqual(expect.stringMatching(/^● Alert sound +● On $/))
+  expect(narrow.some(l => l.includes('…'))).toBe(false)
   const none = bandGrid({ ...VIEW, settings: [], view: 'settings' })
   expect(none.keys.s).toBe(undefined)
   expect(plain(none).some(l => l.includes('S E S S I O N S'))).toBe(true)
@@ -485,4 +489,72 @@ test('folded, every card leads with its name, and the whole context row opens th
   for (const at of [0, text.indexOf('▕'), text.indexOf('34%'), text.indexOf('1.2M'), text.indexOf('details')]) expect(pressable.has(at), `cell ${at}`).toBe(true)
   // Narrow, the hint goes before the total does.
   expect(plain(cardsOf(VIEW, 28).find(c => c.id === 'context')!.folded)[0]).toMatch(/1\.2M$/)
+})
+
+const LONG_NEXT = [
+  'Retry spawning the subagent to say hello in five words',
+  'Show me why the subagent spawn was refused by the hook',
+  'List the files in the billing repo',
+]
+
+test('next steps cut in their tile offer n: expand; expanded they take the whole width, each in full, under the other cards', () => {
+  const v: BandView = { ...VIEW, columns: 80, maxRows: 12, next: { items: LONG_NEXT, note: null } }
+  const g = bandGrid(v)
+  expect(plain(g).some(r => /n: expand ─$/.test(r.trimEnd()))).toBe(true)
+  expect(g.keys).toMatchObject({ n: 'next:toggle' })
+  expect(plain(g).some(r => r.includes('…'))).toBe(true)
+
+  const open = bandGrid({ ...v, next: { ...v.next!, isExpanded: true } })
+  const rows = plain(open)
+  expect(rows.length).toBeLessThanOrEqual(12)
+  expect(rows.every(r => r.length <= 80)).toBe(true)
+  const at = rows.findIndex(r => r.startsWith('── N E X T'))
+  expect(rows[at]).toMatch(/n: collapse ─$/)
+  // Every step whole, under the other cards and above the bottom bar.
+  expect(rows.slice(at + 1, at + 4)).toEqual(LONG_NEXT.map((t, i) => `✦ ${i + 1}: ${t}`.padEnd(80)))
+  expect(rows.at(-1)).toMatch(/user-hud ▾/)
+  expect(open.keys).toMatchObject({ n: 'next:toggle', 1: 'next:0', 2: 'next:1', 3: 'next:2' })
+  expect(open.hits.find(h => h.id === 'next:1')?.x1).toBe(5 + LONG_NEXT[1]!.length)
+})
+
+test('next steps that fit their tile offer no expand', () => {
+  expect(bandGrid({ ...VIEW, columns: 132, maxRows: 24 }).keys.n).toBeUndefined()
+})
+
+test('expanded next steps wrap under their own start, the whole step pressable, and are cut short of the rows there are', () => {
+  const g = expandedNext(LONG_NEXT, 30, 20)
+  const rows = plain(g)
+  expect(rows[0]).toBe('── NEXT STEPS ── n: collapse ─')
+  expect(rows.slice(1, 4).map(r => r.trimEnd())).toEqual(['✦ 1: Retry spawning the', '     subagent to say hello in', '     five words'])
+  expect(rows.every(r => r.length <= 30)).toBe(true)
+  expect(g.hits.filter(h => h.id === 'next:0').map(h => h.y)).toEqual([1, 2, 3])
+  const short = expandedNext(LONG_NEXT, 30, 4)
+  expect(plain(short)).toHaveLength(4)
+  expect(plain(short)[3]).toMatch(/…$/)
+  expect(short.hits.every(h => h.y < 4)).toBe(true)
+})
+
+test('expanded next steps at the desktop’s 12 rows and one column: the other cards go behind +N more', () => {
+  const g = bandGrid({ ...VIEW, columns: 40, maxRows: 12, next: { items: LONG_NEXT, note: null, isExpanded: true } })
+  const rows = plain(g)
+  expect(rows.length).toBeLessThanOrEqual(12)
+  expect(rows.every(r => r.length <= 40)).toBe(true)
+  expect(rows.some(r => r.includes('n: collapse'))).toBe(true)
+  expect(rows.at(-1)).toMatch(/\+\d more/)
+})
+
+test('a word longer than the row is broken across rows', () => {
+  expect(plain({ rows: wrap('a ' + 'x'.repeat(25), 10), hits: [] })).toEqual(['a', 'xxxxxxxxxx', 'xxxxxxxxxx', 'xxxxx'])
+})
+
+test('a narrow bottom bar shortens +N more and Settings before it cuts anything', () => {
+  for (const columns of [28, 34, 40, 42, 48]) {
+    const g = bandGrid({ ...VIEW, columns, maxRows: 12, next: { items: LONG_NEXT, note: null, isExpanded: true } })
+    const bar = plain(g).at(-1)!
+    expect(bar.length, `${columns}`).toBeLessThanOrEqual(columns)
+    expect(bar, `${columns}: ${bar}`).not.toContain('…')
+    const more = g.hits.find(h => h.id.startsWith('more:'))
+    if (more) expect(textOf(g, more.id), `${columns}`).toMatch(/^ \+\d+( more)? $/)
+    expect(g.hits.some(h => h.id === 'settings'), `${columns}`).toBe(true)
+  }
 })

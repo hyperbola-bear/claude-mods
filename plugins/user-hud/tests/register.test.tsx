@@ -949,7 +949,7 @@ test('a model switch resets the cache and the panel reads the new model', async 
   await request($, w, 60_000)
   await $.classic.PostModelSwitch({
     from_model: 'claude-opus-5-5',
-    to_model: 'claude-fable-5-1',
+    to_model: 'claude-fable-5-2',
     requested_model: 'fable',
     source: 'picker',
     context_tokens: 60_000,
@@ -959,7 +959,7 @@ test('a model switch resets the cache and the panel reads the new model', async 
     pricing: 'catalog',
   })
   const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
-  expect(await shows(band, 'Fable 5.1')).toBe(true)
+  expect(await shows(band, 'Fable 5.2')).toBe(true)
   await openPanel(band)
   expect(await shows(band, /cache reset \(model switched\)/)).toBe(true)
 })
@@ -1014,7 +1014,7 @@ for (const selectorStyle of ['rail', 'ladder', 'meter'] as const) {
       const band = await $.ui.mount({ plugin: 'user-hud', surface, component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: 68 } })
       await openPanel(band)
       expect(await styleOf(band)).toBe(selectorStyle)
-      for (const label of ['Haiku 4.5', 'Fable 5.1', 'Low', 'Ultracode']) expect(await shows(band, label), label).toBe(true)
+      for (const label of ['Haiku 5.5', 'Fable 5.2', 'Low', 'Ultracode']) expect(await shows(band, label), label).toBe(true)
       const tree = shape(await band.drawn({ in: 'hud' }))
       // Every colour of both ramps is on show, chosen or not.
       for (const c of [...Object.values(MODEL_COLORS), ...EFFORT_COLORS.ultracode]) expect(tree).toContain(c)
@@ -1230,12 +1230,12 @@ test('tokens: every row is filed under its group and each request’s real token
   await session($, w)
   const text = await tokensText($)
   // What the groups used adds up to the API's own count for the request.
-  expect(text).toContain('77k tokens over 1 requests: 70k cache read, 4k cache write, 1k new input, 2k output')
-  expect(text).toMatch(/^Files \d+%: 20k used, 20k in context now, 1 calls\. Read 20k {2}— {2}register\.tsx 20k$/m)
-  expect(text).toMatch(/^MCP \d+%: 9k used, 6k in context now, 1 calls\. linear 6k {2}— {2}list_issues 6k {2}— {2}schemas: linear 3k$/m)
+  expect(text).toContain('77k tokens over 1 request: 70k cache read, 4k cache write, 1k new input, 2k output')
+  expect(text).toMatch(/^Files \d+%: 20k used, 20k in context now, 1 call\. Read 20k {2}— {2}register\.tsx 20k$/m)
+  expect(text).toMatch(/^MCP \d+%: 9k used, 6k in context now, 1 call\. linear 6k {2}— {2}list_issues 6k {2}— {2}schemas: linear 3k$/m)
   expect(text).toMatch(/^Skills & plugins \d+%: .*pstack:tdd 3k · PostToolUse 500/m)
   // Chat: the 500-token prompt, and the reply's 200; the subagent's 9k prompt is its own conversation's.
-  expect(text).toMatch(/^Chat <?\d+%: 700 used, 500 in context now, 1 calls\. you 500$/m)
+  expect(text).toMatch(/^Chat <?\d+%: 700 used, 500 in context now, 1 call\. you 500$/m)
   expect(text).toMatch(/^Shell <?\d+%: 7 used, 0 in context now/m)
   expect(text).toMatch(/^Thinking \d+%: 2k used, 0 in context now/m)
   // 75k in: the groups held about 30k, the MCP schemas 3k; the system prompt and built-in tools the rest.
@@ -1254,7 +1254,7 @@ test('subagents’ requests and other plugins’ model calls are counted whole, 
   await $.command.run({ command: 'side', args: '', ...RUN })
   const text = await tokensText($)
   expect(text).toContain('152k tokens over 2 requests')
-  expect(text).toContain('Of those, subagents 2k over 1 requests; plugin model calls 150k over 1.')
+  expect(text).toContain('Of those, subagents 2k over 1 request; plugin model calls 150k over 1.')
   expect(text).toMatch(/^Subagents \d+%: 2k used.*spent: Explore 2k$/m)
   expect(text).toMatch(/^Skills & plugins \d+%: 150k used.*spent: sidechat 150k$/m)
   // The main conversation made no request: nothing landed in its groups.
@@ -1289,7 +1289,7 @@ test('the CONTEXT card shows the battery and the split, and opens the Tokens pan
     await band.unmount()
 
     const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'tokens', props: { ...PANE_PROPS, title: 'Tokens' } })
-    expect(await shows(pane, /^77k tokens over 1 requests/, 'tokens')).toBe(true)
+    expect(await shows(pane, /^77k tokens over 1 request/, 'tokens')).toBe(true)
     expect(await pane.findAll({ type: 'Button' })).toEqual([])
     for (const label of ['Files', 'MCP', 'Skills & plugins', 'Thinking', 'System & memory', 'Chat', 'Shell']) {
       expect(await shows(pane, label, 'tokens'), label).toBe(true)
@@ -1329,7 +1329,7 @@ test('where a two-row style’s columns do not fit, both pickers fall back to th
   const w = world(on)
   await start($)
   // Below 27 cells the models fit none of their label sets, though the effort's shortest still would.
-  for (const [columns, style, labels] of [[27, 'rail', /^Haiku +Sonnet +Opus +Fable/], [26, 'ladder', /▄ Haiku 4\.5/], [68, 'rail', /Haiku 4\.5 +Sonnet 5\.5/]] as const) {
+  for (const [columns, style, labels] of [[27, 'rail', /^Haiku +Sonnet +Opus +Fable/], [26, 'ladder', /▄ Haiku 5\.5/], [68, 'rail', /Haiku 5\.5 +Sonnet 5\.5/]] as const) {
     const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30, bodyColumns: columns } })
     await openPanel(band)
     expect(await styleOf(band), `at ${columns}`).toBe(style)
@@ -1359,7 +1359,7 @@ test('after /resume the tally starts over and the next request is split by the c
   w.step = { answer: '', toolUses: [], usage: { model: 'claude-opus-5-5', input_tokens: 0, cache_read_input_tokens: 60_000, cache_creation_input_tokens: 0, output_tokens: 0 } }
   await request($, w, 60_000)
   const text = await tokensText($)
-  expect(text).toContain('60k tokens over 1 requests')
+  expect(text).toContain('60k tokens over 1 request')
   expect(text).toMatch(/^Shell \d+%: 30k used, 30k in context now/m)
   expect(text).not.toMatch(/^Files /m)
 })
@@ -1399,11 +1399,11 @@ test('/hud-styles shows Rail, Ladder and Meter side by side, the same grid on ev
   const drawn: string[] = []
   for (const surface of SURFACES) {
     const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'styles', props: { ...PANE_PROPS, title: 'Picker styles', bodyColumns: 60 } })
-    // Each style in full, even in a pane narrower than its columns: the Rail's line, the Meter's bars, the Ladder's strips.
+    // Each style at the pane's width: the Rail's line, the Meter's bars, the Ladder's strips.
     const text = (await linesOf(pane, 'styles')).join('\n')
     expect(text).toContain('▔')
     expect(text).toMatch(/▃+ ▅+ ▆+ █+/)
-    expect(text).toMatch(/▄ Haiku 4\.5 ▄▄ Sonnet 5\.5/)
+    expect(text).toMatch(/▄ Haiku 5\.5 ▄▄ Sonnet 5\.5/)
     expect(await shows(pane, /^Rail ● in use/, 'styles')).toBe(true)
     expect(await has(pane, 'use:ladder', 'styles')).toBe(true)
     expect(await pane.findAll({ type: 'Button' })).toEqual([])
@@ -1417,6 +1417,21 @@ test('/hud-styles shows Rail, Ladder and Meter side by side, the same grid on ev
   expect(drawn[1]).toBe(drawn[0])
   expect(w.configSets).toEqual([['user-hud.selectorStyle', 'meter']])
   expect(w.commandLines).toEqual(['/effort max'])
+})
+
+test('/hud-styles fits any pane: no row wider than it, and Rail and Meter say when they draw as the Ladder', async ($, on) => {
+  world(on)
+  await start($)
+  for (const surface of SURFACES) {
+    for (const cols of [16, 24, 28, 36, 48, 60, 76, 120]) {
+      const pane = await $.ui.mount({ plugin: 'user-hud', surface, component: 'Pane', requestId: 'styles', props: { ...PANE_PROPS, title: 'Picker styles', bodyColumns: cols } })
+      const rows = await linesOf(pane, 'styles')
+      expect(rows.filter(r => r.length > cols), `${surface} at ${cols}`).toEqual([])
+      for (const name of ['Rail', 'Ladder', 'Meter']) expect(rows.some(r => r.startsWith(name)), `${name} at ${cols}`).toBe(true)
+      expect(rows.some(r => r.startsWith('Too narrow')), `${surface} at ${cols}`).toBe(cols < 27)
+      await pane.unmount()
+    }
+  }
 })
 
 

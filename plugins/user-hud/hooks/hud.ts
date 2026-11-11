@@ -1,14 +1,14 @@
 // Pure corner-panel logic: no `$`, so tests call it directly.
 import type { Effort } from '../types'
-import { put, widthOf } from './cells.ts'
+import { cut, put, runs, widthOf } from './cells.ts'
 import type { Piece, Run, Span } from './cells.ts'
 
 /** The models the panel offers: the `/model` alias it runs, the name it shows, and that name without its version. */
 export const MODELS = [
-  { alias: 'haiku', label: 'Haiku 4.5', family: 'Haiku' },
+  { alias: 'haiku', label: 'Haiku 5.5', family: 'Haiku' },
   { alias: 'sonnet', label: 'Sonnet 5.5', family: 'Sonnet' },
   { alias: 'opus', label: 'Opus 5.5', family: 'Opus' },
-  { alias: 'fable', label: 'Fable 5.1', family: 'Fable' },
+  { alias: 'fable', label: 'Fable 5.2', family: 'Fable' },
 ] as const
 
 export const EFFORTS: readonly { level: Effort; label: string }[] = [
@@ -139,10 +139,15 @@ export function modelAlias(model: string | null): string | null {
   return MODELS.find(x => m.includes(x.alias))?.alias ?? null
 }
 
-/** `Sonnet 5.5` for any spelling of an offered model; the raw name otherwise. */
+/**
+ * `Sonnet 5.5` for any spelling of an offered model, its version read from the name where it carries one
+ * (`claude-haiku-5-5`, `claude-fable-5-2[1m]`), else the panel's own; the raw name for a model it does not offer.
+ */
 export function modelLabel(model: string | null): string | null {
-  const alias = modelAlias(model)
-  return MODELS.find(x => x.alias === alias)?.label ?? model
+  const m = MODELS.find(x => x.alias === modelAlias(model))
+  if (!m) return model
+  const version = new RegExp(`${m.alias}[- ]?(\\d+)(?:[-.](\\d{1,2})(?!\\d))?`, 'i').exec(model ?? '')
+  return version ? `${m.family} ${version[1]}${version[2] ? `.${version[2]}` : ''}` : m.label
 }
 
 export function asEffort(v: unknown): Effort | null {
@@ -163,6 +168,13 @@ export function sectionRule(title: string, width: number): string {
 
 /** A section rule with pieces against its right end: `── S E S S I O N S ─────── e: expand ─`, `width` cells across. */
 export function hintedRule(title: string, width: number, hint: readonly Piece[] = []): { row: Run[]; spans: Span[] } {
+  // Too narrow for the hint: the pieces that only describe go first, then the actions (their keys still work).
+  const least = `── ${title} ──`.length + hint.reduce((n, p) => n + 1 + widthOf(p.runs), 0) + (hint.length > 0 ? 2 : 0)
+  if (hint.length > 0 && least > width) {
+    const actions = hint.filter(p => p.action)
+    return hintedRule(title, width, actions.length < hint.length ? actions : [])
+  }
+  if (hint.length === 0 && `── ${title} ──`.length > width) return { row: cut(runs(`── ${title} ──`, { isDim: true }), width), spans: [] }
   const tail: Run[] = []
   const tailSpans: Span[] = []
   for (const p of hint) {
