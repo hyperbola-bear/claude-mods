@@ -60,6 +60,40 @@ export function parseRef(target: string, root: string, needsLine = false): CodeR
   return { path, line, endLine: Math.max(line, end ? Number(end) : line) }
 }
 
+const LINK = /\[([^\]\n]+)\]\(<?([^)\s>]+)>?((?:\s+"[^"]*")?)\)/g
+
+/** An absolute path as a `file://` URL. */
+export const fileUrl = (path: string) => `file://${encodeURI(path).replace(/[#?]/g, c => encodeURIComponent(c))}`
+
+/**
+ * The text with each link to a place made a URL a click opens: by default `[x](/abs/a.ts:40-62)`
+ * becomes `[x](file:///abs/a.ts#40)`. A terminal hands a link's target on as it is, and `a.ts:40`
+ * names no file, so the click failed. `url` picks the URL for the terminal at hand.
+ * Relative paths resolve against `root`, and are left alone without one; fenced code is left alone.
+ */
+export function fileLinks(text: string, root: string, url = (path: string, line: number) => fileUrl(path) + (line > 0 ? `#${line}` : '')): string {
+  const base = root.replace(/\/+$/, '')
+  let fence: string | null = null
+  return text
+    .split('\n')
+    .map(line => {
+      const mark = /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
+      if (mark && (fence === null || mark.startsWith(fence))) {
+        fence = fence === null ? mark : null
+        return line
+      }
+      if (fence !== null) return line
+      return line.replace(LINK, (all, label: string, target: string, title: string) => {
+        const ref = parseRef(target, '')
+        if (!ref) return all
+        const path = ref.path.startsWith('/') ? ref.path : base ? `${base}/${ref.path}` : null
+        if (!path) return all
+        return `[${label}](${url(path, ref.line)}${title})`
+      })
+    })
+    .join('\n')
+}
+
 type Pending = Inline & { ref?: CodeRef }
 
 const INLINE = /\[([^\]\n]+)\]\(<?([^)\s>]+)>?(?:\s+"[^"]*")?\)|`([^`\n]+)`|\*\*([^*\n]+)\*\*|__([^_\n]+)__|(?<![\w*])\*([^*\s][^*\n]*)\*(?![\w*])|(?<![\w_])_([^_\s][^_\n]*)_(?![\w_])|<(https?:\/\/[^>\s]+)>/g

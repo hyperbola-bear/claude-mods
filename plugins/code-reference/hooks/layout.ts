@@ -165,38 +165,100 @@ export function tokens(text: string): { t: string; fg: string }[] {
 /** Whether a row is one of the place's lines (a removed line counts where it sat). */
 export const isTarget = (r: CodeLine, p: Place | null) => p !== null && p.line > 0 && r.p >= p.line && r.p <= p.endLine
 
+/** A code line's text as styled runs: coloured tokens, split where the changed words start and end. */
+function codeSpans(r: CodeLine, lit: boolean, bg: string | undefined): Span[] {
+  const [a, b] = r.hot && r.hot[1] > r.hot[0] ? r.hot : [-1, -1]
+  const word = r.k === '+' ? 'diffAddedWord' : 'diffRemovedWord'
+  const out: Span[] = []
+  let at = 0
+  for (const tok of tokens(r.s)) {
+    for (let i = 0; i < tok.t.length; ) {
+      const edge = [a, b].filter(x => x > at + i).sort((x, y) => x - y)[0] ?? Infinity
+      const take = Math.min(tok.t.length - i, edge - (at + i))
+      const inHot = at + i >= a && at + i < b
+      out.push(S(tok.t.slice(i, i + take), { fg: tok.fg, bg: inHot ? word : bg, d: !lit, soft: true }))
+      i += take
+    }
+    at += tok.t.length
+  }
+  return out
+}
+
+/** The cells `from` up to `to` of a row of runs. */
+function slice(spans: readonly Span[], from: number, to: number): Span[] {
+  const out: Span[] = []
+  let at = 0
+  for (const sp of spans) {
+    const a = Math.max(from, at)
+    const b = Math.min(to, at + sp.t.length)
+    if (b > a) out.push({ ...sp, t: sp.t.slice(a - at, b - at) })
+    at += sp.t.length
+  }
+  return out
+}
+
+/** A line's gutter: the mark on the place's lines, the number (blank on a folded row), the + or - when `signs`. */
+function gutter(r: CodeLine, p: Place | null, numW: number, signs: boolean, isFirst: boolean): Row {
+  const isHit = isTarget(r, p)
+  const bg = r.k === '+' ? 'diffAdded' : r.k === '-' ? 'diffRemoved' : undefined
+  const lit = isHit || r.k !== ' '
+  const num = isFirst ? String(r.n ?? r.o ?? '') : ''
+  const row: Row = [S(isHit ? '▌' : ' ', { fg: 'claude' }), S(num.padStart(numW) + ' ', lit ? { fg: 'text', d: r.k === '-' } : DIM)]
+  if (signs) row.push(S(r.k === ' ' || !isFirst ? '  ' : `${r.k} `, { fg: 'text', bg }))
+  return row
+}
+
 /**
  * One code line in `w` cells: the mark on the place's lines, the line number,
  * a + or - on a changed line (when `signs`), the code colored and cut to fit,
  * an added or removed line on its color across the row, the changed words stronger.
  */
 export function codeRow(r: CodeLine, p: Place | null, numW: number, w: number, signs: boolean): Row {
-  const isHit = isTarget(r, p)
   const bg = r.k === '+' ? 'diffAdded' : r.k === '-' ? 'diffRemoved' : undefined
-  const word = r.k === '+' ? 'diffAddedWord' : 'diffRemovedWord'
-  const lit = isHit || r.k !== ' '
-  const row: Row = [S(isHit ? '▌' : ' ', { fg: 'claude' }), S(String(r.n ?? r.o ?? '').padStart(numW) + ' ', lit ? { fg: 'text', d: r.k === '-' } : DIM)]
-  if (signs) row.push(S(r.k === ' ' ? '  ' : `${r.k} `, { fg: 'text', bg }))
+  const row = gutter(r, p, numW, signs, true)
   const room = w - width(row)
-  const [a, b] = r.hot && r.hot[1] > r.hot[0] ? r.hot : [-1, -1]
-  let at = 0
-  let left = room
-  const full = r.s.replace(/\t/g, '  ').length
-  if (full > room) left -= 1
-  for (const tok of tokens(r.s)) {
-    for (let i = 0; i < tok.t.length && left > 0; ) {
-      // Split a token where the changed words start or end.
-      const edge = [a, b].filter(x => x > at + i).sort((x, y) => x - y)[0] ?? Infinity
-      const take = Math.min(tok.t.length - i, edge - (at + i), left)
-      const inHot = at + i >= a && at + i < b
-      row.push(S(tok.t.slice(i, i + take), { fg: tok.fg, bg: inHot ? word : bg, d: !lit, soft: true }))
-      i += take
-      left -= take
-    }
-    at += tok.t.length
-  }
+  const spans = codeSpans(r, isTarget(r, p) || r.k !== ' ', bg)
+  const full = width(spans)
+  row.push(...slice(spans, 0, full > room ? room - 1 : room))
   if (full > room) row.push(S('…', { fg: 'inactive', bg }))
   return pad(row, w, bg ? { bg } : {})
+}
+
+/** Where a line of `full` cells breaks: after the last space that leaves a row at least half full, else where the row ends. */
+function breaks(s: string, room: number, hang: number): number[] {
+  const at = [0]
+  let from = 0
+  let cells = room
+  while (s.length - from > cells) {
+    const space = s.lastIndexOf(' ', from + cells - 1)
+    const end = space >= from + Math.ceil(cells / 2) ? space + 1 : from + cells
+    at.push(end)
+    from = end
+    cells = room - hang
+  }
+  return at
+}
+
+/**
+ * One code line folded onto as many rows of `w` cells as it needs: the first
+ * row as `codeRow` draws it but whole, the rest with no number and indented
+ * past the line's own indent, so the numbers still count the file's lines.
+ */
+export function codeRows(r: CodeLine, p: Place | null, numW: number, w: number, signs: boolean): Row[] {
+  const bg = r.k === '+' ? 'diffAdded' : r.k === '-' ? 'diffRemoved' : undefined
+  const first = gutter(r, p, numW, signs, true)
+  const room = w - width(first)
+  const text = r.s.replace(/\t/g, '  ')
+  // Too narrow to fold readably: cut, as before.
+  if (room < 8 || text.length <= room) return [codeRow(r, p, numW, w, signs)]
+  const spans = codeSpans(r, isTarget(r, p) || r.k !== ' ', bg)
+  const hang = Math.min((/^ */.exec(text)?.[0].length ?? 0) + 2, Math.floor(room / 3))
+  const at = breaks(text, room, hang)
+  return at.map((from, i) => {
+    const to = at[i + 1] ?? text.length
+    const row = i === 0 ? first : [...gutter(r, p, numW, signs, false), S(' '.repeat(hang), bg ? { bg } : {})]
+    return pad([...row, ...slice(spans, from, to)], w, bg ? { bg } : {})
+  })
 }
 
 // ---------- the reply ----------
@@ -256,7 +318,9 @@ function pathSpans(p: Place, w: number): Row {
   const tail = file + lines(p)
   const room = Math.max(0, w - tail.length)
   const shown = dir.length > room ? (room > 1 ? `…${dir.slice(dir.length - room + 1)}` : '') : dir
-  return [S(shown, { d: true }), S(file, { b: true }), S(lines(p), { d: true })]
+  // Too narrow for the file's whole name: its end gives way, so the lines still show.
+  const name = tail.length > w ? cut(file, Math.max(1, w - lines(p).length)) : file
+  return [S(shown, { d: true }), S(name, { b: true }), S(lines(p), { d: true })]
 }
 
 /** The rows of a view around a place: up to `max` lines from a little above it. */
@@ -275,6 +339,9 @@ export function trimInline(code: InlineCode): InlineCode {
   return { ...code, signs: view.rows.some(r => r.k !== ' '), view: { ...view, rows: near(view, p, 16) } }
 }
 
+/** The most rows of code the box under a section shows. */
+const INLINE_ROWS = 20
+
 /** The code under the section while the pane is closed, boxed in the shown place's color. */
 export function codeBox(code: InlineCode, w: number): Row[] {
   const { place: p, view } = code
@@ -290,7 +357,13 @@ export function codeBox(code: InlineCode, w: number): Row[] {
     const rows = near(view, p, 16)
     const numW = Math.max(1, ...rows.map(r => String(r.n ?? r.o ?? '').length))
     const signs = code.signs ?? view.rows.some(r => r.k !== ' ')
-    for (const r of rows) body(codeRow(r, p, numW, inner, signs))
+    // Folded lines can take more rows than the box holds. The lines above the place give way first, down
+    // to a few rows of them, then the box stops at INLINE_ROWS.
+    const folded = rows.map(r => codeRows(r, p, numW, inner, signs))
+    const at = Math.max(0, rows.findIndex(r => isTarget(r, p)))
+    let from = 0
+    for (let above = folded.slice(0, at).reduce((n, f) => n + f.length, 0); from < at && above > 3; from += 1) above -= folded[from]?.length ?? 0
+    for (const r of folded.slice(from).flat().slice(0, INLINE_ROWS)) body(r)
   }
   const left: Row = [S('╰─ ', C), S('‹ prev', { fg: 'suggestion', hit: 'prev' }), S('  ', C), S('next ›', { fg: 'suggestion', hit: 'next' }), S(' ', C)]
   const right: Row = [S(' ', C), S('open in pane', { fg: 'suggestion', hit: 'pane' }), S(' · ', { d: true }), S('editor', { fg: 'suggestion', hit: 'editor' }), S(' ─╯', C)]
@@ -359,33 +432,47 @@ export function replyRows(p: ReplyProps, w: number, hover: string | null): Row[]
 
 // ---------- the pane ----------
 
-/** The first row a view shows for a place, before any scrolling: the place a little below the top. */
-export function anchorOf(view: CodeView & { kind: 'rows' }, p: Place, room: number): number {
+/**
+ * The first line a view shows for a place, before any scrolling: the place a little below the top.
+ * `height` is how many rows a line takes once folded.
+ */
+export function anchorOf(view: CodeView & { kind: 'rows' }, p: Place, room: number, height: (i: number) => number = () => 1): number {
   if (p.line <= 0) return 0
   const at = Math.max(0, view.rows.findIndex(r => r.p >= p.line))
-  const len = p.endLine - p.line + 1
+  let len = 0
+  for (let i = at; i < view.rows.length && (view.rows[i]?.p ?? Infinity) <= p.endLine; i += 1) len += height(i)
   const before = len >= room ? 1 : Math.min(8, Math.max(2, Math.floor((room - len) / 3)))
-  return Math.max(0, at - before)
+  let start = at
+  for (let used = 0; start > 0 && used + height(start - 1) <= before; start -= 1) used += height(start - 1)
+  return start
 }
+
+/** Where the pane's code sits: its first line, how many lines show, the line the place puts first, and the last first line scrolling reaches. */
+export type PaneLayout = { rows: Row[]; start: number; room: number; base: number; last: number }
 
 /**
  * The pane at `w` by `h`: one header line (the place's number and path, where
  * the code comes from, ↑ ↓ to scroll, editor, GitHub for a PR), a line saying
- * what went wrong when something did, and code in every other row. `scroll`
- * moves the code from where the place puts it; the answer says where it landed.
+ * what went wrong when something did, and code in every other row, each line
+ * folded to fit. `scroll` moves the code from where the place puts it, in lines;
+ * the answer says where it landed.
  */
-export function paneRows(p: PaneProps, w: number, h: number, scroll: number): { rows: Row[]; start: number; room: number } {
+export function paneRows(p: PaneProps, w: number, h: number, scroll: number): PaneLayout {
   const out: Row[] = []
+  const none = (room: number): PaneLayout => ({ rows: out, start: 0, room, base: 0, last: 0 })
   if (!p.place) {
     for (const r of wrap([{ t: p.empty, k: 'text' }], w, null, null, { d: true })) out.push(r)
-    return { rows: out, start: 0, room: 0 }
+    return none(0)
   }
   const place = p.place
-  const right: Row = [S(p.tag, { d: true }), S('   '), S('↑', { fg: 'suggestion', hit: 'up' }), S(' '), S('↓', { fg: 'suggestion', hit: 'down' }), S('   '), S('editor', { fg: 'suggestion', hit: 'editor' })]
-  if (p.isPr) right.push(S('   '), S('github', { fg: 'suggestion', hit: 'github' }))
   const left: Row = [S(String(place.n), { fg: 'claude', b: true }), S('  ')]
-  const path = pathSpans(place, Math.max(8, w - width(left) - width(right) - 2))
-  out.push([...left, ...path, S(' '.repeat(Math.max(2, w - width(left) - width(path) - width(right)))), ...right])
+  // Where the header is narrow it drops, in turn, where the code comes from, the wide gaps, and the links.
+  const arrows: Row = [S('↑', { fg: 'suggestion', hit: 'up' }), S(' '), S('↓', { fg: 'suggestion', hit: 'down' })]
+  const links = (gap: string): Row => [S(gap), S('editor', { fg: 'suggestion', hit: 'editor' }), ...(p.isPr ? [S(gap), S('github', { fg: 'suggestion', hit: 'github' })] : [])]
+  const rights: Row[] = [[S(p.tag, { d: true }), S('   '), ...arrows, ...links('   ')], [...arrows, ...links('   ')], [...arrows, ...links(' ')], arrows]
+  const right = rights.find(r => width(left) + 8 + 2 + width(r) <= w) ?? arrows
+  const path = pathSpans(place, Math.max(1, w - width(left) - width(right) - 2))
+  out.push(fit([...left, ...path, S(' '.repeat(Math.max(2, w - width(left) - width(path) - width(right)))), ...right], w))
   if (p.note) {
     const msg = cut(p.note, Math.max(10, w - 10))
     out.push([S('! ', { fg: 'warning' }), S(msg, { fg: 'warning' }), S(' '.repeat(Math.max(1, w - 2 - msg.length - 5))), S('retry', { fg: 'suggestion', hit: 'retry' })])
@@ -393,19 +480,37 @@ export function paneRows(p: PaneProps, w: number, h: number, scroll: number): { 
   const room = Math.max(1, h - out.length)
   if (!p.view) {
     out.push([S('Loading code…', { d: true })])
-    return { rows: out, start: 0, room }
+    return none(room)
   }
   if (p.view.kind === 'error') {
     out.push(...wrap([{ t: p.view.note, k: 'text' }], w, null, null, { fg: 'error' }))
-    return { rows: out, start: 0, room }
+    return none(room)
   }
   const view = p.view
-  const start = Math.max(0, Math.min(anchorOf(view, place, room) + scroll, view.rows.length - room))
-  const shown = view.rows.slice(start, start + room)
-  const numW = Math.max(1, ...shown.map(r => String(r.n ?? r.o ?? '').length))
+  // One width for the numbers across the window, so they hold still while it scrolls.
+  const numW = Math.max(1, ...view.rows.map(r => String(r.n ?? r.o ?? '').length))
   const signs = view.rows.some(r => r.k !== ' ')
-  for (const r of shown) out.push(codeRow(r, place, numW, w, signs))
-  return { rows: out, start, room }
+  const folded = new Map<number, Row[]>()
+  const rowsOf = (i: number) => {
+    let got = folded.get(i)
+    if (!got) folded.set(i, (got = codeRows(view.rows[i] as CodeLine, place, numW, w, signs)))
+    return got
+  }
+  const height = (i: number) => rowsOf(i).length
+  const base = anchorOf(view, place, room, height)
+  // The last first line: from there to the end fills the rows, or the last line alone does.
+  let last = view.rows.length
+  for (let used = 0; last > 0 && used + height(last - 1) <= room; last -= 1) used += height(last - 1)
+  last = Math.max(0, Math.min(last, view.rows.length - 1))
+  const start = Math.max(0, Math.min(base + scroll, last))
+  let i = start
+  for (; i < view.rows.length && out.length < h; i += 1) out.push(...rowsOf(i).slice(0, h - out.length))
+  return { rows: out, start, room: i - start, base, last }
+}
+
+/** The row cut to `w` cells: what would run past the right edge is dropped. */
+function fit(row: Row, w: number): Row {
+  return width(row) <= w ? row : slice(row, 0, w)
 }
 
 /** What a click at cell (x, y) lands on: the `hit` of the span there. */

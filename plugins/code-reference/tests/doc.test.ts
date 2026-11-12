@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { isCodeReference, parseDoc, parseRef, sourceOf } from '../hooks/doc.ts'
+import { fileLinks, isCodeReference, parseDoc, parseRef, sourceOf } from '../hooks/doc.ts'
 import type { Block } from '../hooks/doc.ts'
 
 const ROOT = '/work/repo'
@@ -85,4 +85,23 @@ test('the header names a folder or a pull request', () => {
   expect(sourceOf('https://github.com/acme/billing/pull/12', '/x')).toEqual({ kind: 'pr', url: 'https://github.com/acme/billing/pull/12', repo: 'acme/billing', number: 12 })
   expect(sourceOf('', '/x')).toEqual({ kind: 'local', root: '/x' })
   expect(sourceOf('', '')).toBe(null)
+})
+
+test("a terminal's links to places are file URLs that open in the editor at the line", () => {
+  const text = [
+    'See [the retry loop](/work/repo/src/retry.ts:40-62), [the doc](docs/adr/0005-plan.md#L8-L23) and [the file](/tmp/scratch/a.md).',
+    '[a page](https://example.com/x) and [a section](#usage) stay as they are.',
+    '```md',
+    '[not a link](/work/repo/src/b.ts:2)',
+    '```',
+  ].join('\n')
+  expect(fileLinks(text, ROOT).split('\n')).toEqual([
+    'See [the retry loop](file:///work/repo/src/retry.ts#40), [the doc](file:///work/repo/docs/adr/0005-plan.md#8) and [the file](file:///tmp/scratch/a.md).',
+    '[a page](https://example.com/x) and [a section](#usage) stay as they are.',
+    '```md',
+    '[not a link](/work/repo/src/b.ts:2)',
+    '```',
+  ])
+  // A relative path with no folder to resolve it against is left alone.
+  expect(fileLinks('[x](src/a.ts:3)', '')).toBe('[x](src/a.ts:3)')
 })

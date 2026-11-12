@@ -36,7 +36,7 @@ import type { EngineInterface, Register, RenderSurface, RenderViewport } from 'c
 import type { CodeLine, CodeView, Place, RefState, Source, Worktree } from '../types'
 import { WINDOW, blobUrl, changeNote, hunkRows, inDiff, parseDiff, prLineAnchor, refKey, refLabel, rowsFromText, textKey, windowRows } from './code.ts'
 import type { Hunk } from './code.ts'
-import { isCodeReference, parseDoc, sourceOf } from './doc.ts'
+import { fileLinks, isCodeReference, parseDoc, sourceOf } from './doc.ts'
 import type { Doc } from './doc.ts'
 import { BUDGET, drawRows, planRows } from './draw.tsx'
 import { explainContext, parseCommand, reviewContext, reviewText, rewritePrompt } from './format.ts'
@@ -48,7 +48,7 @@ import { offerSetup, wasAsked } from './setup.ts'
 import type { SetupIo, SetupMode, Stored } from './setup.ts'
 import { readGithubFile, readPr } from './source.ts'
 import type { GithubIo, PrTarget } from './source.ts'
-import { cacheDirs, canDrawImages, headCopyPath, ideCommands, ideOf } from './view.ts'
+import { cacheDirs, canDrawImages, headCopyPath, ideCommands, ideOf, linkUrl } from './view.ts'
 import type { TermEnv } from './view.ts'
 import { failure, fileRows, prepareWorktree, removeWorktree } from './worktree.ts'
 import type { PrInfo, Prepared, Run } from './worktree.ts'
@@ -571,6 +571,7 @@ export const register: Register = (on, options) => {
       nvim: await $.env.get('NVIM'),
     }
     askpassNode = await $.env.get('VSCODE_GIT_ASKPASS_NODE')
+    term.askpassNode = askpassNode
     tmpDir = (await $.env.get('TMPDIR')) || '/tmp'
     home = (await $.env.get('HOME')) || ''
     const surfaces = await $.session.surfaces().catch((): readonly RenderSurface[] => [])
@@ -667,11 +668,18 @@ export const register: Register = (on, options) => {
     const text = e.props.text
     const key = keyOf(text)
     const st = await read($, refA)
-    if (!isCodeReference(text) && !st.adopted.includes(key)) return next(e)
     const root = await sessionRoot($)
+    // A reply the terminal draws itself keeps its links, made ones a click opens: a link to
+    // `a.ts:40` names no file. The desktop app opens such links in its own file pane.
+    const drawn = async (base: string) => {
+      if (e.surface !== 'terminal' || !text.includes('](')) return next(e)
+      const linked = fileLinks(text, base, (path, line) => linkUrl(path, line, ideOf(term), cfg.ideCommand))
+      return next(linked === text ? e : { ...e, props: { ...e.props, text: linked } })
+    }
+    if (!isCodeReference(text) && !st.adopted.includes(key)) return drawn(root)
     const doc = parseDoc(text, root)
     const source = doc ? sourceOf(doc.target, root) : null
-    if (!doc || !source) return next(e)
+    if (!doc || !source) return drawn(root)
     noteViewport(e.viewport)
     docs.set(key, { doc, source })
     const place = st.key === key ? st.places[st.current] : undefined
@@ -684,11 +692,14 @@ export const register: Register = (on, options) => {
     }
     const props: ReplyProps = { key, doc, current: place?.n ?? null, inline, cols: Math.max(20, e.viewport?.columns ?? 100) }
     const els = $.ui.resolve(e)
-    if (!('Client' in els)) return next(e)
+    // A review's relative paths are the PR repository's, checked out in the review worktree.
+    const wt = await read($, worktreeA)
+    const base = source.kind === 'pr' ? (wt.status === 'ready' && wt.path ? wt.path : '') : source.root
+    if (!('Client' in els)) return drawn(base)
     // A Client's props and tree are each held to 100,000 characters. A reply
     // too long to draw whole even without its syntax colours is left to the
     // engine's own drawing, which shows all of it, rather than cut short.
-    if (JSON.stringify(props).length > BUDGET || planRows(replyRows(props, props.cols, null)).left > 0) return next(e)
+    if (JSON.stringify(props).length > BUDGET || planRows(replyRows(props, props.cols, null)).left > 0) return drawn(base)
     const { Client } = els
     return <Client key="reply" module="./reply.view.tsx" props={props} width="100%" />
   })

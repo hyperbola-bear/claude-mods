@@ -1,5 +1,7 @@
 // Where Claude Code runs (an editor's terminal, Ghostty or kitty), how to open
 // an editor at a line, and where the review worktree lives. No `$` here.
+import { fileUrl } from './doc.ts'
+
 export type Ide = 'vscode' | 'jetbrains' | 'zed' | 'nvim'
 
 /** What the terminal Claude Code runs in says about itself. */
@@ -12,15 +14,38 @@ export type TermEnv = {
   bundleId?: string
   /** `$NVIM`: the socket of the Neovim whose :terminal this is. */
   nvim?: string
+  /** `$VSCODE_GIT_ASKPASS_NODE`: set by a VS Code-family terminal, and kept by a tmux started in one. */
+  askpassNode?: string
 }
 
 /** The editor whose built-in terminal this is, if any. Neovim first: it may itself run in another editor's terminal. */
 export function ideOf(env: TermEnv): Ide | null {
   if (env.nvim) return 'nvim'
   if (env.termProgram === 'vscode') return 'vscode' // VS Code, and forks such as Cursor
+  // tmux says `TERM_PROGRAM=tmux` in its panes; the editor it was started in still shows in what it exported.
+  if (env.termProgram === 'tmux' && vscodeCliFrom(env.askpassNode)) return 'vscode'
   if (env.termProgram === 'zed') return 'zed'
   if (env.terminalEmulator?.startsWith('JetBrains') || env.bundleId?.startsWith('com.jetbrains.') || env.bundleId === 'com.google.android.studio') return 'jetbrains'
   return null
+}
+
+/** The URL schemes of the VS Code family's apps, by the name of their command line. */
+const EDITOR_SCHEMES: Record<string, string> = { code: 'vscode', 'code-insiders': 'vscode-insiders', cursor: 'cursor', windsurf: 'windsurf' }
+
+/**
+ * What a link to `path` at `line` points at, for where Claude Code runs. An editor's terminal opens a
+ * `file:` link in its own window, each reading the line its own way: the VS Code family (Cursor and
+ * Windsurf too) from `file:///a.ts#40`, a JetBrains IDE from `file:///a.ts:40`, where `#40` would name
+ * a file `a.ts#40` that isn't there. Elsewhere a click goes to the OS: with **Editor command** naming one of those editors, its own
+ * `cursor://file/a.ts:40` opens that editor at the line; otherwise `file:///a.ts` opens the file's app.
+ */
+export function linkUrl(path: string, line: number, ide: Ide | null, command?: string): string {
+  const file = fileUrl(path)
+  if (ide === 'vscode') return file + (line > 0 ? `#${line}` : '')
+  if (ide === 'jetbrains') return file + (line > 0 ? `:${line}` : '')
+  const scheme = EDITOR_SCHEMES[(command ?? '').trim().split('/').pop() ?? '']
+  if (scheme) return `${scheme}://file${file.slice('file://'.length)}${line > 0 ? `:${line}` : ''}`
+  return file
 }
 
 export const IDE_NAME: Record<Ide, string> = { vscode: 'VS Code', jetbrains: 'the IDE', zed: 'Zed', nvim: 'Neovim' }

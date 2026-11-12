@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { CodeView, Place } from '../types'
 import { rowsFromText } from '../hooks/code.ts'
 import { parseDoc } from '../hooks/doc.ts'
-import { boxRows, codeRow, hitAt, paneRows, replyRows, width, wrap } from '../hooks/layout.ts'
+import { boxRows, codeBox, codeRow, codeRows, hitAt, paneRows, replyRows, width, wrap } from '../hooks/layout.ts'
 import type { Row } from '../hooks/layout.ts'
 
 const text = (r: Row) => r.map(s => s.t).join('')
@@ -88,4 +88,53 @@ test('the pane: one header line, then code in every other row, the place a littl
   expect(text(failed[0] ?? [])).toContain('editor   github')
   expect(text(failed[1] ?? [])).toMatch(/^! The PR page didn't load in terminal-browser\. +retry$/)
   expect(hitAt(failed, 63, 1)).toBe('retry')
+})
+
+test('a long code line folds: the number on its first row only, the rest indented past its own indent', () => {
+  const place: Place = { n: 1, path: 'a.md', line: 8, endLine: 8, phrase: 'x' }
+  const line = { o: 8, n: 8, p: 8, k: ' ' as const, s: '  - Proposal under consideration: a dispatcher Lambda routes every update event to one execution' }
+  const rows = codeRows(line, place, 2, 40, false).map(text)
+  expect(rows).toEqual([
+    '▌ 8   - Proposal under consideration: a ',
+    '▌       dispatcher Lambda routes every  ',
+    '▌       update event to one execution   ',
+  ])
+  // A word longer than a row breaks where the row ends; a short line is one row.
+  expect(codeRows({ ...line, s: 'x'.repeat(50) }, null, 2, 30, false).map(text)).toEqual([`  8 ${'x'.repeat(26)}`, `      ${'x'.repeat(24)}`])
+  expect(codeRows({ ...line, s: 'short' }, null, 2, 30, false)).toHaveLength(1)
+  // An added line keeps its colour on every row it takes, its + on the first.
+  const added = codeRows({ ...line, k: '+', n: 9, o: null, s: 'y '.repeat(30) }, null, 2, 30, true)
+  expect(added.map(r => text(r).slice(0, 6))).toEqual(['  9 + ', '      ', '      '])
+  for (const r of added) expect(r.at(-1)).toMatchObject({ bg: 'diffAdded' })
+})
+
+test('the pane folds long lines at every width: each row fits, the numbers count the file, the place stays in view', () => {
+  const words = (i: number) => (i % 3 === 0 ? `line ${i} ${'word '.repeat(i % 7 === 0 ? 40 : 12)}` : `line ${i}`)
+  const view: CodeView = { kind: 'rows', rows: rowsFromText(Array.from({ length: 120 }, (_, i) => words(i + 1)).join('\n')), above: 0, below: 0, note: 'local' }
+  const place: Place = { n: 1, path: 'docs/a.md', line: 60, endLine: 64, phrase: 'x' }
+  for (const w of [24, 40, 66, 120]) {
+    const props = { place, view, tag: 'local', note: null, isPr: false, empty: '', cols: w, rows: 30 }
+    const got = paneRows(props, w, 30, 0)
+    expect(got.rows).toHaveLength(30)
+    for (const r of got.rows) expect(width(r)).toBeLessThanOrEqual(w)
+    const numbers = got.rows.slice(1).map(r => /^.\s*(\d+) /.exec(text(r))?.[1]).filter(Boolean).map(Number)
+    for (let i = 1; i < numbers.length; i += 1) expect(numbers[i]).toBe((numbers[i - 1] ?? 0) + 1)
+    expect(numbers).toContain(60)
+    // The header keeps the place's lines, whatever gives way.
+    expect(text(got.rows[0] ?? [])).toContain(':60-64')
+    // Scrolled all the way down, the last line shows.
+    const end = paneRows(props, w, 30, 10_000)
+    expect(end.start).toBe(end.last)
+    expect(end.rows.slice(1).some(r => /^.\s*120 /.test(text(r)))).toBe(true)
+  }
+})
+
+test("the box under a section keeps the place in view when a long line above it folds", () => {
+  const place: Place = { n: 1, path: 'README.md', line: 38, endLine: 41, phrase: 'x' }
+  const lines = Array.from({ length: 60 }, (_, i) => (i + 1 === 36 ? `long ${'word '.repeat(120)}` : `line ${i + 1}`))
+  const view: CodeView = { kind: 'rows', rows: rowsFromText(lines.join('\n')), above: 0, below: 0, note: 'local' }
+  const rows = codeBox({ place, view, tag: 'local' }, 66).map(text)
+  for (const n of [37, 38, 39, 40, 41]) expect(rows.some(r => new RegExp(`^│ .\\s*${n} line ${n}`).test(r))).toBe(true)
+  expect(rows.some(r => r.includes('long word'))).toBe(false)
+  for (const r of rows) expect(r.length).toBe(66)
 })
