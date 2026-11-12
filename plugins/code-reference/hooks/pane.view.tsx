@@ -4,7 +4,7 @@
 import type { ClientModule } from 'claude-code'
 
 import { drawRows } from './draw.tsx'
-import { anchorOf, hitAt, paneRows } from './layout.ts'
+import { hitAt, paneRows } from './layout.ts'
 import type { PaneProps } from './layout.ts'
 
 /** How far the code is scrolled from where the place puts it, for which place. */
@@ -18,14 +18,13 @@ const Pane: ClientModule<PaneProps, Local> = (props, surface) => {
   // The desktop can lay the region out at the height of what it last drew,
   // short of the `height` it was given; drawing to that height would keep it there.
   const h = Math.max(surface.rows, props.rows)
-  const { rows, start, room } = paneRows(props, w, h, scroll)
+  const { rows, start, room, base, last } = paneRows(props, w, h, scroll)
   const post = (act: string) => surface.post({ act })
   const move = (d: number) => {
     const view = props.view
     if (!p || !view || view.kind !== 'rows') return
     if ((d < 0 && start + d < 0 && view.above > 0) || (d > 0 && start + room + d > view.rows.length && view.below > 0)) post('more')
-    const base = anchorOf(view, p, room)
-    const next = Math.max(-base, Math.min(scroll + d, view.rows.length - room - base))
+    const next = Math.max(-base, Math.min(scroll + d, last - base))
     if (next !== scroll) surface.setState({ scroll: next, at })
   }
   surface.onPointer(ev => {

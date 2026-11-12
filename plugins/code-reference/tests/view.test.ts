@@ -1,11 +1,16 @@
 import { expect, test } from 'claude-code/testing'
 
-import { cacheDirs, canDrawImages, headCopyPath, ideCommands, ideOf, nvimOpenExpr, remoteFor, sameRepo, vscodeCliFrom } from '../hooks/view.ts'
+import { cacheDirs, canDrawImages, headCopyPath, ideCommands, ideOf, linkUrl, nvimOpenExpr, remoteFor, sameRepo, vscodeCliFrom } from '../hooks/view.ts'
 
 test('IDE and image support detection', () => {
   expect(ideOf({ termProgram: 'vscode' })).toBe('vscode')
   expect(ideOf({ bundleId: 'com.jetbrains.goland' })).toBe('jetbrains')
   expect(ideOf({ termProgram: 'iTerm.app' })).toBe(null)
+  // tmux inside VS Code's or Cursor's terminal: TERM_PROGRAM says tmux, the editor's exported path still says which.
+  const node = '/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Plugin).app/Contents/MacOS/Cursor Helper (Plugin)'
+  expect(ideOf({ termProgram: 'tmux', askpassNode: node })).toBe('vscode')
+  expect(ideOf({ termProgram: 'tmux' })).toBe(null)
+  expect(ideOf({ termProgram: 'iTerm.app', askpassNode: node })).toBe(null)
   expect(ideOf({ termProgram: 'zed' })).toBe('zed')
   expect(ideOf({ termProgram: 'vscode', nvim: '/tmp/nvim.1/0' })).toBe('nvim') // Neovim's terminal inside VS Code's
   expect(canDrawImages({ term: 'xterm-ghostty' })).toBe(true)
@@ -54,4 +59,21 @@ test('the PR checkout check and the PR-head copy path', () => {
   expect(sameRepo('https://github.com/acme/billing', 'acme/billing')).toBe(true)
   expect(sameRepo('https://github.com/acme/billing-ui.git', 'acme/billing')).toBe(false)
   expect(headCopyPath('/var/folders/x/T/', 'acme/billing', 12, 'abcdef1234', 'src/a.ts')).toBe('/var/folders/x/T/code-reference/acme-billing-12-abcdef1/src/a.ts')
+})
+
+test("a link's URL fits where Claude Code runs: the VS Code family's terminal, an editor named in /config, or the OS", () => {
+  const path = '/tmp/scratch pad/a#1.ts'
+  // VS Code, Cursor and Windsurf terminals open a file URL in their own window, at the line after #.
+  expect(linkUrl(path, 40, 'vscode')).toBe('file:///tmp/scratch%20pad/a%231.ts#40')
+  expect(linkUrl(path, 0, 'vscode', 'cursor')).toBe('file:///tmp/scratch%20pad/a%231.ts')
+  // In another terminal the OS opens it: the editor named in /config at the line, by its own scheme.
+  expect(linkUrl(path, 40, null, 'cursor')).toBe('cursor://file/tmp/scratch%20pad/a%231.ts:40')
+  expect(linkUrl(path, 40, null, '/usr/local/bin/code')).toBe('vscode://file/tmp/scratch%20pad/a%231.ts:40')
+  expect(linkUrl(path, 40, 'zed', 'windsurf')).toBe('windsurf://file/tmp/scratch%20pad/a%231.ts:40')
+  // A JetBrains IDE's terminal opens it in the IDE, reading the line after a colon.
+  expect(linkUrl(path, 40, 'jetbrains', 'windsurf')).toBe('file:///tmp/scratch%20pad/a%231.ts:40')
+  expect(linkUrl(path, 0, 'jetbrains')).toBe('file:///tmp/scratch%20pad/a%231.ts')
+  // Any other editor or none: the file itself, which every terminal hands to the OS.
+  expect(linkUrl(path, 40, null, 'idea')).toBe('file:///tmp/scratch%20pad/a%231.ts')
+  expect(linkUrl(path, 40, 'zed')).toBe('file:///tmp/scratch%20pad/a%231.ts')
 })

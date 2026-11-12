@@ -181,6 +181,10 @@ test('a code-reference reply is one region drawing the same rows in the terminal
   // Another reply is left to the engine.
   const plain = await $.ui.mount({ plugin: 'code-reference', surface: 'terminal', component: 'AssistantMessage', props: { text: 'Plain words about [a file](hooks/a.ts:1).', isFirstOfReply: true }, viewport: VIEW })
   expect(await plain.find({ type: 'Client' })).toBe(undefined)
+  // Its link to a place is a file URL a click opens (in iTerm, with the file's app); the desktop app opens the path itself.
+  expect(await plain.find({ type: 'Text', text: 'Plain words about [a file](file:///work/hooks/a.ts).' })).toBeTruthy()
+  const onDesktop = await $.ui.mount({ plugin: 'code-reference', surface: 'desktop', component: 'AssistantMessage', props: { text: 'See [a file](hooks/a.ts:1).', isFirstOfReply: true }, viewport: VIEW })
+  expect(await onDesktop.find({ type: 'Text', text: 'See [a file](hooks/a.ts:1).' })).toBeTruthy()
 })
 
 test("the pane shows the first place: one header line, then the file around it, read from disk", async ($, on) => {

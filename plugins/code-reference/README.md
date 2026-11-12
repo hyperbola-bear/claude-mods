@@ -33,6 +33,7 @@ The model writes ordinary markdown: `##` sections, paragraphs, and links whose t
 - **Under each section**, a rule ends the prose, then one row of boxes, one per place: the number in the top edge, the file and lines inside. The box of the place the pane shows is outlined in Claude's color.
 - **With no headings**, each paragraph or list that names code gets its own row of boxes.
 - Without the mod (another client, or the plugin uninstalled) it is still plain markdown, and the desktop app opens those links in its file pane.
+- A reply the terminal draws itself (any reply without the header, or one too long for the mod to draw) keeps its links, made ones a click opens. In the terminal of VS Code, Cursor or Windsurf, Cmd-click opens the file in that editor at the line (`file:///…/a.ts#40`); in a JetBrains IDE's terminal (GoLand, IntelliJ IDEA and the rest) it opens in that IDE at the line (`file:///…/a.ts:40`). In another terminal it opens the editor named by **Editor command** in `/config` at the line when that is `code`, `cursor` or `windsurf` (`cursor://file/…/a.ts:40`), and otherwise opens the file with its app. Links to copies in a scratchpad or anywhere else on disk open the same way.
 
 ## The code pane
 
@@ -40,6 +41,8 @@ One header line: the place's number and path, where the code comes from (`local`
 
 - **Explaining:** the files in the session's folder. Uncommitted edits, branches you never pushed and repositories with no remote all work. Lines that differ from the last commit are marked like `git diff`.
 - **Reviewing:** the PR's review worktree (below), the PR's changes marked.
+
+A line too long for the pane folds onto the rows below it. Only its first row has the line number, and the rest are indented past the line's own indent, so the numbers still count the file's lines. The box under a section folds the same way. The header drops, in turn, where the code comes from, the wide gaps and the links as the pane narrows, and always keeps the place's lines.
 
 The place's lines carry a `▌` mark. When the pane has focus: the arrow and page keys scroll, `a` and `d` (or ← →) step through the places, `e` opens the editor, `o` the PR's page. `editor` opens the file at the line in the editor you run Claude Code in, or the one named by **Editor command** in `/config`.
 
