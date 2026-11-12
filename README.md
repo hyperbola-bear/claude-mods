@@ -2,8 +2,6 @@
 
 Four mods for [Claude Code](https://code.claude.com): a control panel above the prompt, replies that point at code, a side chat that draws, and an approval step before every subagent. Each one works in the terminal and in the Claude desktop app. Install them together or one at a time.
 
-![Claude Code with the mods: a /code-reference reply on the left, its code in a pane on the right, the user-hud panel below](docs/images/overview.png)
-
 | Mod | What it does |
 | --- | --- |
 | [user-hud](#user-hud) | A panel above the prompt: model and effort, cache timer, context use, your other sessions, follow-up prompts. |
@@ -67,7 +65,7 @@ Changes load in the next Claude Code session.
 
 ### user-hud
 
-![user-hud's panel: model and effort pickers, cache timer, context battery, sessions, guesses to check, next steps](docs/images/user-hud.png)
+![user-hud: a reply arrives, next steps appear in the panel, 1 puts one in the prompt box, t shows where the tokens went](docs/images/user-hud.gif)
 
 A panel above the prompt, made of cards you can turn on or off:
 
@@ -83,7 +81,7 @@ More in [plugins/user-hud](plugins/user-hud/README.md).
 
 ### code-reference
 
-![A /code-reference reply: linked words with numbered boxes under each section, and the code for box 1 in a pane](docs/images/code-reference.png)
+![code-reference: a /code-reference question, the reply with numbered boxes on the left, and a click on each box showing its code in the pane on the right](docs/images/code-reference.gif)
 
 Ask with `/code-reference` and the answer comes back as short sections. Each linked word has a number, and the boxes under each section name the file and lines. Click a box, or press `a` and `d` in the pane, to read that code. Long lines fold so the line numbers still match the file. Give it a GitHub PR link and it reviews the PR the same way.
 
@@ -93,7 +91,7 @@ More in [plugins/code-reference](plugins/code-reference/README.md).
 
 ### ask
 
-<img src="docs/images/ask.png" width="480" alt="The ask pane: a question and a flowchart drawn in box characters">
+![ask: a question in the main chat on the left, then /draw, answered with a diagram in the ask pane on the right](docs/images/ask.gif)
 
 A side chat in a pane. Each question goes to a copy of the main chat, so the answer knows your whole session, and nothing is added to the main chat unless you press `s`. `/draw` answers with a diagram: box characters in the terminal, a picture in the desktop app. `/ask-rewind` takes back the newest question and answer.
 
@@ -101,9 +99,7 @@ More in [plugins/ask](plugins/ask/README.md).
 
 ### delegator
 
-<img src="docs/images/delegator-approve.png" width="640" alt="The approval question for a subagent: Approve, Approve all this turn, Change model, Refuse">
-
-<img src="docs/images/delegator-run.png" width="480" alt="The Delegator pane following a running agent: its character, context, tokens, cost and current step">
+![delegator: Claude starts a subagent, the approval question appears, Approve launches it, and the Delegator pane on the right follows it to the end](docs/images/delegator.gif)
 
 When Claude starts a subagent, it waits for you. You see its task and the model it would use, and you choose **Approve**, **Approve all this turn**, **Change model** or **Refuse**. You can also type a note to add to its task. When Claude names no model, the delegator suggests one: Haiku for lookups, Sonnet for building, Opus for design.
 
