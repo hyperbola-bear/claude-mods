@@ -150,6 +150,8 @@ The **SESSIONS** card counts your other Claude Code sessions on this machine, th
   - **GoLand and the other JetBrains IDEs:** the window of the project holding the session's folder (the nearest `.idea` above it). The IDE's own executable, found above the session's process (or above its tmux client), hands that folder to the running IDE, which brings the project's window forward. Again the terminal tab stays as it was.
   - **Any other app:** the app comes forward. When a step cannot find the tab (it was closed), the app still comes forward.
 
+  Known issue: in practice the jump often stops at the app, and the session's own tab or window is not brought forward. Switch to it there yourself.
+
   Where it runs is read from the session's process (`ps`): only the few variables terminals set to say so (`TERM_PROGRAM`, `__CFBundleIdentifier`, `ORCA_TERMINAL_HANDLE`, `ITERM_SESSION_ID`, `TMUX`, `TMUX_PANE`, `TERMINAL_EMULATOR`, `CLAUDE_CODE_SSE_PORT`), each checked for its shape before it goes on a command line; the rest of the environment is never kept. The first jump to Terminal, iTerm2 or Ghostty asks macOS to let the app that runs Claude Code control it.
 - **e: expand** (`e`) opens the Sessions pane, a grid of cells like the band. `z` shows or hides the sessions asleep, and `e` closes it. In a narrow pane its notes wrap under their headings rather than end in `…`, and the rule drops `N live` before `e: close`.
 

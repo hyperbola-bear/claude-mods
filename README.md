@@ -67,7 +67,7 @@ Changes load in the next Claude Code session.
 
 ### user-hud
 
-![user-hud's panel: model and effort pickers, cache timer, context battery, sessions, guesses to check, next steps](docs/images/user-hud.png)
+![user-hud's panel: model and effort pickers, cache timer, context battery, one session that needs you, three guesses to check, next steps](docs/images/user-hud.png)
 
 A panel above the prompt, made of cards you can turn on or off:
 
@@ -78,6 +78,23 @@ A panel above the prompt, made of cards you can turn on or off:
 - **Check my guesses:** guesses Claude made for you, to mark right or wrong.
 - **Next steps:** after each reply, up to three follow-up prompts; `1`, `2` or `3` puts one in the prompt box.
 - **Handoff:** write a handoff note for the next session, or read the newest one.
+
+#### The cache alert
+
+![The cache alert: at 2:00 left the cache card turns yellow, a toast shows in Claude Code and a macOS alert offers Keep warm; pressing it puts the countdown back to 5:00](docs/images/cache-alert.gif)
+
+With 2 minutes left on the cache and Claude idle, two alerts come at once:
+
+- **In Claude Code:** the cache card turns yellow and a toast says how long is left and how many tokens are cached. It stays for 20 seconds.
+- **On macOS:** an alert with **Dismiss** and **Keep warm**, and the Glass sound. It closes by itself after 7 seconds (**macOS alert stays** in the settings).
+
+**Keep warm** on the alert, `w` on the panel or `/keepwarm` re-reads the cache, and the countdown starts again from the top. Each alert fires once per countdown.
+
+#### Sessions
+
+<img src="docs/images/sessions.png" width="560" alt="The Sessions pane: Fix the docs build needs you, Move payments tests is working, Release notes 2.4 is done">
+
+The card counts your other sessions by what they need: yellow `●` needs you (a permission prompt or a question is waiting), blue `●` is working, green `✓` is done. `e` opens the Sessions pane with every session listed. Click a session to bring forward the app it runs in, such as your terminal, VS Code or the desktop app. It does not always land on that session: see [Known issues](#known-issues).
 
 More in [plugins/user-hud](plugins/user-hud/README.md).
 
@@ -93,9 +110,9 @@ More in [plugins/code-reference](plugins/code-reference/README.md).
 
 ### ask
 
-<img src="docs/images/ask.png" width="480" alt="The ask pane: a question and a flowchart drawn in box characters">
+![The main chat on the left, and on the right the ask pane answering a /draw question with a flowchart of the retry loop](docs/images/ask.png)
 
-A side chat in a pane. Each question goes to a copy of the main chat, so the answer knows your whole session, and nothing is added to the main chat unless you press `s`. `/draw` answers with a diagram: box characters in the terminal, a picture in the desktop app. `/ask-rewind` takes back the newest question and answer.
+A side chat in a pane beside the main chat. Each question goes to a copy of the main chat, so the answer knows your whole session, and nothing is added to the main chat unless you press `s`. `/draw` answers with a diagram: box characters in the terminal, a picture in the desktop app. `/ask-rewind` takes back the newest question and answer.
 
 More in [plugins/ask](plugins/ask/README.md).
 
@@ -118,7 +135,8 @@ More in [plugins/delegator](plugins/delegator/README.md).
 - **The VS Code extension and the mobile app draw no panels.** There the mods show plain text and buttons instead.
 - **On the desktop app, `/config` has no plugin settings.** Use `/plugin configure <mod>@polar-mods`, or user-hud's `s` key. `/delegator on` and `off` there need `claude` on your PATH.
 - **Some links don't open at the line.** Cmd-click opens a code-reference link at the line in VS Code, Cursor, Windsurf and JetBrains terminals. Elsewhere it opens the file, unless **Editor command** names `code`, `cursor` or `windsurf`.
-- **macOS only:** user-hud's cache alert and its sound.
+- **Clicking a session brings its app forward, not the session.** A click on a row in user-hud's Sessions card or pane switches you to the app that session runs in (the terminal, VS Code, a JetBrains IDE or the desktop app), but often not to that session's own tab or window. Find the session there yourself.
+- **macOS only:** user-hud's macOS alert and its sound. The toast and the yellow card show everywhere.
 - **These cost tokens:** each `/ask` question reads the main chat (billed at the cheaper cache-read rate); next steps make one short Haiku call per reply; automatic keep-warm pings, when you turn them on, are billed as cache reads.
 - **delegator waits for you.** Every subagent waits until you answer. Use **Approve all this turn**, or `/delegator off`. Turning it off doesn't release agents that are already waiting.
 
