@@ -65,17 +65,43 @@ Changes load in the next Claude Code session.
 
 ### user-hud
 
-![user-hud: a reply arrives, next steps appear in the panel, 1 puts one in the prompt box, t shows where the tokens went](docs/images/user-hud.gif)
+![user-hud: the closed row above the prompt, then a click on the tab opens the panel with all seven modules](docs/images/user-hud.gif)
 
-A panel above the prompt, made of cards you can turn on or off:
+A panel above the prompt, made of seven modules. Each is on by default, and `/hud <module> off` turns one off. Click the tab, or type `/hud`, to open or close the panel. Each clip below is one module at work.
 
-- **Model and effort:** click an option to switch.
-- **Cache:** time left on the prompt cache, with a **Keep warm** button and an alert 2 minutes before it expires.
-- **Context:** how full the context is, and where the tokens went (`t` for details).
-- **Sessions:** your other Claude Code sessions, and which of them need you.
-- **Check my guesses:** guesses Claude made for you, to mark right or wrong.
-- **Next steps:** after each reply, up to three follow-up prompts; `1`, `2` or `3` puts one in the prompt box.
-- **Handoff:** write a handoff note for the next session, or read the newest one.
+**Model and effort.** Click a model or an effort level to switch to it.
+
+![Model and effort: clicks on High, then Max, move the effort picker](docs/images/hud-pickers.gif)
+
+**Cache.** A countdown of the prompt cache's life, with **Keep warm** (`w`) to reset it. When 2 minutes are left, user-hud alerts you once. By default that is a macOS alert with its own **Keep warm** button, so you see it from any app:
+
+![Cache alert: with 4:45 left, a macOS alert asks to keep the cache warm, with Dismiss and Keep warm buttons](docs/images/hud-cache-alert.gif)
+
+With **macOS alert** off, you get only the notice in Claude Code, and Keep warm stays one press away beside the countdown:
+
+![Cache notice only: with 4:45 left, a notice in the corner of Claude Code says to press w to keep the cache warm](docs/images/hud-cache-toast.gif)
+
+These clips used a 5-minute cache and an alert at 4:45 so they fit in a few seconds; the defaults are your cache's lifetime and 2 minutes.
+
+**Context.** How full the context is. `t` opens where the tokens went, by group; click a group to see what is in it.
+
+![Context: t opens the Tokens pane, and a click opens the Skills and plugins group](docs/images/hud-tokens.gif)
+
+**Sessions.** Your other Claude Code sessions: which need you (yellow), which are working (blue) and which are done (green). **e: expand** lists them all in a pane, and a click on one takes you to it: its terminal tab, its tmux pane, or its window in the desktop app.
+
+![Sessions: 1 needs you, 2 working, 1 done; Expand opens the Sessions pane, and a click on the session that needs you switches to its tmux pane, where a permission question waits](docs/images/hud-sessions.gif)
+
+**Check my guesses.** When Claude fills in something you did not say, the guess shows here. `✓` marks it right. `✗` puts `Not quite:` and the guess in the prompt box for you to correct.
+
+![Check my guesses: four guesses from Claude; one is marked right and leaves, one is marked wrong and fills the prompt box](docs/images/hud-guesses.gif)
+
+**Next steps.** After each reply, up to three follow-up prompts; `1`, `2` or `3` puts one in the prompt box. **n: expand** shows them in full.
+
+![Next steps: a prompt, the reply, three next steps cut short in their card, then n shows them in full across the panel](docs/images/hud-next.gif)
+
+**Handoff.** `h` has Claude write a handoff note for the next session; `r` opens the newest one.
+
+![Handoff: h asks Claude to write a note, then r opens it in the Handoff pane](docs/images/hud-handoff.gif)
 
 More in [plugins/user-hud](plugins/user-hud/README.md).
 
@@ -91,7 +117,7 @@ More in [plugins/code-reference](plugins/code-reference/README.md).
 
 ### ask
 
-![ask: a question in the main chat on the left, then /draw, answered with a diagram in the ask pane on the right](docs/images/ask.gif)
+![ask: /draw in the prompt, the ask pane drawing, then the diagram and its explanation in the pane on the right](docs/images/ask.gif)
 
 A side chat in a pane. Each question goes to a copy of the main chat, so the answer knows your whole session, and nothing is added to the main chat unless you press `s`. `/draw` answers with a diagram: box characters in the terminal, a picture in the desktop app. `/ask-rewind` takes back the newest question and answer.
 
@@ -99,7 +125,7 @@ More in [plugins/ask](plugins/ask/README.md).
 
 ### delegator
 
-![delegator: Claude starts a subagent, the approval question appears, Approve launches it, and the Delegator pane on the right follows it to the end](docs/images/delegator.gif)
+![delegator: the approval question with the task in the Delegator pane, the agent running with its character, then done with its cost](docs/images/delegator.gif)
 
 When Claude starts a subagent, it waits for you. You see its task and the model it would use, and you choose **Approve**, **Approve all this turn**, **Change model** or **Refuse**. You can also type a note to add to its task. When Claude names no model, the delegator suggests one: Haiku for lookups, Sonnet for building, Opus for design.
 
