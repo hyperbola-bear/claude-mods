@@ -4,7 +4,7 @@ import type { SessionInfo } from '../types'
 import { batteryRuns } from '../hooks/battery.ts'
 import { cut, line, piece, plain, runs, textOf, underlined, widthOf, wrap } from '../hooks/cells.ts'
 import { MODELS } from '../hooks/hud.ts'
-import { CARD_ORDER, bandGrid, cardLayout, cardsOf, expandedNext } from '../hooks/panelgrid.ts'
+import { CARD_ORDER, bandGrid, cardLayout, cardsOf, expandedGuesses, expandedNext } from '../hooks/panelgrid.ts'
 import type { BandView } from '../hooks/panelgrid.ts'
 import { EFFORT_COLORS, EFFORT_SHORT_LABELS, EFFORT_STEPS, MODEL_COLORS } from '../hooks/selector.ts'
 import { grouped } from '../hooks/sessions.ts'
@@ -175,7 +175,7 @@ test('the cards as tiles of one size in rows that line up, handoff in the bottom
   // Left to right, then the next row: model and cache, context and sessions, guesses and next steps.
   expect(full[0]).toMatch(/^── M O D E L {3}· {3}E F F O R T ─+ {2}── C A C H E ─+$/)
   expect(full[6]).toMatch(/^── C O N T E X T ─+ t: details ─ {2}── S E S S I O N S ─+ e: expand ─$/)
-  expect(full[12]).toMatch(/^── C H E C K .*\+1 more ─ {2}── N E X T {3}S T E P S ─+$/)
+  expect(full[12]).toMatch(/^── CHECK MY GUESSES ─+ g: \+1 more ─ {2}── N E X T {3}S T E P S ─+$/)
   // Every tile five rows, a blank row between the rows of tiles.
   expect([full[5], full[11]]).toEqual([' '.repeat(100), ' '.repeat(100)])
   expect(full).toContainEqual(expect.stringMatching(/ {2}● Settle-1804 exploration +2m$/))
@@ -189,7 +189,7 @@ test('the cards as tiles of one size in rows that line up, handoff in the bottom
     expect.stringMatching(/^CONTEXT ▕███▍ {6}▏ 34% +1\.2M t: details {2}SESSIONS +●1 ●2 ✓3 1 asleep$/),
     ' '.repeat(100),
   ])
-  expect(folded[3]).toMatch(/^── C H E C K .* {2}── N E X T {3}S T E P S ─+$/)
+  expect(folded[3]).toMatch(/^── CHECK MY GUESSES .* {2}── N E X T {3}S T E P S ─+$/)
   expect(folded.slice(4, 7)).toEqual([
     expect.stringMatching(/✦ 1: Run the tests +$/),
     expect.stringMatching(/✦ 2: Commit this and open a PR +$/),
@@ -230,7 +230,7 @@ test('short of rows the cards fold, the pickers first, while next steps stay in 
   const two = plain(bandGrid({ ...VIEW, columns: 100, maxRows: 8 }))
   expect(two[0]).toMatch(/^MODEL .* {2}CACHE /)
   expect(two[1]).toMatch(/^CONTEXT ▕.* {2}SESSIONS +●1 ●2 ✓3 1 asleep$/)
-  expect(two[3]).toMatch(/^── C H E C K .* {2}── N E X T {3}S T E P S ─+$/)
+  expect(two[3]).toMatch(/^── CHECK MY GUESSES .* {2}── N E X T {3}S T E P S ─+$/)
   // Where next steps only just fit in full, every other card goes behind +5 more first.
   const five = plain(bandGrid({ ...VIEW, columns: 60, maxRows: 5 }))
   expect(five[0]).toMatch(/^── N E X T {3}S T E P S/)
@@ -286,7 +286,7 @@ test('pressed to the front, the guesses stay in full beside next steps, so a 12-
   const g = bandGrid({ ...VIEW, columns: 100, maxRows: 12, lead: 'assume' })
   const rows = plain(g)
   expect(rows.length).toBeLessThanOrEqual(12)
-  expect(rows[0]).toMatch(/^── C H E C K {3}M Y {3}G U E S S E S ─+ \+1 more ─ {2}── N E X T {3}S T E P S ─+$/)
+  expect(rows[0]).toMatch(/^── CHECK MY GUESSES ─+ g: \+1 more ─ {2}── N E X T {3}S T E P S ─+$/)
   expect(rows[1]).toMatch(/^✓ ✗ {2}"Terminal name" = the title Claude gives th… {2}✦ 1: Run the tests/)
   expect(g.hits.map(h => h.id)).toEqual(expect.arrayContaining(['assume:right:g1', 'assume:wrong:g1', 'assume:right:g3', 'assume:wrong:g3']))
   expect(rows[5]).toMatch(/^MODEL .* {2}CACHE /)
@@ -345,7 +345,7 @@ test('s: the settings in place of the cards, a row each, folded into pills when 
   const short = plain(bandGrid({ ...VIEW, view: 'settings', maxRows: 3 }))
   expect(short).toHaveLength(2)
   expect(short[0]).toMatch(/^ ● Alert sound {3}2:00 +$/)
-  expect(bandGrid(VIEW).keys).toEqual({ s: 'settings', e: 'sessions', t: 'tokens', w: 'keepwarm', h: 'handoff', r: 'readhandoff', 1: 'next:0', 2: 'next:1', 3: 'next:2' })
+  expect(bandGrid(VIEW).keys).toEqual({ s: 'settings', e: 'sessions', t: 'tokens', w: 'keepwarm', h: 'handoff', r: 'readhandoff', g: 'assume:toggle', 1: 'next:0', 2: 'next:1', 3: 'next:2' })
   expect(bandGrid({ ...VIEW, maxRows: 4, columns: 100, keepOpen: [] }).keys).toMatchObject({ a: 'assume:review', e: 'sessions' })
   expect(bandGrid({ ...VIEW, maxRows: 5, columns: 60, keepOpen: [] }).keys).toMatchObject({ m: 'styles' })
   // Narrow, a setting's description goes rather than end in an ellipsis; its label and value stay.
@@ -515,6 +515,74 @@ test('next steps cut in their tile offer n: expand; expanded they take the whole
   expect(rows.at(-1)).toMatch(/user-hud ▾/)
   expect(open.keys).toMatchObject({ n: 'next:toggle', 1: 'next:0', 2: 'next:1', 3: 'next:2' })
   expect(open.hits.find(h => h.id === 'next:1')?.x1).toBe(5 + LONG_NEXT[1]!.length)
+})
+
+const LONG_GUESSES = [
+  { id: 'a', text: '--days takes a value as `--days N` (separate arg), integer 1-16 (Open-Meteo max)' },
+  { id: 'b', text: 'Output: one line per day, prefixed with the date; default stays 1 day, same format as now' },
+  { id: 'c', text: 'Cache key includes the day count; forecast() returns an array of days' },
+  { id: 'd', text: 'Existing single-day format() output stays unchanged' },
+]
+
+test('guesses cut in their tile offer g: expand; expanded they take the whole width, every one in full with its ✓ and ✗', () => {
+  const v: BandView = { ...VIEW, columns: 80, maxRows: 12, guesses: LONG_GUESSES, next: null }
+  const g = bandGrid(v)
+  expect(plain(g).some(r => /g: \+1 more ─/.test(r))).toBe(true)
+  expect(g.keys).toMatchObject({ g: 'assume:toggle' })
+
+  const open = bandGrid({ ...v, isGuessesExpanded: true })
+  const rows = plain(open)
+  expect(rows.length).toBeLessThanOrEqual(12)
+  expect(rows.every(r => r.length <= 80)).toBe(true)
+  const at = rows.findIndex(r => r.startsWith('── C H E C K'))
+  expect(rows[at]).toMatch(/g: collapse ─$/)
+  // All four, the fourth too (the card shows three), each whole, above the bottom bar.
+  const body = rows.slice(at + 1).join('\n')
+  for (const gs of LONG_GUESSES) expect(body.replace(/\s+/g, ' ')).toContain(gs.text)
+  expect(rows.at(-1)).toMatch(/user-hud ▾/)
+  expect(open.keys).toMatchObject({ g: 'assume:toggle' })
+  for (const gs of LONG_GUESSES) {
+    expect(open.hits.some(h => h.id === `assume:right:${gs.id}`)).toBe(true)
+    expect(open.hits.some(h => h.id === `assume:wrong:${gs.id}`)).toBe(true)
+  }
+})
+
+test('guesses that fit their tile, three or fewer, offer no expand', () => {
+  const v: BandView = { ...VIEW, columns: 132, maxRows: 24, guesses: [{ id: 'a', text: 'Tests run with npm test' }] }
+  expect(bandGrid(v).keys.g).toBeUndefined()
+})
+
+test('expanded guesses wrap under their own start after ✓ ✗, and are cut short of the rows there are', () => {
+  const g = expandedGuesses(LONG_GUESSES.slice(0, 2), 40, 20)
+  const rows = plain(g)
+  expect(rows[0]).toMatch(/^── CHECK MY GUESSES ─+ g: collapse ─$/)
+  expect(rows[1]).toMatch(/^✓ ✗ {2}--days takes a value as/)
+  expect(rows[2]).toMatch(/^ {5}\S/)
+  expect(rows.every(r => r.length <= 40)).toBe(true)
+  expect(g.hits.find(h => h.id === 'assume:right:a')).toMatchObject({ y: 1, x0: 0, x1: 1 })
+  expect(g.hits.find(h => h.id === 'assume:wrong:a')).toMatchObject({ y: 1, x0: 2, x1: 3 })
+  const short = expandedGuesses(LONG_GUESSES, 40, 4)
+  expect(plain(short)).toHaveLength(4)
+  expect(plain(short)[3]).toMatch(/…$/)
+  expect(short.hits.every(h => h.y < 4)).toBe(true)
+})
+
+test('guesses and next steps both expanded: guesses first, then next steps, all within the rows', () => {
+  const g = bandGrid({ ...VIEW, columns: 100, maxRows: 24, guesses: LONG_GUESSES, isGuessesExpanded: true, next: { items: LONG_NEXT, note: null, isExpanded: true } })
+  const rows = plain(g)
+  expect(rows.length).toBeLessThanOrEqual(24)
+  const gAt = rows.findIndex(r => r.startsWith('── C H E C K'))
+  const nAt = rows.findIndex(r => r.startsWith('── N E X T'))
+  expect(gAt).toBeGreaterThanOrEqual(0)
+  expect(nAt).toBeGreaterThan(gAt)
+})
+
+test('expanded guesses at the desktop’s 12 rows and one column stay within the band', () => {
+  const g = bandGrid({ ...VIEW, columns: 40, maxRows: 12, guesses: LONG_GUESSES, isGuessesExpanded: true })
+  const rows = plain(g)
+  expect(rows.length).toBeLessThanOrEqual(12)
+  expect(rows.every(r => r.length <= 40)).toBe(true)
+  expect(rows.some(r => r.includes('g: collapse'))).toBe(true)
 })
 
 test('next steps that fit their tile offer no expand', () => {

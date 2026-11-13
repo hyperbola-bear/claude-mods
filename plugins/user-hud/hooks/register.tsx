@@ -554,6 +554,7 @@ async function runAction($: EngineInterface, action: unknown) {
   }
   if (action.startsWith('handoff:')) return pressHandoff($, action.slice('handoff:'.length))
   if (action === 'next:toggle') return update($, hudA, s => ({ ...s, isNextExpanded: !s.isNextExpanded }))
+  if (action === 'assume:toggle') return update($, hudA, s => ({ ...s, isGuessesExpanded: !s.isGuessesExpanded }))
   if (action.startsWith('next:')) return pickNext($, Number(action.slice('next:'.length)))
   // `s` opens the settings from the cards, and steps back: from the modules to the settings, from the settings to the cards.
   if (action === 'settings') return setView($, (await panelView($)) === 'settings' ? 'cards' : 'settings')
@@ -1409,6 +1410,7 @@ export const register: Register = (on, given) => {
       handoff: mods.handoff ? { hasNewest: newestNote !== undefined, note: newestNote ? `newest · ${age(newestNote.mtimeMs, now)}` : 'no notes yet' } : null,
       sessions: mods.sessions ? { list: sessions, now } : null,
       guesses: mods.assume ? openGuesses(guesses).map(g => ({ id: g.id, text: g.text })) : null,
+      isGuessesExpanded: hud.isGuessesExpanded === true,
     })
     // flexGrow: the desktop sets the tree beside its own collapse control in a row, where an ungrown
     // tree shrinks to its content and the tab lands on the left.

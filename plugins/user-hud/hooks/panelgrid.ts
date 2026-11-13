@@ -63,6 +63,8 @@ export type BandView = {
   sessions: { list: Sessions; now: number } | null
   /** The guesses still to mark, oldest first. */
   guesses: { id: string; text: string }[] | null
+  /** Guesses across the panel's whole width, every one in full (`g` switches), as next steps expand. */
+  isGuessesExpanded?: boolean
 }
 
 export type Band = Grid & { keys: Record<string, string>; width: number }
@@ -96,6 +98,7 @@ const HOTKEYS: Record<string, string> = {
   'next:1': '2',
   'next:2': '3',
   'next:toggle': 'n',
+  'assume:toggle': 'g',
   settings: 's',
   'modules:default': 'd',
 }
@@ -273,15 +276,63 @@ function guessesCard(v: BandView, w: number): Card | null {
     const none = text('nothing to check', { isDim: true })
     return { id: 'assume', full: gridOf([hintedRule('CHECK MY GUESSES', w), line(w, [none])]), folded: gridOf([line(w, [text('GUESSES', { isDim: true }), none])]) }
   }
-  const more = gs.length > CARD_GUESSES ? [text(`+${gs.length - CARD_GUESSES} more`, { isDim: true })] : []
-  const rows = gs
-    .slice(0, CARD_GUESSES)
-    .map(g => line(w, [piece('✓', { color: 'success' }, `assume:right:${g.id}`), piece('✗', { color: 'error' }, `assume:wrong:${g.id}`), text(` ${g.text}`)]))
+  const rows = gs.slice(0, CARD_GUESSES).map(g => line(w, guessRow(g)))
+  // A guess past the three shown, or one cut short, is worth reading in full before marking: `g` shows them all.
+  const hidden = gs.length - CARD_GUESSES
+  const isCut = gs.slice(0, CARD_GUESSES).some(g => !fits(w, guessRow(g)))
+  const hint = hidden > 0 ? [keyed('g', `+${hidden} more`, 'assume:toggle')] : isCut ? [keyed('g', 'expand', 'assume:toggle')] : []
+  const rule = hintedRule('CHECK MY GUESSES', w, hint)
   return {
     id: 'assume',
-    full: gridOf([hintedRule('CHECK MY GUESSES', w, more), ...rows]),
+    full: gridOf([rule, ...rows]),
     folded: gridOf([line(w, [text('GUESSES', { isDim: true }), piece(`? ${gs.length} to check`, { color: 'claude' }, 'assume:review')], [keyed('a', 'review', 'assume:review')])]),
   }
+}
+
+/** A guess as its card draws it: `✓` marks it right, `✗` wrong, then its text. */
+const guessRow = (g: { id: string; text: string }): Piece[] => [piece('✓', { color: 'success' }, `assume:right:${g.id}`), piece('✗', { color: 'error' }, `assume:wrong:${g.id}`), text(` ${g.text}`)]
+
+/** The cells before a guess's text: `✓ ✗  `. */
+const GUESS_INDENT = 5
+
+/**
+ * Guesses expanded across the panel's `width`: every one in full, wrapped under its own start, with its `✓` and
+ * `✗`; `g: collapse` on the rule. At most `rows` rows, the last cut where they run over.
+ */
+export function expandedGuesses(gs: readonly { id: string; text: string }[], width: number, rows: number): Grid {
+  const b = builder()
+  const rule = hintedRule('CHECK MY GUESSES', width, [keyed('g', 'collapse', 'assume:toggle')])
+  b.add(rule.row, rule.spans)
+  for (const g of gs) {
+    wrap(g.text, Math.max(1, width - GUESS_INDENT)).forEach((r, j) => {
+      const row: Run[] = []
+      const spans: Span[] = []
+      if (j === 0) {
+        put(row, '✓', { color: 'success' })
+        put(row, ' ')
+        put(row, '✗', { color: 'error' })
+        put(row, '  ')
+        spans.push({ action: `assume:right:${g.id}`, x0: 0, x1: 1 }, { action: `assume:wrong:${g.id}`, x0: 2, x1: 3 })
+      } else put(row, ' '.repeat(GUESS_INDENT))
+      for (const run of r) put(row, run.text, run)
+      put(row, ' '.repeat(Math.max(0, width - widthOf(row))))
+      b.add(row, spans)
+    })
+  }
+  return cutToRows(b.grid, width, rows)
+}
+
+/** A grid kept to `rows` rows, its last one ending in `…` where rows were left out. */
+function cutToRows(g: Grid, width: number, rows: number): Grid {
+  if (g.rows.length <= rows) return g
+  const kept = g.rows.slice(0, Math.max(0, rows))
+  const last = kept.at(-1)
+  if (last) {
+    const marked = [...last]
+    put(marked, ' …', { isDim: true })
+    kept[kept.length - 1] = cut(marked, width)
+  }
+  return { rows: kept, hits: g.hits.filter(h => h.y < kept.length) }
 }
 
 /** Folded, a card's row starts with its name, as CONTEXT, SESSIONS and the others do. */
@@ -339,15 +390,7 @@ export function expandedNext(items: readonly string[], width: number, rows: numb
       b.add(row, [{ action, x0: j === 0 ? 2 : STEP_INDENT, x1 }])
     })
   })
-  if (b.grid.rows.length <= rows) return b.grid
-  const kept = b.grid.rows.slice(0, Math.max(0, rows))
-  const last = kept.at(-1)
-  if (last) {
-    const marked = [...last]
-    put(marked, ' …', { isDim: true })
-    kept[kept.length - 1] = cut(marked, width)
-  }
-  return { rows: kept, hits: b.grid.hits.filter(h => h.y < kept.length) }
+  return cutToRows(b.grid, width, rows)
 }
 
 const CARDS: Record<CardId, (v: BandView, w: number) => Card | null> = {
@@ -520,19 +563,24 @@ function fitTiles(all: readonly Card[], count: number, budget: number, lead: Car
 function cardsPanel(v: BandView): Band {
   const { width, count, card } = cardLayout(v.columns)
   const nx = v.next
-  const expanded = nx?.isExpanded && nx.items.length > 0 ? expandedNext(nx.items, width, v.maxRows - 1) : null
-  const all = cardsOf(v, card).filter(c => !(expanded && c.id === 'next'))
-  // Expanded next steps take their rows first, a blank row above them; the other cards fit in what is left.
-  const budget = v.maxRows - 1 - (expanded ? expanded.rows.length + 1 : 0)
+  const gs = v.guesses
+  // Expanded guesses and next steps take their rows first, a blank row above each; the other cards fit in what is
+  // left. With both expanded, the guesses come first and the next steps get the rows left after them.
+  const guessesOut = v.isGuessesExpanded && gs && gs.length > 0 ? expandedGuesses(gs, width, v.maxRows - 1) : null
+  const afterGuesses = v.maxRows - 1 - (guessesOut ? guessesOut.rows.length + 1 : 0)
+  const nextOut = nx?.isExpanded && nx.items.length > 0 && afterGuesses > 1 ? expandedNext(nx.items, width, afterGuesses - 1) : null
+  const all = cardsOf(v, card).filter(c => !(guessesOut && c.id === 'assume') && !(nextOut && c.id === 'next'))
+  const budget = afterGuesses - (nextOut ? nextOut.rows.length + 1 : 0)
   const { cards, height, rows } = fitTiles(all, count, Math.max(0, budget), v.lead, v.keepOpen)
   const b = builder()
   rows.forEach((r, i) => {
     if (gapBefore(rows, i)) b.add(runs(' '.repeat(width)))
     b.append(sideBySide(r.tiles.map(t => (r.isFolded ? t.folded : padded(t.full, height))), r.isFolded ? 1 : height, card, width))
   })
-  if (expanded) {
-    if (rows.length > 0) b.add(runs(' '.repeat(width)))
-    b.append(expanded)
+  for (const out of [guessesOut, nextOut]) {
+    if (!out) continue
+    if (b.grid.rows.length > 0) b.add(runs(' '.repeat(width)))
+    b.append(out)
   }
   const hidden = all.filter(c => !cards.includes(c))
   const tabPiece = [tab(true, needsYouOf(v))]

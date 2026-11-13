@@ -17,7 +17,7 @@ A control panel above the prompt. Closed, it is one row at the right edge that s
 - `hud-last-row`: the last row of the band and of every pane is whole on the desktop.
 - `hud-grid-retry`: a surface whose grid fails falls back to text rows with buttons, and the grid is tried again after 30 seconds, then 2 and 10 minutes.
 - `hud-modules`: the Modules pane switches each module and moves its card a place at a time (`/hud modules`, `/hud order`; `d` for the usual order). Settings → Modules shows the same rows in the panel, in place of the settings, with `s: Back`; too short for them, one pill a module.
-- `hud-guesses` shows the guesses Claude reports through its `assumption` tool; `✓` clears one, `✗` fills the prompt box.
+- `hud-guesses` shows the guesses Claude reports through its `assumption` tool; `✓` clears one, `✗` fills the prompt box, and `g` (shown as `g: expand` or `g: +N more`) lays every guess out in full across the panel; `g: collapse` puts them back.
 - `hud-pickers` runs `/model` and `/effort` from the model card; `/hud-styles` draws Rail, Ladder and Meter.
 - `hud-modules` switches each module with `/hud <module> on|off`.
 - `hud-order` reorders the cards with `/hud order <modules…>` (or **Module order** in `/config`).

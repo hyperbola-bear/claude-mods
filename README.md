@@ -99,7 +99,7 @@ These two clips were recorded on a Mac with a 5-minute cache and the alert at 4:
 
 ![Sessions: 1 needs you, 1 working, 1 done; Expand opens the Sessions pane, and a click on the session that needs you brings its Terminal window to the front, where a permission question waits](docs/images/hud-sessions.gif)
 
-**Check my guesses.** When Claude fills in something you did not say, the guess shows here. `✓` marks it right. `✗` puts `Not quite:` and the guess in the prompt box for you to correct.
+**Check my guesses.** When Claude fills in something you did not say, the guess shows here. `✓` marks it right. `✗` puts `Not quite:` and the guess in the prompt box for you to correct. **g: expand** shows every guess in full across the panel, as `n` does for next steps.
 
 ![Check my guesses: four guesses from Claude; one is marked right and leaves, one is marked wrong and fills the prompt box](docs/images/hud-guesses.gif)
 
