@@ -101,7 +101,7 @@ These two clips were recorded on a Mac with a 5-minute cache and the alert at 4:
 
 **Check my guesses.** When Claude fills in something you did not say, the guess shows here. `✓` marks it right. `✗` puts `Not quite:` and the guess in the prompt box for you to correct. **g: expand** shows every guess in full across the panel, as `n` does for next steps.
 
-![Check my guesses: four guesses from Claude; one is marked right and leaves, one is marked wrong and fills the prompt box](docs/images/hud-guesses.gif)
+![Check my guesses: Claude's guesses arrive cut short in their card; g: +1 more shows all four in full across the panel, ✓ marks one right, and g: collapse puts them back](docs/images/hud-guesses.gif)
 
 **Next steps.** After each reply, up to three follow-up prompts; `1`, `2` or `3` puts one in the prompt box. **n: expand** shows them in full.
 
