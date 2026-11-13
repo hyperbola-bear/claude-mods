@@ -11,7 +11,7 @@ A control panel above the prompt. Closed, it is one row at the right edge that s
 - `hud-mark` turns the four diamonds yellow while another session needs you.
 - `hud-pie` drains the countdown's pie `● ◕ ◑ ◔ ○` as the cache life runs out.
 - `hud-battery` draws the context as ten cells, green to 50%, yellow to 75%, red beyond.
-- `hud-sessions` counts and lists other sessions, and the Sessions pane lists them all (`e`, `z`).
+- `hud-sessions` counts and lists other sessions, and the Sessions pane lists them all (`e`, `/sessions`, `z`).
 - `hud-session-jump`: pressing another session's row, on the card or in the Sessions pane, brings forward where it runs: the Claude desktop app on it; the exact tab in Orca, Terminal, iTerm2, Ghostty and tmux; the project's window in VS Code, Cursor and the JetBrains IDEs; any other app as a whole.
 - `hud-settings-save`: every panel setting saves on both surfaces: through `$.config.set` in the terminal, through `claude plugin configure` on the desktop, whose engine lists no `/config` rows for plugins.
 - `hud-last-row`: the last row of the band and of every pane is whole on the desktop.
@@ -28,7 +28,7 @@ A control panel above the prompt. Closed, it is one row at the right edge that s
 - Look at the corner above the prompt: the closed row is always there while a module is on.
 - Click the tab, or type `/hud`, to open and close the panel.
 - With the band focused: `s`, `e`, `a`, `t`, `w`, `h`, `r`, `1` to `3`, `n`, the arrow keys and Return.
-- Type `/hud modules`, `/hud <module> on|off`, `/tokens`, `/cache`, `/keepwarm`, `/read-handoff`, `/hud-styles`.
+- Type `/hud modules`, `/hud <module> on|off`, `/sessions`, `/tokens`, `/cache`, `/keepwarm`, `/read-handoff`, `/hud-styles`.
 
 ## Driving it with tui.sh
 
@@ -44,7 +44,7 @@ Preconditions:
 - **Short band.** Run `tui.sh resize hud 100 24`, then `tui.sh shot hud open-short`. Next steps stay in full (`── N E X T   S T E P S`, all three `✦ N:` rows); the other rows fold, the pickers first (`MODEL … m: pick`), then the cache and context, then go behind `+N more`, the band no taller than before the prompt. Switch Model & effort to `◆ open` in the Modules pane and the pickers stay in full instead.
 - **Pickers in cards.** Rail is the default style. Run `tui.sh sweep hud open 160 120 100 80`. Each capture shows a model row of `Haiku … Fable` over a `▔` bar, not the Ladder's `▄` strips. Two-column cards of about 49 cells keep the versions (`Haiku 4.5`). Narrower cards drop them (`Haiku`) and shorten the effort labels, `Ultra` first and then `Med`. For Meter, start a second session with `--settings '{"pluginConfigs":{"user-hud@inline":{"options":{"selectorStyle":"meter"}}}}'`, which changes no saved setting, and sweep again: the bars use `▁` to `▇`.
 - **Settings.** Focus the band and run `tui.sh keys hud s`. The settings rows show and the bar reads `⚙ s: Back`. Press `s` again to return.
-- **Sessions pane.** With the band focused, run `tui.sh keys hud e`. A pane titled `Sessions` lists NEEDS YOU, WORKING, DONE, ASLEEP and THIS SESSION, each title at most 30 characters.
+- **Sessions pane.** With the band focused, run `tui.sh keys hud e`. A pane titled `Sessions` lists NEEDS YOU, WORKING, DONE, ASLEEP and THIS SESSION, each title at most 30 characters. Below 144 columns, in a session that has never opened it, the press shows a notice naming `/sessions` instead; `tui.sh type hud /sessions` opens it at any width, and `e` works from 110 columns after that.
 - **Jump to a session.** In the Sessions pane, arrow to a row marked `app` and press Return (or click it). The desktop app comes forward on that session: `get_window_layout` names its `local_…` id in the focused pane. Switch back with `open "claude://code/continue?session=<this session's local_ id>"`.
 - **Jump to a terminal session.** Start test sessions with `--model claude-sonnet-5-5`, each in its own folder, from a clean environment: an app this session launches inherits `CLAUDE_CODE_CHILD_SESSION` and its sessions write no status file. So start a closed app with `env -i HOME=$HOME USER=$USER PATH=/usr/bin:/bin open -a <App>`. In tmux, click a row with an SGR mouse report: `tmux -L polar-verify send-keys -t hud -l $'\e[<0;<col>;<row>M\e[<0;<col>;<row>m'`, at the row's place in the last capture. Put Finder in front first, then check `lsappinfo front` and:
   - Terminal: `osascript -e 'tell application "Terminal" to get tty of selected tab of front window'` is the session's tty (`ps -o tty= -p <pid>`), also for two sessions in one folder.
