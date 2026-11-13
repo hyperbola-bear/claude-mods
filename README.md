@@ -75,13 +75,13 @@ A panel above the prompt, made of seven modules. Each is on by default, and `/hu
 
 **Cache.** A countdown of the prompt cache's life, with **Keep warm** (`w`) to reset it. When 2 minutes are left, user-hud alerts you once. By default that is a macOS alert with its own **Keep warm** button, so you see it from any app:
 
-![Cache alert: with 4:45 left, a macOS alert asks to keep the cache warm, with Dismiss and Keep warm buttons](docs/images/hud-cache-alert.gif)
+![Cache alert: a prompt, then with 4:45 left a macOS alert asks to keep the cache warm; a click on Keep warm pings the cache and the countdown starts over at 4:58](docs/images/hud-cache-alert.gif)
 
 With **macOS alert** off, you get only the notice in Claude Code, and Keep warm stays one press away beside the countdown:
 
-![Cache notice only: with 4:45 left, a notice in the corner of Claude Code says to press w to keep the cache warm](docs/images/hud-cache-toast.gif)
+![Cache notice only: with 4:45 left, a notice in the corner of Claude Code says to press w; a click on Keep warm in the panel starts the countdown over](docs/images/hud-cache-toast.gif)
 
-These clips used a 5-minute cache and an alert at 4:45 so they fit in a few seconds; the defaults are your cache's lifetime and 2 minutes.
+These two clips were recorded on a Mac with a 5-minute cache and the alert at 4:45, so they fit in a few seconds; by default the countdown follows your cache's lifetime and the alert comes with 2 minutes left.
 
 **Context.** How full the context is. `t` opens where the tokens went, by group; click a group to see what is in it.
 
