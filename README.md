@@ -65,23 +65,31 @@ Changes load in the next Claude Code session.
 
 ### user-hud
 
-![user-hud: the closed row above the prompt, then a click on the tab opens the panel with all seven modules](docs/images/user-hud.gif)
+A panel above the prompt, made of seven modules. Each is on by default, and `/hud <module> off` turns one off. Click the tab, or type `/hud`, to open or close the panel.
 
-A panel above the prompt, made of seven modules. Each is on by default, and `/hud <module> off` turns one off. Click the tab, or type `/hud`, to open or close the panel. Each clip below is one module at work.
+- **Model and effort:** pickers for the model and the effort level.
+- **Cache:** the prompt cache countdown, Keep warm, and an alert before the cache expires.
+- **Context:** how full the context is, and where the tokens went.
+- **Sessions:** your other Claude Code sessions, and which of them need you.
+- **Check my guesses:** the guesses Claude acts on, for you to mark right or wrong.
+- **Next steps:** up to three follow-up prompts after each reply.
+- **Handoff:** write a handoff note for the next session, or read the newest one.
+
+Each module at work:
 
 **Model and effort.** Click a model or an effort level to switch to it.
 
-![Model and effort: clicks on High, then Max, move the effort picker](docs/images/hud-pickers.gif)
+![Model and effort: a click on Opus, then Haiku, switches the model; after a reply, a click on High, then Max, switches the effort](docs/images/hud-pickers.gif)
 
 **Cache.** A countdown of the prompt cache's life, with **Keep warm** (`w`) to reset it. When 2 minutes are left, user-hud alerts you once. By default that is a macOS alert with its own **Keep warm** button, so you see it from any app:
 
-![Cache alert: a prompt, then with 4:45 left a macOS alert asks to keep the cache warm; a click on Keep warm pings the cache and the countdown starts over at 4:58](docs/images/hud-cache-alert.gif)
+![Cache alert: with 4:45 left a macOS alert asks to keep the cache warm; a click on Keep warm refreshes the cache and the countdown starts over](docs/images/hud-cache-alert.gif)
 
 With **macOS alert** off, you get only the notice in Claude Code, and Keep warm stays one press away beside the countdown:
 
 ![Cache notice only: with 4:45 left, a notice in the corner of Claude Code says to press w; a click on Keep warm in the panel starts the countdown over](docs/images/hud-cache-toast.gif)
 
-These two clips were recorded on a Mac with a 5-minute cache and the alert at 4:45, so they fit in a few seconds; by default the countdown follows your cache's lifetime and the alert comes with 2 minutes left.
+These two clips were recorded on a Mac with a 5-minute cache and the alert at 4:45. By default the countdown follows your cache's lifetime, and the alert comes with 2 minutes left.
 
 **Context.** How full the context is. `t` opens where the tokens went, by group; click a group to see what is in it.
 
@@ -89,7 +97,7 @@ These two clips were recorded on a Mac with a 5-minute cache and the alert at 4:
 
 **Sessions.** Your other Claude Code sessions: which need you (yellow), which are working (blue) and which are done (green). **e: expand**, or `/sessions`, lists them all in a pane, and a click on one takes you to it: its terminal tab, its tmux pane, or its window in the desktop app.
 
-![Sessions: 1 needs you, 2 working, 1 done; Expand opens the Sessions pane, and a click on the session that needs you switches to its tmux pane, where a permission question waits](docs/images/hud-sessions.gif)
+![Sessions: 1 needs you, 1 working, 1 done; Expand opens the Sessions pane, and a click on the session that needs you brings its Terminal window to the front, where a permission question waits](docs/images/hud-sessions.gif)
 
 **Check my guesses.** When Claude fills in something you did not say, the guess shows here. `✓` marks it right. `✗` puts `Not quite:` and the guess in the prompt box for you to correct.
 
@@ -107,7 +115,7 @@ More in [plugins/user-hud](plugins/user-hud/README.md).
 
 ### code-reference
 
-![code-reference: a /code-reference question, the reply with numbered boxes on the left, and a click on each box showing its code in the pane on the right](docs/images/code-reference.gif)
+![code-reference: a /code-reference question, the reply with numbered boxes on the left, and a click on each of five boxes showing its code in the pane on the right](docs/images/code-reference.gif)
 
 Ask with `/code-reference` and the answer comes back as short sections. Each linked word has a number, and the boxes under each section name the file and lines. Click a box, or press `a` and `d` in the pane, to read that code. Long lines fold so the line numbers still match the file. Give it a GitHub PR link and it reviews the PR the same way.
 
@@ -117,7 +125,7 @@ More in [plugins/code-reference](plugins/code-reference/README.md).
 
 ### ask
 
-![ask: /draw in the prompt, the ask pane drawing, then the diagram and its explanation in the pane on the right](docs/images/ask.gif)
+![ask: a question in the main chat, then /ask, a moment of thinking, and the answer in the ask pane on the right](docs/images/ask.gif)
 
 A side chat in a pane. Each question goes to a copy of the main chat, so the answer knows your whole session, and nothing is added to the main chat unless you press `s`. `/draw` answers with a diagram: box characters in the terminal, a picture in the desktop app. `/ask-rewind` takes back the newest question and answer.
 
@@ -125,7 +133,7 @@ More in [plugins/ask](plugins/ask/README.md).
 
 ### delegator
 
-![delegator: the approval question with the task in the Delegator pane, the agent running with its character, then done with its cost](docs/images/delegator.gif)
+![delegator: a prompt asking Claude to use a subagent, the approval question with the task in the Delegator pane, the agent running with its character, then done with its cost](docs/images/delegator.gif)
 
 When Claude starts a subagent, it waits for you. You see its task and the model it would use, and you choose **Approve**, **Approve all this turn**, **Change model** or **Refuse**. You can also type a note to add to its task. When Claude names no model, the delegator suggests one: Haiku for lookups, Sonnet for building, Opus for design.
 
