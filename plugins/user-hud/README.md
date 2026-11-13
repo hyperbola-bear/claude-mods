@@ -236,7 +236,8 @@ user-hud gives Claude an `assumption` tool, and a line in the system prompt sayi
 
 - `✓` marks a guess right, and it leaves the card.
 - `✗` marks it wrong and puts `Not quite: "<guess>". ` in the prompt box, for you to finish with what is right and send. If the box already holds a draft, the draft stays and a toast asks you to send or clear it first.
-- Up to five guesses a call, 140 characters each. The card shows three; `+N more` in its title counts the rest.
+- Up to five guesses a call, 140 characters each. The card shows three; **g: +N more** in its title counts the rest.
+- Where a guess is cut with `…` or more are waiting, the card's rule offers **g: expand** (or **g: +N more**). Press `g` (or click it) and the guesses leave the tiles for a section of their own across the whole panel, under the other cards, each in full and wrapped under its own start, with its `✓` and `✗`; the other cards fold or go behind **+N more** to make room. **g: collapse** puts them back in their tile. With next steps expanded too, the guesses come first.
 - With the panel closed, **? 4 to check** beside the tab says they are waiting. Click it, or **a: review** in the folded card, to open the panel with the guesses first. On a short band they then stay in full while the other cards fold, so you can mark them; where even that does not fit (one column, 12 rows), the card stays folded.
 - Your next prompt clears them, marked or not. With none left the card stays, reading `nothing to check`.
 - `/hud assume off` takes the tool and the system prompt line away.
@@ -266,7 +267,7 @@ After each reply, up to three follow-up prompts show in the panel, under **NEXT 
 - **Read handoff** (`r`, or `/read-handoff`) opens the newest note with **Continue from this** (`c`), **Older** (`o`), **Newer** (`n`) and **Rescan** (`r`). The note is drawn as text in the pane's grid of cells: headings bold, code dim, list items wrapped under their text.
 - Notes are found in `HANDOFF.md`, `.claude/`, `.claude/handoffs/`, `handoffs/` and `docs/`. If yours live elsewhere, set **Handoff note location** in `/config`.
 
-Band hotkeys work once you have clicked into the band: `e` the Sessions pane, `t` the Tokens pane, `m` the picker styles, `w` Keep warm, `a` the guesses, `h` and `r` the handoff, `1` to `3` next steps, `n` to expand or collapse them, and `s` the settings. Each works while its button is on show, so with the panel closed it is `e`, `a`, and `w` while Keep warm is out; `/handoff`, `/read-handoff`, `/tokens` and `/sessions` still work from the prompt.
+Band hotkeys work once you have clicked into the band: `e` the Sessions pane, `t` the Tokens pane, `m` the picker styles, `w` Keep warm, `a` the guesses, `h` and `r` the handoff, `1` to `3` next steps, `n` to expand or collapse them, `g` to expand or collapse the guesses, and `s` the settings. Each works while its button is on show, so with the panel closed it is `e`, `a`, and `w` while Keep warm is out; `/handoff`, `/read-handoff`, `/tokens` and `/sessions` still work from the prompt.
 
 Claude Code places a pane you open with a typed command at any width, but it treats a click in the band as the plugin's own doing and holds that pane back on a terminal under 144 columns (110 once you have opened that pane by hand). When that happens a notice names the pane's command (`/sessions`, `/tokens`, `/read-handoff`, `/hud-styles`, `/hud modules`); type it once and the click works from then on.
 

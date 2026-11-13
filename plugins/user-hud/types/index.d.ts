@@ -69,6 +69,8 @@ export type HudState = {
   lead: CardId | null
   /** Next steps across the panel's whole width, each in full (`n` switches); absent in state saved before it. */
   isNextExpanded?: boolean
+  /** Guesses across the panel's whole width, each in full (`g` switches); absent in state saved before it. */
+  isGuessesExpanded?: boolean
 }
 
 /** The open panel's cards, in their usual order. */
