@@ -138,6 +138,8 @@ type World = {
   argv: string[][]
   forks: string[]
   opens: string[]
+  /** Opens Claude Code holds back, as it does a pane opened from a click on a narrow terminal. */
+  isNarrow: boolean
   /** What `/effort` answers, as Claude Code words it. */
   effortReply: string
   /** The next main-thread response, in place of the default one. */
@@ -232,6 +234,7 @@ function world(on: On, stored: Readonly<Record<string, unknown>> = {}): World {
     argv: [],
     forks: [],
     opens: [],
+    isNarrow: false,
     effortReply: '',
     step: null,
     agents: [],
@@ -295,6 +298,7 @@ function world(on: On, stored: Readonly<Record<string, unknown>> = {}): World {
   on('ui.invalidate', () => ({ value: undefined }))
   on('ui.open', ($, e) => {
     w.opens.push(e.id)
+    if (w.isNarrow) return { value: { isPlaced: false as const, reason: 'unasked below 144 columns (120 now): placed when the person opens it, or when the terminal is widened to 144 columns' } }
     return { value: { isPlaced: true as const } }
   })
   on('command.register', ($, e) => {
@@ -1837,6 +1841,36 @@ test('the Sessions pane: needs you, working, done in the last 8h, asleep on requ
   }
   expect(drawn[1]).toBe(drawn[0])
   expect(w.closes).toEqual(['sessions'])
+})
+
+test('/sessions opens the Sessions pane and counts the sessions', async ($, on) => {
+  const w = world(on)
+  mock.env(on, { HOME })
+  sixSessions(w)
+  await start($)
+  await w.clock.settle()
+  expect(w.registered).toContain('sessions')
+  const r = await $.command.run({ command: 'sessions', args: '', ...RUN })
+  expect(w.opens).toContain('sessions')
+  expect(r.text).toMatch(/^Sessions: \d+ need you, \d+ working, \d+ done in the last 8 hours\.$/)
+})
+
+test('a pane Claude Code holds back on a narrow terminal says which command opens it there', async ($, on) => {
+  // A click in the band's grid is not the person's press to Claude Code, so a pane it opens waits below 144
+  // columns; the pane's typed command opens it at any width.
+  const w = world(on)
+  mock.env(on, { HOME })
+  sixSessions(w)
+  await start($)
+  await w.clock.settle()
+  w.isNarrow = true
+  const band = await $.ui.mount({ plugin: 'user-hud', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND(), maxRows: 30 } })
+  await act(band, 'sessions')
+  expect(w.toasts.at(-1)).toBe('The Sessions pane opens from a click only on a wider terminal: type /sessions to open it here.')
+  w.isNarrow = false
+  const toasts = w.toasts.length
+  await act(band, 'sessions')
+  expect(w.toasts).toHaveLength(toasts)
 })
 
 test('pressing a desktop session’s row, in the Sessions pane or on the card, opens the app on it', async ($, on) => {

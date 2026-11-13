@@ -87,7 +87,7 @@ These two clips were recorded on a Mac with a 5-minute cache and the alert at 4:
 
 ![Context: t opens the Tokens pane, and a click opens the Skills and plugins group](docs/images/hud-tokens.gif)
 
-**Sessions.** Your other Claude Code sessions: which need you (yellow), which are working (blue) and which are done (green). **e: expand** lists them all in a pane, and a click on one takes you to it: its terminal tab, its tmux pane, or its window in the desktop app.
+**Sessions.** Your other Claude Code sessions: which need you (yellow), which are working (blue) and which are done (green). **e: expand**, or `/sessions`, lists them all in a pane, and a click on one takes you to it: its terminal tab, its tmux pane, or its window in the desktop app.
 
 ![Sessions: 1 needs you, 2 working, 1 done; Expand opens the Sessions pane, and a click on the session that needs you switches to its tmux pane, where a permission question waits](docs/images/hud-sessions.gif)
 
@@ -136,7 +136,7 @@ More in [plugins/delegator](plugins/delegator/README.md).
 ## Known issues
 
 - **Start a new session after installing.** Mods load when a session starts.
-- **Narrow windows show less.** Below about 40 columns, user-hud shows only its tab. code-reference opens its pane only when the window is wide enough; otherwise the code shows under the section.
+- **Narrow windows show less.** Below about 40 columns, user-hud shows only its tab. Below 144 columns, a pane opened by a click in the panel waits until you type its command once (`/sessions`, `/tokens`, `/read-handoff`, `/hud-styles`, `/hud modules`); after that, the click opens it from 110 columns. code-reference opens its pane only when the window is wide enough; otherwise the code shows under the section.
 - **The VS Code extension and the mobile app draw no panels.** There the mods show plain text and buttons instead.
 - **On the desktop app, `/config` has no plugin settings.** Use `/plugin configure <mod>@polar-mods`, or user-hud's `s` key. `/delegator on` and `off` there need `claude` on your PATH.
 - **Some links don't open at the line.** Cmd-click opens a code-reference link at the line in VS Code, Cursor, Windsurf and JetBrains terminals. Elsewhere it opens the file, unless **Editor command** names `code`, `cursor` or `windsurf`.
@@ -155,7 +155,7 @@ Change these with `/plugin configure <mod>@polar-mods` or `/config`. The names b
 | Module: cache | on | Cache timer, Keep warm, the expiry alerts, `/cache`, `/keepwarm`. |
 | Module: pickers | on | Model and effort pickers, `/hud-styles`. |
 | Module: tokens | on | Context battery, where tokens went, `/tokens`. |
-| Module: sessions | on | Your other sessions on this machine. |
+| Module: sessions | on | Your other sessions on this machine, `/sessions`. |
 | Module: guesses | on | Guesses for you to mark right or wrong. |
 | Module: next steps | on | Up to three follow-up prompts after each reply (one short Haiku call). |
 | Module: handoff | on | Write and read handoff notes, `/read-handoff`. |

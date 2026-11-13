@@ -72,7 +72,7 @@
  * tokens, and changes none of them. Writes no files.
  */
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, ModelForkResult, Register } from 'claude-code'
+import type { EngineInterface, ModelForkResult, PaneOpenArgs, Register } from 'claude-code'
 
 import type { CacheState, CacheTtl, Guess, GroupId, HandoffFile, HandoffState, HudState, HudView, NextState, PlanLimit, SelectorStyle, SessionInfo, TtlInfo } from '../types'
 import { ASSUME_SECTION, ASSUME_SPEC, ASSUME_TOOL_ID, added, correction, marked, openGuesses, parseGuesses, shownText } from './assume.ts'
@@ -559,7 +559,7 @@ async function runAction($: EngineInterface, action: unknown) {
   if (action === 'settings') return setView($, (await panelView($)) === 'settings' ? 'cards' : 'settings')
   const lead = action.startsWith('more:') ? CARD_ORDER.find(id => id === action.slice('more:'.length)) : undefined
   if (lead) return update($, hudA, s => ({ ...s, lead }))
-  if (action === 'styles') return void (await $.ui.open({ id: STYLES_PANE, title: 'Picker styles', columns: STYLES_PANE_COLUMNS }).catch(() => {}))
+  if (action === 'styles') return void (await openPane($, { id: STYLES_PANE, title: 'Picker styles', columns: STYLES_PANE_COLUMNS }, '/hud-styles'))
   if (action === 'sessions') return openSessionsPane($)
   if (action === 'sessions:close') return void (await $.ui.close({ id: SESSIONS_PANE }).catch(() => {}))
   if (action === 'sessions:asleep') return update($, asleepA, isShown => !isShown)
@@ -761,7 +761,7 @@ async function restartTokens($: EngineInterface) {
 
 async function openTokensPane($: EngineInterface) {
   await refreshStanding($, true)
-  await $.ui.open({ id: TOKENS_PANE, title: 'Tokens' })
+  await openPane($, { id: TOKENS_PANE, title: 'Tokens' }, '/tokens')
 }
 
 /**
@@ -833,7 +833,7 @@ async function pickNext($: EngineInterface, index: number) {
 
 /** `/hud <module> on|off`: writes the module's /config row; the reload that follows registers its commands and work. */
 async function openModulesPane($: EngineInterface) {
-  await $.ui.open({ id: MODULES_PANE, title: 'Modules' }).catch(() => {})
+  await openPane($, { id: MODULES_PANE, title: 'Modules' }, '/hud modules')
 }
 
 async function setModule($: EngineInterface, id: ModuleId, isOn: boolean): Promise<string> {
@@ -984,9 +984,20 @@ async function projectOf($: EngineInterface, host: Host, cwd: string | null): Pr
   return null
 }
 
+/**
+ * Opens a pane, and says how to reach it when Claude Code holds it back. A click in the band's grid is not the
+ * person's press to the engine (a `Client` posts on nobody's behalf), so a pane opened from one waits undrawn
+ * below 144 columns (110 once opened by hand); the same pane from its typed command opens at any width.
+ */
+async function openPane($: EngineInterface, pane: PaneOpenArgs & { title: string }, command: string) {
+  const r = await $.ui.open(pane).catch(() => null)
+  if (r && !r.isPlaced && /column/.test(r.reason)) $.ui.toast(`The ${pane.title} pane opens from a click only on a wider terminal: type ${command} to open it here.`, { timeoutMs: 8000 })
+  return r
+}
+
 async function openSessionsPane($: EngineInterface) {
   await refreshSessions($).catch(() => {})
-  await $.ui.open({ id: SESSIONS_PANE, title: 'Sessions' }).catch(() => {})
+  await openPane($, { id: SESSIONS_PANE, title: 'Sessions' }, '/sessions')
 }
 
 // ---------- handoff ----------
@@ -1052,7 +1063,7 @@ async function runHandoff($: EngineInterface) {
 async function openHandoffPane($: EngineInterface) {
   const files = await scanHandoffs($)
   await loadHandoff($, 0)
-  await $.ui.open({ id: HANDOFF_PANE, title: 'Handoff' })
+  await openPane($, { id: HANDOFF_PANE, title: 'Handoff' }, '/read-handoff')
   if (files.length === 0) $.ui.toast('No handoff note found yet: press h on the band (or run /handoff) to write one.')
 }
 
@@ -1087,6 +1098,7 @@ export const register: Register = (on, given) => {
     if (cache) await $.command.register({ name: 'keepwarm', description: 'Refresh the prompt cache now with a one-line ping (adds nothing to the chat)' })
     if (handoff) await $.command.register({ name: 'read-handoff', description: 'Show the newest handoff note, with a button to continue from it' })
     if (pickers) await $.command.register({ name: 'hud-styles', description: 'The three picker styles side by side (Rail, Ladder, Meter), with a button to use each' })
+    if (sessions) await $.command.register({ name: 'sessions', description: 'Your other Claude Code sessions: which need you, which are working, which are done; press one to go to it' })
     if (tokens) await $.command.register({ name: 'tokens', description: 'Where this session’s tokens went: files, chat, MCP, shell, skills and plugins, subagents and more' })
     if (assume) await $.tool.register(ASSUME_SPEC)
 
@@ -1334,6 +1346,12 @@ export const register: Register = (on, given) => {
   on('command.run', { command: 'hud-styles' }, async $ => {
     await $.ui.open({ id: STYLES_PANE, title: 'Picker styles', columns: STYLES_PANE_COLUMNS }).catch(() => {})
     return { text: `Picker styles: Rail, Ladder and Meter side by side. In use: ${styleLabel(cfg.selectorStyle)}.` }
+  })
+
+  on('command.run', { command: 'sessions' }, async $ => {
+    await openSessionsPane($)
+    const { byGroup } = await read($, sessionsA)
+    return { text: `Sessions: ${byGroup.needs.length} need you, ${byGroup.working.length} working, ${byGroup.done.length} done in the last 8 hours.` }
   })
 
   on('command.run', { command: 'tokens' }, async $ => {

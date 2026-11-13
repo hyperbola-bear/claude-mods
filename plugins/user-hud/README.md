@@ -10,7 +10,7 @@ The panel is seven modules, each on by default:
 
 | Module | What it is |
 | --- | --- |
-| `sessions` | your other sessions: which need you, which are working, which finished lately; the Sessions pane |
+| `sessions` | your other sessions: which need you, which are working, which finished lately; the Sessions pane; `/sessions` |
 | `tokens` | how full the context is and where the tokens go: the context battery, the CONTEXT card and the Tokens pane; `/tokens` |
 | `pickers` | the model and effort pickers; `/hud-styles` |
 | `cache` | the cache countdown, Keep warm, the expiry alerts and the overage warning; `/cache`, `/keepwarm` |
@@ -151,7 +151,7 @@ The **SESSIONS** card counts your other Claude Code sessions on this machine, th
   - **Any other app:** the app comes forward. When a step cannot find the tab (it was closed), the app still comes forward.
 
   Where it runs is read from the session's process (`ps`): only the few variables terminals set to say so (`TERM_PROGRAM`, `__CFBundleIdentifier`, `ORCA_TERMINAL_HANDLE`, `ITERM_SESSION_ID`, `TMUX`, `TMUX_PANE`, `TERMINAL_EMULATOR`, `CLAUDE_CODE_SSE_PORT`), each checked for its shape before it goes on a command line; the rest of the environment is never kept. The first jump to Terminal, iTerm2 or Ghostty asks macOS to let the app that runs Claude Code control it.
-- **e: expand** (`e`) opens the Sessions pane, a grid of cells like the band. `z` shows or hides the sessions asleep, and `e` closes it. In a narrow pane its notes wrap under their headings rather than end in `…`, and the rule drops `N live` before `e: close`.
+- **e: expand** (`e`), or `/sessions`, opens the Sessions pane, a grid of cells like the band. `z` shows or hides the sessions asleep, and `e` closes it. In a narrow pane its notes wrap under their headings rather than end in `…`, and the rule drops `N live` before `e: close`.
 
 ```
 ── S E S S I O N S ───────────────────────────────── 8 live · e: close ─
@@ -266,7 +266,9 @@ After each reply, up to three follow-up prompts show in the panel, under **NEXT 
 - **Read handoff** (`r`, or `/read-handoff`) opens the newest note with **Continue from this** (`c`), **Older** (`o`), **Newer** (`n`) and **Rescan** (`r`). The note is drawn as text in the pane's grid of cells: headings bold, code dim, list items wrapped under their text.
 - Notes are found in `HANDOFF.md`, `.claude/`, `.claude/handoffs/`, `handoffs/` and `docs/`. If yours live elsewhere, set **Handoff note location** in `/config`.
 
-Band hotkeys work once you have clicked into the band: `e` the Sessions pane, `t` the Tokens pane, `m` the picker styles, `w` Keep warm, `a` the guesses, `h` and `r` the handoff, `1` to `3` next steps, `n` to expand or collapse them, and `s` the settings. Each works while its button is on show, so with the panel closed it is `e`, `a`, and `w` while Keep warm is out; `/handoff`, `/read-handoff` and `/tokens` still work from the prompt.
+Band hotkeys work once you have clicked into the band: `e` the Sessions pane, `t` the Tokens pane, `m` the picker styles, `w` Keep warm, `a` the guesses, `h` and `r` the handoff, `1` to `3` next steps, `n` to expand or collapse them, and `s` the settings. Each works while its button is on show, so with the panel closed it is `e`, `a`, and `w` while Keep warm is out; `/handoff`, `/read-handoff`, `/tokens` and `/sessions` still work from the prompt.
+
+Claude Code places a pane you open with a typed command at any width, but it treats a click in the band as the plugin's own doing and holds that pane back on a terminal under 144 columns (110 once you have opened that pane by hand). When that happens a notice names the pane's command (`/sessions`, `/tokens`, `/read-handoff`, `/hud-styles`, `/hud modules`); type it once and the click works from then on.
 
 ## What it can reach
 
